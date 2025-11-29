@@ -1,0 +1,20 @@
+{
+  "steps": [
+    {
+      "firewall": {
+        "backend": "nftables",
+        "policy": "drop",
+        "allow": [
+          { "port": 22, "proto": "tcp" }
+        ]
+      }
+    },
+    {
+      "service": {
+        "name": "nftables",
+        "enabled": true,
+        "state": "reloaded"
+      }
+    }
+  ]
+}

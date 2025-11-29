@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "packages": {
+        "update": true,
+        "upgrade": true,
+        "install": [
+          "nftables",
+          "auditd",
+          "fail2ban"
+        ],
+        "purge": [
+          "telnet",
+          "rsh-client",
+          "ftp",
+          "tftp",
+          "cups",
+          "rpcbind",
+          "nfs-common",
+          "snapd",
+          "whoopsie",
+          "apport",
+          "landscape-client"
+        ]
+      }
+    }
+  ]
+}

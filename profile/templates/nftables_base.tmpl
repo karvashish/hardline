@@ -1,0 +1,12 @@
+table inet filter {
+  chain input {
+    type filter hook input priority 0;
+
+    ct state established,related accept
+
+    # Allowed ports here
+    {{allow_rules}}
+
+    counter drop
+  }
+}

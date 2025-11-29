@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {
+      "service": {
+        "name": "auditd",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

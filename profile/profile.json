@@ -1,0 +1,21 @@
+{
+  "id": "base-secure-ubuntu-24.04-lts",
+  "version": "1.0.0",
+  "os": "ubuntu-24.04-lts",
+
+  "profile_schema": 1,
+  "min_hardline": "1.0.0",
+
+  "actions": [
+    "actions/00-packages.json",
+    "actions/10-ssh.json",
+    "actions/20-sysctl.json",
+    "actions/30-firewall.json",
+    "actions/40-audit.json"
+  ],
+
+  "templates": [
+    "templates/sshd_config.tmpl",
+    "templates/nftables_base.tmpl"
+  ]
+}

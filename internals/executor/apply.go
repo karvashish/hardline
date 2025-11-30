@@ -2,9 +2,11 @@ package executor
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/profile"
 )
 
 func Apply(c cli.Command) {
@@ -17,6 +19,14 @@ func Apply(c cli.Command) {
 	if err != nil {
 		fmt.Printf("unable to connect, %s", err)
 	}
+
+	p, err := profile.Load(c.Profile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load profile: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(p.OS)
 
 	run(sshClient, "ip addr")
 

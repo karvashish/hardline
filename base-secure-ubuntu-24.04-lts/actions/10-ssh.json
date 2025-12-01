@@ -3,7 +3,7 @@
     {
       "template": {
         "src": "templates/sshd_config.tmpl",
-        "dest": "/etc/ssh/sshd_config",
+        "dest": "/etc/ssh/sshd_config.d/10-hardline.conf",
         "mode": "0600"
       }
     },

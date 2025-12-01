@@ -16,14 +16,16 @@ type Profile struct {
 	Actions       []string `json:"actions"`
 	Templates     []string `json:"templates"`
 
-	profilePath string `json:"-"`
+	profilePath string       `json:"-"`
+	ActionFiles []ActionFile `json:"-"`
 }
 
 type PackageSpec struct {
-	Update  bool     `json:"update"`
-	Upgrade bool     `json:"upgrade"`
-	Install []string `json:"install"`
-	Purge   []string `json:"purge"`
+	Update     bool     `json:"update"`
+	Upgrade    bool     `json:"upgrade"`
+	Autoremove bool     `json:"autoremove"`
+	Install    []string `json:"install"`
+	Purge      []string `json:"purge"`
 }
 
 type TemplateSpec struct {
@@ -68,12 +70,12 @@ type ActionFile struct {
 
 func Load(dir string) (*Profile, error) {
 	if dir == "" {
-		dir = "profile"
+		return nil, fmt.Errorf("decode profile.json: profile not found")
 	}
 
-	path := filepath.Join(dir, "profile.json")
+	profileJSON := filepath.Join(dir, "profile.json")
 
-	f, err := os.Open(path)
+	f, err := os.Open(profileJSON)
 	if err != nil {
 		return nil, fmt.Errorf("open profile.json: %w", err)
 	}
@@ -85,39 +87,40 @@ func Load(dir string) (*Profile, error) {
 	}
 
 	p.profilePath = dir
+
+	if err := p.loadActions(); err != nil {
+		return nil, err
+	}
+
 	return &p, nil
+}
+
+func (p *Profile) abs(rel string) string {
+	return filepath.Join(p.profilePath, rel)
 }
 
 func (p *Profile) ActionPaths() []string {
 	out := make([]string, 0, len(p.Actions))
 	for _, rel := range p.Actions {
-		out = append(out, filepath.Join(p.profilePath, rel))
+		out = append(out, p.abs(rel))
 	}
 	return out
 }
 
-func (p *Profile) TemplatePaths() []string {
-	out := make([]string, 0, len(p.Templates))
-	for _, rel := range p.Templates {
-		out = append(out, filepath.Join(p.profilePath, rel))
-	}
-	return out
-}
-
-func (p *Profile) LoadActions() ([]ActionFile, error) {
+func (p *Profile) loadActions() error {
 	paths := p.ActionPaths()
 	result := make([]ActionFile, 0, len(paths))
 
 	for _, path := range paths {
 		f, err := os.Open(path)
 		if err != nil {
-			return nil, fmt.Errorf("open action file %q: %w", path, err)
+			return fmt.Errorf("open action file %q: %w", path, err)
 		}
 
 		var af ActionFile
 		if err := json.NewDecoder(f).Decode(&af); err != nil {
 			f.Close()
-			return nil, fmt.Errorf("decode action file %q: %w", path, err)
+			return fmt.Errorf("decode action file %q: %w", path, err)
 		}
 		f.Close()
 
@@ -125,11 +128,12 @@ func (p *Profile) LoadActions() ([]ActionFile, error) {
 		result = append(result, af)
 	}
 
-	return result, nil
+	p.ActionFiles = result
+	return nil
 }
 
 func (p *Profile) LoadTemplate(rel string) ([]byte, error) {
-	path := filepath.Join(p.profilePath, rel)
+	path := p.abs(rel)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read template %q: %w", path, err)

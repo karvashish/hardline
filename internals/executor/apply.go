@@ -26,10 +26,6 @@ func Apply(c cli.Command) {
 		os.Exit(1)
 	}
 
-	fmt.Println(p.OS)
-
-	run(sshClient, "ip addr")
-
-	fmt.Println("Apply")
+	applyProfile(sshClient, p)
 
 }

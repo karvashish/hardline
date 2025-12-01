@@ -4,6 +4,7 @@
       "packages": {
         "update": true,
         "upgrade": true,
+        "autoremove": true,
         "install": [
           "nftables",
           "auditd",

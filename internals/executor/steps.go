@@ -78,20 +78,17 @@ func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
 }
 
 func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateSpec) error {
-	// 1) Load local template file
 	data, err := p.LoadTemplate(t.Src)
 	if err != nil {
 		return fmt.Errorf("load template %q: %w", t.Src, err)
 	}
 
-	// 2) SFTP client
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
 	}
 	defer sftpClient.Close()
 
-	// 3) Determine file mode
 	mode := os.FileMode(0600)
 	if t.Mode != "" {
 		var parsed uint64
@@ -100,18 +97,15 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 		}
 	}
 
-	// 4) Write snippet file via writeRootFile (tmp → install → chmod)
 	if err := writeRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
 		return fmt.Errorf("writeRootFile %s: %w", t.Dest, err)
 	}
 
-	// 5) Ensure main sshd_config includes the snippets directory
 	ensureIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config || echo 'Include /etc/ssh/sshd_config.d/*.conf' >> /etc/ssh/sshd_config`
 	if err := runRoot(client, ensureIncludeCmd); err != nil {
 		return fmt.Errorf("ensure Include for sshd_config.d: %w", err)
 	}
 
-	// 6) Validate full sshd configuration before restart
 	if err := runRoot(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
 		return fmt.Errorf("sshd -t failed: %w", err)
 	}
@@ -120,8 +114,50 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 }
 
 func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
-	// TODO: systemctl enable/disable + start/stop/restart/reload via runRoot
-	fmt.Println("handleService")
+	if s.Name == "" {
+		return fmt.Errorf("service name is required")
+	}
+
+	unit := s.Name
+	if unit == "sshd" {
+		unit = "ssh"
+	}
+
+	if s.Enabled != nil {
+		var cmd string
+		if *s.Enabled {
+			cmd = fmt.Sprintf("systemctl enable %s", unit)
+		} else {
+			cmd = fmt.Sprintf("systemctl disable %s", unit)
+		}
+		if err := runRoot(client, cmd); err != nil {
+			return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
+		}
+	}
+
+	state := strings.ToLower(strings.TrimSpace(s.State))
+	if state == "" {
+		return nil
+	}
+
+	var cmd string
+	switch state {
+	case "started", "start":
+		cmd = fmt.Sprintf("systemctl start %s", unit)
+	case "stopped", "stop":
+		cmd = fmt.Sprintf("systemctl stop %s", unit)
+	case "restarted", "restart":
+		cmd = fmt.Sprintf("systemctl restart %s", unit)
+	case "reloaded", "reload":
+		cmd = fmt.Sprintf("systemctl reload %s", unit)
+	default:
+		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
+	}
+
+	if err := runRoot(client, cmd); err != nil {
+		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
+	}
+
 	return nil
 }
 

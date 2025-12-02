@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/karvashish/hardline/internals/logger"
 )
 
 func Usage() {
@@ -67,7 +69,7 @@ func Parse(command string, args []string) Command {
 	}
 
 	if debug {
-		fmt.Printf("[debug] name: %s, profile: %s, host: %s, user: %s, key: %s, debug: %t",
+		logger.Debugf("cli: name=%s profile=%s host=%s user=%s key=%s debug=%t",
 			command, profile, host, user, keypath, debug)
 	}
 

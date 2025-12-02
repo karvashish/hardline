@@ -6,21 +6,76 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/karvashish/hardline/internals/logger"
 	"github.com/karvashish/hardline/internals/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
 func applyProfile(client *ssh.Client, p *profile.Profile) error {
+	logger.Debugf("applyProfile: %d action files", len(p.ActionFiles))
+
 	for _, af := range p.ActionFiles {
 		for _, step := range af.Steps {
-			if err := handleStep(client, p, step); err != nil {
+			if !logger.DebugMode() {
+				fmt.Fprintf(os.Stderr, "step: %s (%s) ", step.ID, step.Type)
+			}
+			logger.Debugf("handleStep: id=%q type=%q", step.ID, step.Type)
+
+			var stop func()
+			if !logger.DebugMode() {
+				stop = throbber(os.Stderr)
+			}
+
+			err := handleStep(client, p, step)
+
+			if stop != nil {
+				stop()
+			}
+
+			if err != nil {
 				return err
+			}
+
+			if !logger.DebugMode() {
+				fmt.Fprintln(os.Stderr, "✓")
 			}
 		}
 	}
 	return nil
+}
+
+func throbber(dst *os.File) func() {
+	const total = 20
+	progress := 0
+	stop := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if progress < total {
+					fmt.Fprint(dst, ".")
+					progress++
+				}
+			}
+		}
+	}()
+
+	return func() {
+		close(stop)
+		for progress < total {
+			fmt.Fprint(dst, ".")
+			progress++
+		}
+	}
 }
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
@@ -59,6 +114,8 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 }
 
 func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
+	logger.Debugf("handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v",
+		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
 
 	if pk.Update {
 		if err := runRoot(client, "apt-get update -y"); err != nil {
@@ -96,6 +153,8 @@ func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
 }
 
 func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateSpec) error {
+	logger.Debugf("handleTemplate: src=%q dest=%q mode=%q", t.Src, t.Dest, t.Mode)
+
 	data, err := p.LoadTemplate(t.Src)
 	if err != nil {
 		return fmt.Errorf("load template %q: %w", t.Src, err)
@@ -115,7 +174,6 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 		}
 	}
 
-	// Ensure destination directory exists for any template (generic)
 	dir := path.Dir(t.Dest)
 	if dir != "" && dir != "." {
 		if err := runRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
@@ -152,6 +210,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	}
 
 	unit := canonicalServiceName(s.Name)
+	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q", s.Name, unit, s.Enabled, s.State)
 
 	if s.Enabled != nil {
 		var cmd string
@@ -196,19 +255,18 @@ func handleSysctl(client *ssh.Client, s *profile.SysctlSpec) error {
 		return nil
 	}
 
-	// 1) Show existing values before modification (debug-friendly)
 	keys := make([]string, 0, len(s.Set))
 	for k := range s.Set {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	logger.Debugf("handleSysctl: keys=%v", keys)
 
 	checkCmd := "sysctl " + joinKeys(keys)
 	if err := runRoot(client, checkCmd); err != nil {
 		return fmt.Errorf("sysctl check: %w", err)
 	}
 
-	// 2) Apply each sysctl setting
 	for _, key := range keys {
 		val := s.Set[key]
 		cmd := fmt.Sprintf("sysctl -w %s=%s", key, val)
@@ -221,7 +279,6 @@ func handleSysctl(client *ssh.Client, s *profile.SysctlSpec) error {
 	return nil
 }
 
-// joinKeys turns ["a","b","c"] into "a b c"
 func joinKeys(keys []string) string {
 	if len(keys) == 0 {
 		return ""
@@ -234,17 +291,17 @@ func joinKeys(keys []string) string {
 }
 
 func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.FirewallSpec) error {
+	logger.Debugf("handleFirewall: backend=%q allow_rules=%d", fw.Backend, len(fw.Allow))
+
 	if fw.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
 	}
 
-	// 1) load nftables base template from profile
 	tmplData, err := p.LoadTemplate("templates/nftables_base.tmpl")
 	if err != nil {
 		return fmt.Errorf("load nftables template: %w", err)
 	}
 
-	// 2) build allow rules block
 	var lines []string
 	for _, rule := range fw.Allow {
 		proto := strings.ToLower(strings.TrimSpace(rule.Proto))
@@ -257,31 +314,26 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 
 	rendered := strings.Replace(string(tmplData), "{{allow_rules}}", allowBlock, 1)
 
-	// 3) ensure /etc/nftables.d exists
 	if err := runRoot(client, `mkdir -p /etc/nftables.d`); err != nil {
 		return fmt.Errorf("mkdir /etc/nftables.d: %w", err)
 	}
 
-	// 4) SFTP client
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
 	}
 	defer sftpClient.Close()
 
-	// 5) write hardline nftables snippet
 	const nftSnippetPath = "/etc/nftables.d/10-hardline.nft"
 	if err := writeRootFile(client, sftpClient, nftSnippetPath, []byte(rendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("writeRootFile %s: %w", nftSnippetPath, err)
 	}
 
-	// 6) ensure /etc/nftables.conf includes the snippets directory
 	ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
 	if err := runRoot(client, ensureIncludeCmd); err != nil {
 		return fmt.Errorf("ensure include for nftables.d: %w", err)
 	}
 
-	// 7) validate full nftables config
 	if err := runRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
 		return fmt.Errorf("nftables config check failed: %w", err)
 	}

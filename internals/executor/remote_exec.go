@@ -1,16 +1,16 @@
 package executor
 
 import (
-	"log"
+	"bytes"
 	"os"
 	"strconv"
 
+	"github.com/karvashish/hardline/internals/logger"
 	"golang.org/x/crypto/ssh"
 )
 
 func run(client *ssh.Client, cmd string) error {
-
-	log.Printf("remote: %s", cmd)
+	logger.Debugf("remote cmd: %s", cmd)
 
 	session, err := client.NewSession()
 	if err != nil {
@@ -18,11 +18,25 @@ func run(client *ssh.Client, cmd string) error {
 	}
 	defer session.Close()
 
-	session.Stdout = os.Stdout
+	if logger.DebugMode() {
+		session.Stdout = os.Stdout
+		session.Stderr = os.Stderr
+		return session.Run(cmd)
+	}
 
-	session.Stderr = os.Stderr
+	var out bytes.Buffer
+	var errb bytes.Buffer
+	session.Stdout = &out
+	session.Stderr = &errb
 
-	return session.Run(cmd)
+	if err := session.Run(cmd); err != nil {
+		if errb.Len() > 0 {
+			logger.Infof("cmd error: %s", errb.String())
+		}
+		return err
+	}
+
+	return nil
 }
 
 func runRoot(client *ssh.Client, cmd string) error {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/executor"
+	"github.com/karvashish/hardline/internals/logger"
 )
 
 func main() {
@@ -19,12 +20,15 @@ func main() {
 	switch cmd {
 	case "plan":
 		c := cli.Parse(cmd, os.Args[2:])
+		logger.SetDebug(c.Debug)
 		executor.Plan(c)
 	case "apply":
 		c := cli.Parse(cmd, os.Args[2:])
+		logger.SetDebug(c.Debug)
 		executor.Apply(c)
 	case "verify-profile", "vp":
 		c := cli.Parse(cmd, os.Args[2:])
+		logger.SetDebug(c.Debug)
 		executor.Verify(c)
 	case "version", "-v":
 		cli.VersionCmd()

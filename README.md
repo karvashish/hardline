@@ -18,6 +18,6 @@ Declarative, deterministic security profiles using a strict JSON-only schema and
 
    * Profiles are validated by `hardline verify-profile` with strict schema.
    * Nobody is expected to hand-write huge JSON; they edit small, well-defined step files and templates.
-   * JSON’s constraints are a feature for CI, not a bug.
+   * JSON’s constraints are a feature, not a bug.
 
 *YAML is for human-facing infra manifests. Hardline profiles are machine-validated security policy; JSON’s strictness is intentional.*

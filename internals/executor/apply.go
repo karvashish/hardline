@@ -3,11 +3,13 @@ package executor
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/internals/logger"
 	"github.com/karvashish/hardline/internals/profile"
+	"golang.org/x/crypto/ssh"
 )
 
 func Apply(c cli.Command) {
@@ -50,4 +52,68 @@ func Apply(c cli.Command) {
 	}
 
 	logger.Debugf("apply completed")
+}
+
+func applyProfile(client *ssh.Client, p *profile.Profile) error {
+	logger.Debugf("applyProfile: %d action files", len(p.ActionFiles))
+
+	for _, af := range p.ActionFiles {
+		for _, step := range af.Steps {
+			if !logger.DebugMode() {
+				fmt.Fprintf(os.Stderr, "step: %s (%s) ", step.ID, step.Type)
+			}
+			logger.Debugf("handleStep: id=%q type=%q", step.ID, step.Type)
+
+			var stop func()
+			if !logger.DebugMode() {
+				stop = throbber(os.Stderr)
+			}
+
+			err := handleStep(client, p, step)
+
+			if stop != nil {
+				stop()
+			}
+
+			if err != nil {
+				return err
+			}
+
+			if !logger.DebugMode() {
+				fmt.Fprintln(os.Stderr, "✓")
+			}
+		}
+	}
+	return nil
+}
+
+func throbber(dst *os.File) func() {
+	const total = 20
+	progress := 0
+	stop := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if progress < total {
+					fmt.Fprint(dst, ".")
+					progress++
+				}
+			}
+		}
+	}()
+
+	return func() {
+		close(stop)
+		for progress < total {
+			fmt.Fprint(dst, ".")
+			progress++
+		}
+	}
 }

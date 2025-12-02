@@ -73,6 +73,7 @@ type Step struct {
 	Service     *ServiceSpec  `json:"service,omitempty"`
 	Sysctl      *SysctlSpec   `json:"sysctl,omitempty"`
 	Firewall    *FirewallSpec `json:"firewall,omitempty"`
+	Validate    string        `json:"validate,omitempty"`
 }
 
 type ActionFile struct {

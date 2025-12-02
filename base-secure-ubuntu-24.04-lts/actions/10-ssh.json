@@ -6,7 +6,6 @@
       "severity": "high",
       "risk_class": "access_critical",
       "control_tags": [],
-
       "template": {
         "src": "templates/sshd_config.tmpl",
         "dest": "/etc/ssh/sshd_config.d/10-hardline.conf",
@@ -14,12 +13,19 @@
       }
     },
     {
+      "id": "ssh-config-validate",
+      "type": "validate",
+      "severity": "high",
+      "risk_class": "access_critical",
+      "control_tags": [],
+      "validate": "sshd"
+    },
+    {
       "id": "ssh-service-reload",
       "type": "service",
       "severity": "high",
       "risk_class": "access_critical",
       "control_tags": [],
-
       "service": {
         "name": "ssh",
         "enabled": true,

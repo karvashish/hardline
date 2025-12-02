@@ -6,77 +6,12 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/karvashish/hardline/internals/logger"
 	"github.com/karvashish/hardline/internals/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
-
-func applyProfile(client *ssh.Client, p *profile.Profile) error {
-	logger.Debugf("applyProfile: %d action files", len(p.ActionFiles))
-
-	for _, af := range p.ActionFiles {
-		for _, step := range af.Steps {
-			if !logger.DebugMode() {
-				fmt.Fprintf(os.Stderr, "step: %s (%s) ", step.ID, step.Type)
-			}
-			logger.Debugf("handleStep: id=%q type=%q", step.ID, step.Type)
-
-			var stop func()
-			if !logger.DebugMode() {
-				stop = throbber(os.Stderr)
-			}
-
-			err := handleStep(client, p, step)
-
-			if stop != nil {
-				stop()
-			}
-
-			if err != nil {
-				return err
-			}
-
-			if !logger.DebugMode() {
-				fmt.Fprintln(os.Stderr, "✓")
-			}
-		}
-	}
-	return nil
-}
-
-func throbber(dst *os.File) func() {
-	const total = 20
-	progress := 0
-	stop := make(chan struct{})
-
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				if progress < total {
-					fmt.Fprint(dst, ".")
-					progress++
-				}
-			}
-		}
-	}()
-
-	return func() {
-		close(stop)
-		for progress < total {
-			fmt.Fprint(dst, ".")
-			progress++
-		}
-	}
-}
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
@@ -107,6 +42,11 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 			return fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
 		}
 		return handleFirewall(client, p, s.Firewall)
+	case "validate":
+		if strings.TrimSpace(s.Validate) == "" {
+			return fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
+		}
+		return handleValidate(client, s.Validate)
 	default:
 		fmt.Fprintf(os.Stderr, "warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
 		return nil
@@ -183,15 +123,6 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 
 	if err := writeRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
 		return fmt.Errorf("writeRootFile %s: %w", t.Dest, err)
-	}
-
-	ensureIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config || echo 'Include /etc/ssh/sshd_config.d/*.conf' >> /etc/ssh/sshd_config`
-	if err := runRoot(client, ensureIncludeCmd); err != nil {
-		return fmt.Errorf("ensure Include for sshd_config.d: %w", err)
-	}
-
-	if err := runRoot(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
-		return fmt.Errorf("sshd -t failed: %w", err)
 	}
 
 	return nil
@@ -328,15 +259,38 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	if err := writeRootFile(client, sftpClient, nftSnippetPath, []byte(rendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("writeRootFile %s: %w", nftSnippetPath, err)
 	}
-
-	ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
-	if err := runRoot(client, ensureIncludeCmd); err != nil {
-		return fmt.Errorf("ensure include for nftables.d: %w", err)
-	}
-
-	if err := runRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
-		return fmt.Errorf("nftables config check failed: %w", err)
-	}
-
 	return nil
+}
+
+func handleValidate(client *ssh.Client, kind string) error {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "sshd":
+		logger.Debugf("handleValidate: kind=sshd")
+
+		ensureIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config || echo 'Include /etc/ssh/sshd_config.d/*.conf' >> /etc/ssh/sshd_config`
+		if err := runRoot(client, ensureIncludeCmd); err != nil {
+			return fmt.Errorf("ensure Include for sshd_config.d: %w", err)
+		}
+
+		if err := runRoot(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
+			return fmt.Errorf("sshd config test failed: %w", err)
+		}
+		return nil
+
+	case "firewall":
+		logger.Debugf("handleValidate: kind=firewall")
+
+		ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
+		if err := runRoot(client, ensureIncludeCmd); err != nil {
+			return fmt.Errorf("ensure include for nftables.d: %w", err)
+		}
+
+		if err := runRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
+			return fmt.Errorf("nftables config check failed: %w", err)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported validate kind %q", kind)
+	}
 }

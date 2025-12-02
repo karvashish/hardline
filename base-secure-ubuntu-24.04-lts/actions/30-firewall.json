@@ -6,14 +6,24 @@
       "severity": "high",
       "risk_class": "access_critical",
       "control_tags": [],
-
       "firewall": {
         "backend": "nftables",
         "policy": "drop",
         "allow": [
-          { "port": 22, "proto": "tcp" }
+          {
+            "port": 22,
+            "proto": "tcp"
+          }
         ]
       }
+    },
+    {
+      "id": "firewall-config-validate",
+      "type": "validate",
+      "severity": "high",
+      "risk_class": "access_critical",
+      "control_tags": [],
+      "validate": "firewall"
     },
     {
       "id": "firewall-service-restart",
@@ -21,7 +31,6 @@
       "severity": "high",
       "risk_class": "access_critical",
       "control_tags": [],
-
       "service": {
         "name": "nftables",
         "enabled": true,

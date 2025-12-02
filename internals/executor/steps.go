@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/karvashish/hardline/internals/profile"
@@ -113,15 +114,19 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 	return nil
 }
 
+func canonicalServiceName(name string) string {
+	if name == "sshd" {
+		return "ssh"
+	}
+	return name
+}
+
 func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	if s.Name == "" {
 		return fmt.Errorf("service name is required")
 	}
 
-	unit := s.Name
-	if unit == "sshd" {
-		unit = "ssh"
-	}
+	unit := canonicalServiceName(s.Name)
 
 	if s.Enabled != nil {
 		var cmd string
@@ -149,7 +154,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	case "restarted", "restart":
 		cmd = fmt.Sprintf("systemctl restart %s", unit)
 	case "reloaded", "reload":
-		cmd = fmt.Sprintf("systemctl reload %s", unit)
+		cmd = fmt.Sprintf("systemctl reload-or-restart %s", unit)
 	default:
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
 	}
@@ -162,13 +167,99 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 }
 
 func handleSysctl(client *ssh.Client, s *profile.SysctlSpec) error {
-	// TODO: for each key in s.Set, runRoot("sysctl -w key=value")
-	fmt.Println("handleSysctl")
+	if len(s.Set) == 0 {
+		return nil
+	}
+
+	// 1) Show existing values before modification (debug-friendly)
+	keys := make([]string, 0, len(s.Set))
+	for k := range s.Set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	checkCmd := "sysctl " + joinKeys(keys)
+	if err := runRoot(client, checkCmd); err != nil {
+		return fmt.Errorf("sysctl check: %w", err)
+	}
+
+	// 2) Apply each sysctl setting
+	for _, key := range keys {
+		val := s.Set[key]
+		cmd := fmt.Sprintf("sysctl -w %s=%s", key, val)
+
+		if err := runRoot(client, cmd); err != nil {
+			return fmt.Errorf("sysctl set %s=%s: %w", key, val, err)
+		}
+	}
+
 	return nil
 }
 
+// joinKeys turns ["a","b","c"] into "a b c"
+func joinKeys(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	out := keys[0]
+	for _, k := range keys[1:] {
+		out += " " + k
+	}
+	return out
+}
+
 func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.FirewallSpec) error {
-	// TODO: nftables rendering + apply, then service reload as needed
-	fmt.Println("handleFirewall")
+	if fw.Backend != "nftables" {
+		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
+	}
+
+	// 1) load nftables base template from profile
+	tmplData, err := p.LoadTemplate("templates/nftables_base.tmpl")
+	if err != nil {
+		return fmt.Errorf("load nftables template: %w", err)
+	}
+
+	// 2) build allow rules block
+	var lines []string
+	for _, rule := range fw.Allow {
+		proto := strings.ToLower(strings.TrimSpace(rule.Proto))
+		if proto == "" {
+			proto = "tcp"
+		}
+		lines = append(lines, fmt.Sprintf("    %s dport %d accept", proto, rule.Port))
+	}
+	allowBlock := strings.Join(lines, "\n")
+
+	rendered := strings.Replace(string(tmplData), "{{allow_rules}}", allowBlock, 1)
+
+	// 3) ensure /etc/nftables.d exists
+	if err := runRoot(client, `mkdir -p /etc/nftables.d`); err != nil {
+		return fmt.Errorf("mkdir /etc/nftables.d: %w", err)
+	}
+
+	// 4) SFTP client
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return fmt.Errorf("new sftp client: %w", err)
+	}
+	defer sftpClient.Close()
+
+	// 5) write hardline nftables snippet
+	const nftSnippetPath = "/etc/nftables.d/10-hardline.nft"
+	if err := writeRootFile(client, sftpClient, nftSnippetPath, []byte(rendered), os.FileMode(0644)); err != nil {
+		return fmt.Errorf("writeRootFile %s: %w", nftSnippetPath, err)
+	}
+
+	// 6) ensure /etc/nftables.conf includes the snippets directory
+	ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
+	if err := runRoot(client, ensureIncludeCmd); err != nil {
+		return fmt.Errorf("ensure include for nftables.d: %w", err)
+	}
+
+	// 7) validate full nftables config
+	if err := runRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
+		return fmt.Errorf("nftables config check failed: %w", err)
+	}
+
 	return nil
 }

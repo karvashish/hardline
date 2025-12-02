@@ -7,10 +7,17 @@ import (
 	"path/filepath"
 )
 
+type OSInfo struct {
+	Family  string `json:"family"`
+	Version string `json:"version"`
+	Variant string `json:"variant"`
+}
+
 type Profile struct {
 	ID            string   `json:"id"`
+	DisplayName   string   `json:"display_name"`
 	Version       string   `json:"version"`
-	OS            string   `json:"os"`
+	OS            OSInfo   `json:"os"`
 	ProfileSchema int      `json:"profile_schema"`
 	MinHardline   string   `json:"min_hardline"`
 	Actions       []string `json:"actions"`
@@ -56,11 +63,16 @@ type FirewallSpec struct {
 }
 
 type Step struct {
-	Packages *PackageSpec  `json:"packages,omitempty"`
-	Template *TemplateSpec `json:"template,omitempty"`
-	Service  *ServiceSpec  `json:"service,omitempty"`
-	Sysctl   *SysctlSpec   `json:"sysctl,omitempty"`
-	Firewall *FirewallSpec `json:"firewall,omitempty"`
+	ID          string        `json:"id"`
+	Type        string        `json:"type"`
+	Severity    string        `json:"severity"`
+	RiskClass   string        `json:"risk_class"`
+	ControlTags []string      `json:"control_tags"`
+	Packages    *PackageSpec  `json:"packages,omitempty"`
+	Template    *TemplateSpec `json:"template,omitempty"`
+	Service     *ServiceSpec  `json:"service,omitempty"`
+	Sysctl      *SysctlSpec   `json:"sysctl,omitempty"`
+	Firewall    *FirewallSpec `json:"firewall,omitempty"`
 }
 
 type ActionFile struct {

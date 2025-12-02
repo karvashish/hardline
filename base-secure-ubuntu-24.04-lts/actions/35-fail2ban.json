@@ -1,27 +1,27 @@
 {
   "steps": [
     {
-      "id": "auditd-rules-template",
+      "id": "fail2ban-ssh-config",
       "type": "template",
       "severity": "medium",
       "risk_class": "non_access_critical",
       "control_tags": [],
 
       "template": {
-        "src": "templates/audit_hardline.rules.tmpl",
-        "dest": "/etc/audit/rules.d/10-hardline.rules",
-        "mode": "0640"
+        "src": "templates/fail2ban_10-hardline-ssh.tmpl",
+        "dest": "/etc/fail2ban/jail.d/10-hardline-ssh.conf",
+        "mode": "0644"
       }
     },
     {
-      "id": "auditd-service-enable",
+      "id": "fail2ban-service-enable",
       "type": "service",
       "severity": "medium",
       "risk_class": "non_access_critical",
       "control_tags": [],
 
       "service": {
-        "name": "auditd",
+        "name": "fail2ban",
         "enabled": true,
         "state": "started"
       }

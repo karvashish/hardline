@@ -1,6 +1,12 @@
 {
   "steps": [
     {
+      "id": "firewall-default-deny",
+      "type": "firewall",
+      "severity": "high",
+      "risk_class": "access_critical",
+      "control_tags": [],
+
       "firewall": {
         "backend": "nftables",
         "policy": "drop",
@@ -10,10 +16,16 @@
       }
     },
     {
+      "id": "firewall-service-restart",
+      "type": "service",
+      "severity": "high",
+      "risk_class": "access_critical",
+      "control_tags": [],
+
       "service": {
         "name": "nftables",
         "enabled": true,
-        "state": "reloaded"
+        "state": "restarted"
       }
     }
   ]

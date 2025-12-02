@@ -1,7 +1,13 @@
 {
   "id": "base-secure-ubuntu-24.04-lts",
+  "display_name": "Base Secure Ubuntu 24.04 LTS",
   "version": "1.0.0",
-  "os": "ubuntu-24.04-lts",
+
+  "os": {
+    "family": "ubuntu",
+    "version": "24.04",
+    "variant": "lts"
+  },
 
   "profile_schema": 1,
   "min_hardline": "1.0.0",
@@ -9,13 +15,21 @@
   "actions": [
     "actions/00-packages.json",
     "actions/10-ssh.json",
+    "actions/15-unattended-upgrades.json",
     "actions/20-sysctl.json",
+    "actions/25-timesync.json",
     "actions/30-firewall.json",
-    "actions/40-audit.json"
+    "actions/35-fail2ban.json",
+    "actions/40-audit.json",
+    "actions/50-journald.json"
   ],
 
   "templates": [
-    "templates/sshd_config.tmpl",
-    "templates/nftables_base.tmpl"
+    "templates/apt_20auto-upgrades.tmpl",
+    "templates/audit_hardline.rules.tmpl",
+    "templates/fail2ban_10-hardline-ssh.tmpl",
+    "templates/journald_10-hardline.conf.tmpl",
+    "templates/nftables_base.tmpl",
+    "templates/sshd_config.tmpl"
   ]
 }

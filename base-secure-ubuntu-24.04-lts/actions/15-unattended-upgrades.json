@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "id": "unattended-upgrades-auto",
+      "type": "template",
+      "severity": "medium",
+      "risk_class": "non_access_critical",
+      "control_tags": [],
+
+      "template": {
+        "src": "templates/apt_20auto-upgrades.tmpl",
+        "dest": "/etc/apt/apt.conf.d/20auto-upgrades",
+        "mode": "0644"
+      }
+    }
+  ]
+}

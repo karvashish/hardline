@@ -1,6 +1,12 @@
 {
   "steps": [
     {
+      "id": "ssh-template-apply",
+      "type": "template",
+      "severity": "high",
+      "risk_class": "access_critical",
+      "control_tags": [],
+
       "template": {
         "src": "templates/sshd_config.tmpl",
         "dest": "/etc/ssh/sshd_config.d/10-hardline.conf",
@@ -8,6 +14,12 @@
       }
     },
     {
+      "id": "ssh-service-reload",
+      "type": "service",
+      "severity": "high",
+      "risk_class": "access_critical",
+      "control_tags": [],
+
       "service": {
         "name": "ssh",
         "enabled": true,

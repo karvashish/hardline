@@ -1,0 +1,56 @@
+## Clear any existing rules
+-D
+
+## Buffer size (keep modest)
+-b 8192
+
+## On failure: log but do not hard-stop the box
+-f 1
+
+########################
+# Audit configuration
+########################
+-w /etc/audit/ -p wa -k audit_config
+-w /etc/libaudit.conf -p wa -k audit_config
+-w /etc/audisp/ -p wa -k audit_config
+
+########################
+# Identity and access
+########################
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/security/ -p wa -k identity
+
+## Sudoers changes
+-w /etc/sudoers -p wa -k privileged
+-w /etc/sudoers.d/ -p wa -k privileged
+
+########################
+# Time changes
+########################
+-a always,exit -F arch=b64 -S adjtimex -S settimeofday -S clock_settime -F auid>=1000 -F auid!=4294967295 -k time_change
+-w /etc/localtime -p wa -k time_change
+
+########################
+# Kernel module changes
+########################
+-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -F auid>=1000 -F auid!=4294967295 -k kernel_modules
+
+########################
+# Privilege changes
+########################
+-a always,exit -F arch=b64 -S setuid -S setgid -S setreuid -S setregid -S setresuid -S setresgid -F auid>=1000 -F auid!=4294967295 -k priv_change
+
+########################
+# Login tracking
+########################
+-w /var/log/faillog -p wa -k logins
+-w /var/log/lastlog -p wa -k logins
+-w /var/log/tallylog -p wa -k logins
+
+########################
+# Make rules active
+########################
+-e 1

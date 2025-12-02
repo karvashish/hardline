@@ -1,6 +1,12 @@
 {
   "steps": [
     {
+      "id": "sysctl-base-secure",
+      "type": "sysctl",
+      "severity": "medium",
+      "risk_class": "non_access_critical",
+      "control_tags": [],
+
       "sysctl": {
         "set": {
           "net.ipv4.ip_forward": "0",

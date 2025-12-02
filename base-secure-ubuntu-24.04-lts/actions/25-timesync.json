@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "id": "timesyncd-enable",
+      "type": "service",
+      "severity": "low",
+      "risk_class": "non_access_critical",
+      "control_tags": [],
+
+      "service": {
+        "name": "chrony",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

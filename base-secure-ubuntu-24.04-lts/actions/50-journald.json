@@ -1,29 +1,29 @@
 {
   "steps": [
     {
-      "id": "auditd-rules-template",
+      "id": "journald-configure-persistence",
       "type": "template",
       "severity": "medium",
       "risk_class": "non_access_critical",
       "control_tags": [],
 
       "template": {
-        "src": "templates/audit_hardline.rules.tmpl",
-        "dest": "/etc/audit/rules.d/10-hardline.rules",
-        "mode": "0640"
+        "src": "templates/journald_10-hardline.conf.tmpl",
+        "dest": "/etc/systemd/journald.conf.d/10-hardline.conf",
+        "mode": "0644"
       }
     },
     {
-      "id": "auditd-service-enable",
+      "id": "journald-reload",
       "type": "service",
       "severity": "medium",
       "risk_class": "non_access_critical",
       "control_tags": [],
 
       "service": {
-        "name": "auditd",
+        "name": "systemd-journald",
         "enabled": true,
-        "state": "started"
+        "state": "restarted"
       }
     }
   ]

@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -23,20 +24,36 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 }
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
-	switch {
-	case s.Packages != nil:
+	stepType := strings.ToLower(strings.TrimSpace(s.Type))
+
+	switch stepType {
+	case "packages":
+		if s.Packages == nil {
+			return fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
+		}
 		return handlePackages(client, s.Packages)
-	case s.Template != nil:
+	case "template":
+		if s.Template == nil {
+			return fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
+		}
 		return handleTemplate(client, p, s.Template)
-	case s.Service != nil:
+	case "service":
+		if s.Service == nil {
+			return fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
+		}
 		return handleService(client, s.Service)
-	case s.Sysctl != nil:
+	case "sysctl":
+		if s.Sysctl == nil {
+			return fmt.Errorf("step %q (type=%s): sysctl spec missing", s.ID, s.Type)
+		}
 		return handleSysctl(client, s.Sysctl)
-	case s.Firewall != nil:
+	case "firewall":
+		if s.Firewall == nil {
+			return fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
+		}
 		return handleFirewall(client, p, s.Firewall)
 	default:
-		// unknown / empty step; for now just warn
-		fmt.Fprintln(os.Stderr, "warning: empty or unknown step")
+		fmt.Fprintf(os.Stderr, "warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
 		return nil
 	}
 }
@@ -95,6 +112,14 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 		var parsed uint64
 		if _, err := fmt.Sscanf(t.Mode, "%o", &parsed); err == nil {
 			mode = os.FileMode(parsed)
+		}
+	}
+
+	// Ensure destination directory exists for any template (generic)
+	dir := path.Dir(t.Dest)
+	if dir != "" && dir != "." {
+		if err := runRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
 

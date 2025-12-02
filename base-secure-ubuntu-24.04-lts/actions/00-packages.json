@@ -1,6 +1,12 @@
 {
   "steps": [
     {
+      "id": "packages-base-secure",
+      "type": "packages",
+      "severity": "medium",
+      "risk_class": "non_access_critical",
+      "control_tags": [],
+
       "packages": {
         "update": true,
         "upgrade": true,
@@ -8,7 +14,8 @@
         "install": [
           "nftables",
           "auditd",
-          "fail2ban"
+          "fail2ban",
+          "unattended-upgrades"
         ],
         "purge": [
           "telnet",

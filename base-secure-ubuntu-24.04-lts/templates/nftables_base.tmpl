@@ -1,11 +1,18 @@
 table inet filter {
   chain input {
     type filter hook input priority 0;
+    policy drop;
+
+    iif lo accept
+
+    ct state invalid drop
 
     ct state established,related accept
 
-    # Allowed ports here
     {{allow_rules}}
+
+    ip protocol icmp accept
+    ip6 nexthdr icmpv6 accept
 
     counter drop
   }

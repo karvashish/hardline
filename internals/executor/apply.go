@@ -94,7 +94,7 @@ func throbber(dst *os.File) func() {
 	stop := make(chan struct{})
 
 	expDelay := func(p int) time.Duration {
-		delay := math.Exp((float64(p)/float64(total))*3.0) * 50.0
+		delay := math.Exp((float64(p)/float64(total))*3.0) * 150.0
 		return time.Duration(delay) * time.Millisecond
 	}
 
@@ -104,11 +104,12 @@ func throbber(dst *os.File) func() {
 			case <-stop:
 				return
 			default:
-				if progress < total {
-					fmt.Fprint(dst, ".")
-					progress++
-					time.Sleep(expDelay(progress))
+				if progress >= total {
+					progress = 0
 				}
+				fmt.Fprint(dst, ".")
+				progress++
+				time.Sleep(expDelay(progress))
 			}
 		}
 	}()

@@ -8,7 +8,7 @@
       "control_tags": [],
 
       "template": {
-        "src": "templates/apt_20auto-upgrades.tmpl",
+        "src": "templates/15-unattended-upgrades.tmpl",
         "dest": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
         "mode": "0644"
       }

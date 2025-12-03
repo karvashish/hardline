@@ -8,7 +8,7 @@
       "control_tags": [],
 
       "template": {
-        "src": "templates/journald_10-hardline.conf.tmpl",
+        "src": "templates/50-journald-hardening.conf.tmpl",
         "dest": "/etc/systemd/journald.conf.d/99-hardline.conf",
         "mode": "0644"
       }

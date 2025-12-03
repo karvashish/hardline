@@ -7,7 +7,7 @@
       "risk_class": "access_critical",
       "control_tags": [],
       "template": {
-        "src": "templates/sshd_config.tmpl",
+        "src": "templates/10-ssh-sshd-config.tmpl",
         "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
         "mode": "0600"
       }

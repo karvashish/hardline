@@ -11,7 +11,7 @@
 
   "profile_schema": 1,
   "min_hardline": "1.0.0",
-
+  
   "actions": [
     "actions/00-packages.json",
     "actions/10-ssh.json",
@@ -23,14 +23,13 @@
     "actions/40-audit.json",
     "actions/50-journald.json"
   ],
-
   "templates": [
-    "templates/apt_20auto-upgrades.tmpl",
-    "templates/audit_hardline.rules.tmpl",
-    "templates/fail2ban_10-hardline-ssh.tmpl",
-    "templates/journald_10-hardline.conf.tmpl",
-    "templates/nftables_base.tmpl",
-    "templates/sshd_config.tmpl",
-    "templates/40-sysctl-hardening.conf.tmpl"
+    "templates/15-unattended-upgrades.tmpl",
+    "templates/40-audit-hardening-rules.tmpl",
+    "templates/35-fail2ban-ssh-protection.tmpl",
+    "templates/50-journald-hardening.conf.tmpl",
+    "templates/30-firewall-nftables-base.tmpl",
+    "templates/10-ssh-sshd-config.tmpl",
+    "templates/20-sysctl-hardening.conf.tmpl"
   ]
 }

@@ -8,7 +8,7 @@
       "control_tags": [],
 
       "template": {
-        "src": "templates/fail2ban_10-hardline-ssh.tmpl",
+        "src": "templates/35-fail2ban-ssh-protection.tmpl",
         "dest": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
         "mode": "0644"
       }

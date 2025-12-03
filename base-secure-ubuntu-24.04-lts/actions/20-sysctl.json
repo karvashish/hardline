@@ -7,7 +7,7 @@
       "risk_class": "non_access_critical",
       "control_tags": [],
       "template": {
-        "src": "templates/40-sysctl-hardening.conf.tmpl",
+        "src": "templates/20-sysctl-hardening.conf.tmpl",
         "dest": "/etc/sysctl.d/99-hardline-hardening.conf",
         "mode": "0644"
       }

@@ -9,7 +9,7 @@
       "firewall": {
         "backend": "nftables",
         "policy": "drop",
-        "template_src": "templates/nftables_base.tmpl",
+        "template_src": "templates/30-firewall-nftables-base.tmpl",
         "template_dest": "/etc/nftables.d/99-hardline-firewall.nft",
         "allow": [
           {

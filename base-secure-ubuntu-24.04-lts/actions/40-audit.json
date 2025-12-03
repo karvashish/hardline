@@ -8,7 +8,7 @@
       "control_tags": [],
 
       "template": {
-        "src": "templates/audit_hardline.rules.tmpl",
+        "src": "templates/40-audit-hardening-rules.tmpl",
         "dest": "/etc/audit/rules.d/99-hardline.rules",
         "mode": "0640"
       }

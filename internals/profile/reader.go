@@ -117,6 +117,15 @@ func (p *Profile) ActionPaths() []string {
 	return out
 }
 
+func (p *Profile) isDeclaredTemplate(rel string) bool {
+	for _, t := range p.Templates {
+		if t == rel {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Profile) loadActions() error {
 	paths := p.ActionPaths()
 	result := make([]ActionFile, 0, len(paths))
@@ -134,6 +143,19 @@ func (p *Profile) loadActions() error {
 		}
 		f.Close()
 
+		for _, step := range af.Steps {
+			if step.Template != nil {
+				if !p.isDeclaredTemplate(step.Template.Src) {
+					return fmt.Errorf("action file %q: step %q uses undeclared template %q", path, step.ID, step.Template.Src)
+				}
+			}
+			if step.Firewall != nil && step.Firewall.TemplateSrc != "" {
+				if !p.isDeclaredTemplate(step.Firewall.TemplateSrc) {
+					return fmt.Errorf("action file %q: step %q uses undeclared firewall template %q", path, step.ID, step.Firewall.TemplateSrc)
+				}
+			}
+		}
+
 		af.Path = path
 		result = append(result, af)
 	}
@@ -143,6 +165,10 @@ func (p *Profile) loadActions() error {
 }
 
 func (p *Profile) LoadTemplate(rel string) ([]byte, error) {
+	if !p.isDeclaredTemplate(rel) {
+		return nil, fmt.Errorf("template %q not declared in profile.json", rel)
+	}
+
 	path := p.abs(rel)
 	b, err := os.ReadFile(path)
 	if err != nil {

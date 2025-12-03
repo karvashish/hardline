@@ -47,19 +47,17 @@ type ServiceSpec struct {
 	State   string `json:"state,omitempty"`
 }
 
-type SysctlSpec struct {
-	Set map[string]string `json:"set"`
-}
-
 type FirewallRule struct {
 	Port  int    `json:"port"`
 	Proto string `json:"proto"`
 }
 
 type FirewallSpec struct {
-	Backend string         `json:"backend"`
-	Policy  string         `json:"policy"`
-	Allow   []FirewallRule `json:"allow,omitempty"`
+	Backend      string         `json:"backend"`
+	Policy       string         `json:"policy"`
+	TemplateSrc  string         `json:"template_src,omitempty"`
+	TemplateDest string         `json:"template_dest,omitempty"`
+	Allow        []FirewallRule `json:"allow,omitempty"`
 }
 
 type Step struct {
@@ -71,7 +69,6 @@ type Step struct {
 	Packages    *PackageSpec  `json:"packages,omitempty"`
 	Template    *TemplateSpec `json:"template,omitempty"`
 	Service     *ServiceSpec  `json:"service,omitempty"`
-	Sysctl      *SysctlSpec   `json:"sysctl,omitempty"`
 	Firewall    *FirewallSpec `json:"firewall,omitempty"`
 	Validate    string        `json:"validate,omitempty"`
 }

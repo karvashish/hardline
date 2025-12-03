@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sort"
 	"strings"
 
 	"github.com/karvashish/hardline/internals/logger"
@@ -32,11 +31,6 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 			return fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
 		}
 		return handleService(client, s.Service)
-	case "sysctl":
-		if s.Sysctl == nil {
-			return fmt.Errorf("step %q (type=%s): sysctl spec missing", s.ID, s.Type)
-		}
-		return handleSysctl(client, s.Sysctl)
 	case "firewall":
 		if s.Firewall == nil {
 			return fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
@@ -181,46 +175,6 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	return nil
 }
 
-func handleSysctl(client *ssh.Client, s *profile.SysctlSpec) error {
-	if len(s.Set) == 0 {
-		return nil
-	}
-
-	keys := make([]string, 0, len(s.Set))
-	for k := range s.Set {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	logger.Debugf("handleSysctl: keys=%v", keys)
-
-	checkCmd := "sysctl " + joinKeys(keys)
-	if err := runRoot(client, checkCmd); err != nil {
-		return fmt.Errorf("sysctl check: %w", err)
-	}
-
-	for _, key := range keys {
-		val := s.Set[key]
-		cmd := fmt.Sprintf("sysctl -w %s=%s", key, val)
-
-		if err := runRoot(client, cmd); err != nil {
-			return fmt.Errorf("sysctl set %s=%s: %w", key, val, err)
-		}
-	}
-
-	return nil
-}
-
-func joinKeys(keys []string) string {
-	if len(keys) == 0 {
-		return ""
-	}
-	out := keys[0]
-	for _, k := range keys[1:] {
-		out += " " + k
-	}
-	return out
-}
-
 func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.FirewallSpec) error {
 	logger.Debugf("handleFirewall: backend=%q allow_rules=%d", fw.Backend, len(fw.Allow))
 
@@ -228,9 +182,14 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
 	}
 
-	tmplData, err := p.LoadTemplate("templates/nftables_base.tmpl")
+	tmplPath := strings.TrimSpace(fw.TemplateSrc)
+	if tmplPath == "" {
+		tmplPath = "templates/nftables_base.tmpl"
+	}
+
+	tmplData, err := p.LoadTemplate(tmplPath)
 	if err != nil {
-		return fmt.Errorf("load nftables template: %w", err)
+		return fmt.Errorf("load nftables template %q: %w", tmplPath, err)
 	}
 
 	var lines []string
@@ -245,8 +204,17 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 
 	rendered := strings.Replace(string(tmplData), "{{allow_rules}}", allowBlock, 1)
 
-	if err := runRoot(client, `mkdir -p /etc/nftables.d`); err != nil {
-		return fmt.Errorf("mkdir /etc/nftables.d: %w", err)
+	// allow firewall spec to override destination; fallback keeps old behavior
+	destPath := strings.TrimSpace(fw.TemplateDest)
+	if destPath == "" {
+		destPath = "/etc/nftables.d/10-hardline.nft"
+	}
+
+	dir := path.Dir(destPath)
+	if dir != "" && dir != "." {
+		if err := runRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
 	}
 
 	sftpClient, err := sftp.NewClient(client)
@@ -255,9 +223,8 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	}
 	defer sftpClient.Close()
 
-	const nftSnippetPath = "/etc/nftables.d/10-hardline.nft"
-	if err := writeRootFile(client, sftpClient, nftSnippetPath, []byte(rendered), os.FileMode(0644)); err != nil {
-		return fmt.Errorf("writeRootFile %s: %w", nftSnippetPath, err)
+	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
+		return fmt.Errorf("writeRootFile %s: %w", destPath, err)
 	}
 	return nil
 }

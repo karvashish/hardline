@@ -30,6 +30,7 @@
     "templates/fail2ban_10-hardline-ssh.tmpl",
     "templates/journald_10-hardline.conf.tmpl",
     "templates/nftables_base.tmpl",
-    "templates/sshd_config.tmpl"
+    "templates/sshd_config.tmpl",
+    "templates/40-sysctl-hardening.conf.tmpl"
   ]
 }

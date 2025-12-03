@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -88,22 +89,25 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 }
 
 func throbber(dst *os.File) func() {
-	const total = 20
+	const total = 100
 	progress := 0
 	stop := make(chan struct{})
 
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
+	expDelay := func(p int) time.Duration {
+		delay := math.Exp((float64(p)/float64(total))*3.0) * 50.0
+		return time.Duration(delay) * time.Millisecond
+	}
 
+	go func() {
 		for {
 			select {
 			case <-stop:
 				return
-			case <-ticker.C:
+			default:
 				if progress < total {
 					fmt.Fprint(dst, ".")
 					progress++
+					time.Sleep(expDelay(progress))
 				}
 			}
 		}
@@ -111,9 +115,5 @@ func throbber(dst *os.File) func() {
 
 	return func() {
 		close(stop)
-		for progress < total {
-			fmt.Fprint(dst, ".")
-			progress++
-		}
 	}
 }

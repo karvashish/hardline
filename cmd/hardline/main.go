@@ -31,7 +31,14 @@ func main() {
 		logger.SetDebug(c.Debug)
 		executor.Verify(c)
 	case "version", "-v":
-		cli.VersionCmd()
+		ver, _, err := cli.VersionCmd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "version check failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("hardline version", ver.String())
+		return
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
 		cli.Usage()

@@ -43,6 +43,34 @@ func Apply(c cli.Command) {
 
 	logger.Debugf("profile loaded, starting applyProfile")
 
+	ver, schemaVer, err := cli.VersionCmd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "hardline version check failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	cmp, err := cli.CompareSemVer(ver.String(), p.MinHardline)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid profile.min_hardline value %q: %v\n", p.MinHardline, err)
+		os.Exit(1)
+	}
+
+	if cmp < 0 {
+		fmt.Fprintf(os.Stderr,
+			"hardline version %s is too old; minimum required is %s\n",
+			ver.String(), p.MinHardline,
+		)
+		os.Exit(1)
+	}
+
+	if p.ProfileSchema > schemaVer {
+		fmt.Fprintf(os.Stderr,
+			"profile schema %d is newer than supported %d; please upgrade hardline\n",
+			p.ProfileSchema, schemaVer,
+		)
+		os.Exit(1)
+	}
+
 	if err := applyProfile(sshClient, p); err != nil {
 		fmt.Fprintf(os.Stderr, "apply failed: %v\n", err)
 		os.Exit(1)

@@ -10,7 +10,7 @@
   },
 
   "profile_schema": 1,
-  "min_hardline": "1.0.0",
+  "min_hardline": "0.0.1",
   
   "actions": [
     "actions/00-packages.json",

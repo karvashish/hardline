@@ -9,7 +9,10 @@ LDFLAGS := -s -w -X internals/cli.version=$(VERSION)
 
 all: build
 
-build: tidy genschema
+checkversion:
+	@test -f internals/cli/version.json || (echo "version.json missing"; exit 1)
+
+build: tidy checkversion genschema
 	@echo "== building $(BINARY) ($(VERSION)) =="
 	GO111MODULE=on CGO_ENABLED=0 go build \
 		-ldflags "$(LDFLAGS)" \

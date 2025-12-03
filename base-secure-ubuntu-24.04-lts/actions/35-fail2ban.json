@@ -9,7 +9,7 @@
 
       "template": {
         "src": "templates/fail2ban_10-hardline-ssh.tmpl",
-        "dest": "/etc/fail2ban/jail.d/10-hardline-ssh.conf",
+        "dest": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
         "mode": "0644"
       }
     },

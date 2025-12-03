@@ -9,7 +9,7 @@
 
       "template": {
         "src": "templates/audit_hardline.rules.tmpl",
-        "dest": "/etc/audit/rules.d/10-hardline.rules",
+        "dest": "/etc/audit/rules.d/99-hardline.rules",
         "mode": "0640"
       }
     },

@@ -9,7 +9,7 @@
 
       "template": {
         "src": "templates/apt_20auto-upgrades.tmpl",
-        "dest": "/etc/apt/apt.conf.d/20auto-upgrades",
+        "dest": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
         "mode": "0644"
       }
     }

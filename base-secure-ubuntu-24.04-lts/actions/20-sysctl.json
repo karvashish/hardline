@@ -1,27 +1,26 @@
 {
   "steps": [
     {
-      "id": "sysctl-base-secure",
-      "type": "sysctl",
+      "id": "sysctl-hardening-template",
+      "type": "template",
       "severity": "medium",
       "risk_class": "non_access_critical",
       "control_tags": [],
-
-      "sysctl": {
-        "set": {
-          "net.ipv4.ip_forward": "0",
-          "net.ipv4.conf.all.rp_filter": "1",
-          "net.ipv4.conf.default.rp_filter": "1",
-          "net.ipv4.conf.all.accept_redirects": "0",
-          "net.ipv4.conf.default.accept_redirects": "0",
-          "net.ipv4.conf.all.secure_redirects": "0",
-          "net.ipv4.conf.default.secure_redirects": "0",
-          "net.ipv4.icmp_echo_ignore_broadcasts": "1",
-          "kernel.kptr_restrict": "2",
-          "kernel.dmesg_restrict": "1",
-          "fs.protected_hardlinks": "1",
-          "fs.protected_symlinks": "1"
-        }
+      "template": {
+        "src": "templates/40-sysctl-hardening.conf.tmpl",
+        "dest": "/etc/sysctl.d/99-hardline-hardening.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "sysctl-apply",
+      "type": "service",
+      "severity": "medium",
+      "risk_class": "non_access_critical",
+      "control_tags": [],
+      "service": {
+        "name": "systemd-sysctl",
+        "state": "restarted"
       }
     }
   ]

@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/karvashish/hardline/pkg/profile/action-file",
+  "$ref": "#/$defs/ActionFile",
+  "$defs": {
+    "ActionFile": {
+      "properties": {
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "steps"
+      ]
+    },
+    "FirewallRule": {
+      "properties": {
+        "port": {
+          "type": "integer"
+        },
+        "proto": {
+          "type": "string",
+          "enum": [
+            "tcp",
+            "udp"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "port",
+        "proto"
+      ]
+    },
+    "FirewallSpec": {
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "ufw",
+            "iptables",
+            "nftables",
+            "firewalld"
+          ]
+        },
+        "policy": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny",
+            "reject",
+            "drop"
+          ]
+        },
+        "template_src": {
+          "type": "string"
+        },
+        "template_dest": {
+          "type": "string"
+        },
+        "allow": {
+          "items": {
+            "$ref": "#/$defs/FirewallRule"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "backend",
+        "policy"
+      ]
+    },
+    "PackageSpec": {
+      "properties": {
+        "update": {
+          "type": "boolean"
+        },
+        "upgrade": {
+          "type": "boolean"
+        },
+        "autoremove": {
+          "type": "boolean"
+        },
+        "install": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "purge": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "update",
+        "upgrade",
+        "autoremove",
+        "install",
+        "purge"
+      ]
+    },
+    "ServiceSpec": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "started",
+            "stopped",
+            "restarted",
+            "reloaded"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "Step": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "packages",
+            "template",
+            "service",
+            "firewall",
+            "validate"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "default": "medium"
+        },
+        "risk_class": {
+          "type": "string",
+          "enum": [
+            "none",
+            "access",
+            "availability",
+            "data_loss",
+            "integrity",
+            "compliance",
+            "other"
+          ],
+          "description": "Class of possible worst-case consequence if the step fails or is misconfigured (e.g. losing SSH access, outage/availability issue, data loss, or compliance breach).",
+          "default": "none"
+        },
+        "control_tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "packages": {
+          "$ref": "#/$defs/PackageSpec"
+        },
+        "template": {
+          "$ref": "#/$defs/TemplateSpec"
+        },
+        "service": {
+          "$ref": "#/$defs/ServiceSpec"
+        },
+        "firewall": {
+          "$ref": "#/$defs/FirewallSpec"
+        },
+        "validate": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "severity",
+        "risk_class",
+        "control_tags"
+      ]
+    },
+    "TemplateSpec": {
+      "properties": {
+        "src": {
+          "type": "string"
+        },
+        "dest": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "src",
+        "dest",
+        "mode"
+      ]
+    }
+  }
+}

@@ -4,7 +4,7 @@
       "id": "sysctl-hardening-template",
       "type": "template",
       "severity": "medium",
-      "risk_class": "non_access_critical",
+      "risk_class": "availability",
       "control_tags": [],
       "template": {
         "src": "templates/20-sysctl-hardening.conf.tmpl",
@@ -15,8 +15,8 @@
     {
       "id": "sysctl-apply",
       "type": "service",
-      "severity": "medium",
-      "risk_class": "non_access_critical",
+      "severity": "critical",
+      "risk_class": "availability",
       "control_tags": [],
       "service": {
         "name": "systemd-sysctl",

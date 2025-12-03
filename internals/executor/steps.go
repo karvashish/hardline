@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/karvashish/hardline/internals/logger"
-	"github.com/karvashish/hardline/internals/profile"
+	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )

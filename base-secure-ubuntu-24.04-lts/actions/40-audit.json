@@ -4,9 +4,8 @@
       "id": "auditd-rules-template",
       "type": "template",
       "severity": "medium",
-      "risk_class": "non_access_critical",
+      "risk_class": "compliance",
       "control_tags": [],
-
       "template": {
         "src": "templates/40-audit-hardening-rules.tmpl",
         "dest": "/etc/audit/rules.d/99-hardline.rules",
@@ -16,10 +15,9 @@
     {
       "id": "auditd-service-enable",
       "type": "service",
-      "severity": "medium",
-      "risk_class": "non_access_critical",
+      "severity": "high",
+      "risk_class": "compliance",
       "control_tags": [],
-
       "service": {
         "name": "auditd",
         "enabled": true,

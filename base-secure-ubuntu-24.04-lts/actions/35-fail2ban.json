@@ -4,9 +4,8 @@
       "id": "fail2ban-ssh-config",
       "type": "template",
       "severity": "medium",
-      "risk_class": "non_access_critical",
+      "risk_class": "access",
       "control_tags": [],
-
       "template": {
         "src": "templates/35-fail2ban-ssh-protection.tmpl",
         "dest": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
@@ -16,10 +15,9 @@
     {
       "id": "fail2ban-service-enable",
       "type": "service",
-      "severity": "medium",
-      "risk_class": "non_access_critical",
+      "severity": "critical",
+      "risk_class": "access",
       "control_tags": [],
-
       "service": {
         "name": "fail2ban",
         "enabled": true,

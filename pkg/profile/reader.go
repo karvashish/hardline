@@ -1,5 +1,7 @@
 package profile
 
+//go:generate go run github.com/karvashish/hardline/cmd/genschema
+
 import (
 	"encoding/json"
 	"fmt"
@@ -18,7 +20,7 @@ type Profile struct {
 	DisplayName   string   `json:"display_name"`
 	Version       string   `json:"version"`
 	OS            OSInfo   `json:"os"`
-	ProfileSchema int      `json:"profile_schema"`
+	ProfileSchema int      `json:"profile_schema" jsonschema:"default=1"`
 	MinHardline   string   `json:"min_hardline"`
 	Actions       []string `json:"actions"`
 	Templates     []string `json:"templates"`
@@ -43,18 +45,18 @@ type TemplateSpec struct {
 
 type ServiceSpec struct {
 	Name    string `json:"name"`
-	Enabled *bool  `json:"enabled,omitempty"`
-	State   string `json:"state,omitempty"`
+	Enabled *bool  `json:"enabled,omitempty" jsonschema:"default=true"`
+	State   string `json:"state,omitempty" jsonschema:"enum=started,enum=stopped,enum=restarted,enum=reloaded"`
 }
 
 type FirewallRule struct {
 	Port  int    `json:"port"`
-	Proto string `json:"proto"`
+	Proto string `json:"proto" jsonschema:"enum=tcp,enum=udp"`
 }
 
 type FirewallSpec struct {
-	Backend      string         `json:"backend"`
-	Policy       string         `json:"policy"`
+	Backend      string         `json:"backend" jsonschema:"enum=ufw,enum=iptables,enum=nftables,enum=firewalld"`
+	Policy       string         `json:"policy" jsonschema:"enum=allow,enum=deny,enum=reject,enum=drop"`
 	TemplateSrc  string         `json:"template_src,omitempty"`
 	TemplateDest string         `json:"template_dest,omitempty"`
 	Allow        []FirewallRule `json:"allow,omitempty"`
@@ -62,9 +64,9 @@ type FirewallSpec struct {
 
 type Step struct {
 	ID          string        `json:"id"`
-	Type        string        `json:"type"`
-	Severity    string        `json:"severity"`
-	RiskClass   string        `json:"risk_class"`
+	Type        string        `json:"type" jsonschema:"enum=packages,enum=template,enum=service,enum=firewall,enum=validate"`
+	Severity    string        `json:"severity" jsonschema:"enum=low,enum=medium,enum=high,enum=critical,default=medium"`
+	RiskClass   string        `json:"risk_class" jsonschema:"enum=none,enum=access,enum=availability,enum=data_loss,enum=integrity,enum=compliance,enum=other,default=none" jsonschema_description:"Class of possible worst-case consequence if the step fails or is misconfigured (e.g. losing SSH access, outage/availability issue, data loss, or compliance breach)."`
 	ControlTags []string      `json:"control_tags"`
 	Packages    *PackageSpec  `json:"packages,omitempty"`
 	Template    *TemplateSpec `json:"template,omitempty"`

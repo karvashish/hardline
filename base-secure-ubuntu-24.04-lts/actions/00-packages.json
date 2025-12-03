@@ -3,10 +3,9 @@
     {
       "id": "packages-base-secure",
       "type": "packages",
-      "severity": "medium",
-      "risk_class": "non_access_critical",
+      "severity": "high",
+      "risk_class": "availability",
       "control_tags": [],
-
       "packages": {
         "update": true,
         "upgrade": true,

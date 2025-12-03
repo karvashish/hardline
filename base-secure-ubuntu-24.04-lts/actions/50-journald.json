@@ -4,9 +4,8 @@
       "id": "journald-configure-persistence",
       "type": "template",
       "severity": "medium",
-      "risk_class": "non_access_critical",
+      "risk_class": "compliance",
       "control_tags": [],
-
       "template": {
         "src": "templates/50-journald-hardening.conf.tmpl",
         "dest": "/etc/systemd/journald.conf.d/99-hardline.conf",
@@ -16,10 +15,9 @@
     {
       "id": "journald-reload",
       "type": "service",
-      "severity": "medium",
-      "risk_class": "non_access_critical",
+      "severity": "high",
+      "risk_class": "compliance",
       "control_tags": [],
-
       "service": {
         "name": "systemd-journald",
         "enabled": true,

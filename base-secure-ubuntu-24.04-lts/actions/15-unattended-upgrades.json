@@ -4,9 +4,8 @@
       "id": "unattended-upgrades-auto",
       "type": "template",
       "severity": "medium",
-      "risk_class": "non_access_critical",
+      "risk_class": "availability",
       "control_tags": [],
-
       "template": {
         "src": "templates/15-unattended-upgrades.tmpl",
         "dest": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",

@@ -3,8 +3,8 @@
     {
       "id": "firewall-default-deny",
       "type": "firewall",
-      "severity": "high",
-      "risk_class": "access_critical",
+      "severity": "medium",
+      "risk_class": "access",
       "control_tags": [],
       "firewall": {
         "backend": "nftables",
@@ -22,16 +22,16 @@
     {
       "id": "firewall-config-validate",
       "type": "validate",
-      "severity": "high",
-      "risk_class": "access_critical",
+      "severity": "medium",
+      "risk_class": "access",
       "control_tags": [],
       "validate": "firewall"
     },
     {
       "id": "firewall-service-restart",
       "type": "service",
-      "severity": "high",
-      "risk_class": "access_critical",
+      "severity": "critical",
+      "risk_class": "access",
       "control_tags": [],
       "service": {
         "name": "nftables",

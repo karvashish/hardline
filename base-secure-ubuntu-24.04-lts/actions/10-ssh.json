@@ -3,8 +3,8 @@
     {
       "id": "ssh-template-apply",
       "type": "template",
-      "severity": "high",
-      "risk_class": "access_critical",
+      "severity": "medium",
+      "risk_class": "access",
       "control_tags": [],
       "template": {
         "src": "templates/10-ssh-sshd-config.tmpl",
@@ -15,16 +15,16 @@
     {
       "id": "ssh-config-validate",
       "type": "validate",
-      "severity": "high",
-      "risk_class": "access_critical",
+      "severity": "medium",
+      "risk_class": "access",
       "control_tags": [],
       "validate": "sshd"
     },
     {
       "id": "ssh-service-reload",
       "type": "service",
-      "severity": "high",
-      "risk_class": "access_critical",
+      "severity": "critical",
+      "risk_class": "access",
       "control_tags": [],
       "service": {
         "name": "ssh",

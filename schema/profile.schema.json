@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/karvashish/hardline/pkg/profile/profile",
+  "$ref": "#/$defs/Profile",
+  "$defs": {
+    "OSInfo": {
+      "properties": {
+        "family": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "family",
+        "version",
+        "variant"
+      ]
+    },
+    "Profile": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "os": {
+          "$ref": "#/$defs/OSInfo"
+        },
+        "profile_schema": {
+          "type": "integer",
+          "default": 1
+        },
+        "min_hardline": {
+          "type": "string"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "templates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "display_name",
+        "version",
+        "os",
+        "profile_schema",
+        "min_hardline",
+        "actions",
+        "templates"
+      ]
+    }
+  }
+}

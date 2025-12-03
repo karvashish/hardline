@@ -3,10 +3,9 @@
     {
       "id": "timesyncd-enable",
       "type": "service",
-      "severity": "low",
-      "risk_class": "non_access_critical",
+      "severity": "high",
+      "risk_class": "availability",
       "control_tags": [],
-
       "service": {
         "name": "chrony",
         "enabled": true,

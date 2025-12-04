@@ -8,23 +8,16 @@ import (
 	"github.com/karvashish/hardline/pkg/logger"
 )
 
-const (
-	colorError = "\033[31m"
-	colorInfo  = "\033[38;5;15m"
-	colorOK    = "\033[38;5;82m"
-	colorReset = "\033[0m"
-)
-
 type ValidationError struct {
 	Issues []string
 }
 
 func (e *ValidationError) Error() string {
 	if len(e.Issues) == 0 {
-		return colorError + "validation failed with no details" + colorReset
+		return "validation failed with no details"
 	}
 	if len(e.Issues) == 1 {
-		return colorError + e.Issues[0] + colorReset
+		return e.Issues[0]
 	}
 
 	var b strings.Builder
@@ -32,7 +25,7 @@ func (e *ValidationError) Error() string {
 	for _, msg := range e.Issues {
 		fmt.Fprintf(&b, " - %s\n", msg)
 	}
-	return colorError + strings.TrimRight(b.String(), "\n") + colorReset
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func mergeIssues(parent *[]string, prefix string, err error) {
@@ -57,7 +50,10 @@ func mergeIssues(parent *[]string, prefix string, err error) {
 }
 
 func (o OSInfo) Affirm() error {
-	logger.Debugf("profile: validating os info: family=%q version=%q variant=%q", o.Family, o.Version, o.Variant)
+	logger.Debugf(
+		"profile: validating os info: family=%q version=%q variant=%q\n",
+		o.Family, o.Version, o.Variant,
+	)
 
 	var issues []string
 
@@ -78,15 +74,18 @@ func (o OSInfo) Affirm() error {
 }
 
 func (p *Profile) Affirm() error {
-	logger.Debugf("profile: validating profile id=%q display_name=%q version=%q schema=%d actions=%d templates=%d",
-		p.ID, p.DisplayName, p.Version, p.ProfileSchema, len(p.Actions), len(p.Templates))
+	logger.Debugf(
+		"profile: validating profile id=%q display_name=%q version=%q schema=%d actions=%d templates=%d\n",
+		p.ID, p.DisplayName, p.Version, p.ProfileSchema, len(p.Actions), len(p.Templates),
+	)
 
 	totalSteps := 0
 	for _, af := range p.ActionFiles {
 		totalSteps += len(af.Steps)
 	}
 
-	logger.Infof(colorInfo+"profile %s: %d actions, %d templates, %d steps"+colorReset,
+	logger.Infof(
+		"color="+logger.ColorBlue+" profile %s: %d actions, %d templates, %d steps\n",
 		p.ID, len(p.Actions), len(p.Templates), totalSteps,
 	)
 
@@ -126,8 +125,8 @@ func (p *Profile) Affirm() error {
 	}
 
 	if len(issues) == 0 {
-		logger.Debugf("profile: validation completed successfully for profile id=%q", p.ID)
-		logger.Infof(colorOK+"profile %s: validation OK"+colorReset, p.ID)
+		logger.Debugf("profile: validation completed successfully for profile id=%q\n", p.ID)
+		logger.Infof("color="+logger.ColorGreen+" profile %s: validation OK\n", p.ID)
 		return nil
 	}
 
@@ -135,8 +134,10 @@ func (p *Profile) Affirm() error {
 }
 
 func (pk PackageSpec) Affirm() error {
-	logger.Debugf("profile: validating packages spec: update=%v upgrade=%v autoremove=%v install=%d purge=%d",
-		pk.Update, pk.Upgrade, pk.Autoremove, len(pk.Install), len(pk.Purge))
+	logger.Debugf(
+		"profile: validating packages spec: update=%v upgrade=%v autoremove=%v install=%d purge=%d\n",
+		pk.Update, pk.Upgrade, pk.Autoremove, len(pk.Install), len(pk.Purge),
+	)
 
 	var issues []string
 
@@ -151,7 +152,10 @@ func (pk PackageSpec) Affirm() error {
 }
 
 func (t TemplateSpec) Affirm() error {
-	logger.Debugf("profile: validating template spec: src=%q dest=%q mode=%q", t.Src, t.Dest, t.Mode)
+	logger.Debugf(
+		"profile: validating template spec: src=%q dest=%q mode=%q\n",
+		t.Src, t.Dest, t.Mode,
+	)
 
 	var issues []string
 
@@ -180,7 +184,10 @@ func (t TemplateSpec) Affirm() error {
 }
 
 func (s ServiceSpec) Affirm() error {
-	logger.Debugf("profile: validating service spec: name=%q enabled=%v state=%q", s.Name, s.Enabled, s.State)
+	logger.Debugf(
+		"profile: validating service spec: name=%q enabled=%v state=%q\n",
+		s.Name, s.Enabled, s.State,
+	)
 
 	var issues []string
 
@@ -192,7 +199,7 @@ func (s ServiceSpec) Affirm() error {
 	if state != "" {
 		switch state {
 		case "started", "stopped", "restarted", "reloaded":
-			logger.Debugf("profile: service spec: state %q accepted", state)
+			logger.Debugf("profile: service spec: state %q accepted\n", state)
 		default:
 			issues = append(issues, fmt.Sprintf("service.state %q is invalid (must be started, stopped, restarted, or reloaded)", s.State))
 		}
@@ -205,7 +212,10 @@ func (s ServiceSpec) Affirm() error {
 }
 
 func (r FirewallRule) Affirm() error {
-	logger.Debugf("profile: validating firewall rule: port=%d proto=%q", r.Port, r.Proto)
+	logger.Debugf(
+		"profile: validating firewall rule: port=%d proto=%q\n",
+		r.Port, r.Proto,
+	)
 
 	var issues []string
 
@@ -215,7 +225,7 @@ func (r FirewallRule) Affirm() error {
 	proto := strings.ToLower(strings.TrimSpace(r.Proto))
 	switch proto {
 	case "tcp", "udp":
-		logger.Debugf("profile: firewall rule: proto %q accepted", proto)
+		logger.Debugf("profile: firewall rule: proto %q accepted\n", proto)
 	default:
 		issues = append(issues, fmt.Sprintf("firewall rule proto %q invalid (must be tcp or udp)", r.Proto))
 	}
@@ -227,14 +237,16 @@ func (r FirewallRule) Affirm() error {
 }
 
 func (f FirewallSpec) Affirm() error {
-	logger.Debugf("profile: validating firewall spec: backend=%q policy=%q template_src=%q template_dest=%q allow_rules=%d",
-		f.Backend, f.Policy, f.TemplateSrc, f.TemplateDest, len(f.Allow))
+	logger.Debugf(
+		"profile: validating firewall spec: backend=%q policy=%q template_src=%q template_dest=%q allow_rules=%d\n",
+		f.Backend, f.Policy, f.TemplateSrc, f.TemplateDest, len(f.Allow),
+	)
 
 	var issues []string
 
 	switch f.Backend {
 	case "nftables":
-		logger.Debugf("profile: firewall spec: backend %q accepted", f.Backend)
+		logger.Debugf("profile: firewall spec: backend %q accepted\n", f.Backend)
 	case "ufw", "iptables", "firewalld":
 		issues = append(issues, fmt.Sprintf("firewall.backend %q is not supported (only nftables is currently supported)", f.Backend))
 	default:
@@ -243,7 +255,7 @@ func (f FirewallSpec) Affirm() error {
 
 	switch f.Policy {
 	case "allow", "deny", "reject", "drop":
-		logger.Debugf("profile: firewall spec: policy %q accepted", f.Policy)
+		logger.Debugf("profile: firewall spec: policy %q accepted\n", f.Policy)
 	default:
 		issues = append(issues, fmt.Sprintf("firewall.policy %q is invalid (must be allow, deny, reject, or drop)", f.Policy))
 	}
@@ -263,7 +275,10 @@ func (f FirewallSpec) Affirm() error {
 }
 
 func (s Step) Affirm() error {
-	logger.Debugf("profile: validating step id=%q type=%q severity=%q risk_class=%q", s.ID, s.Type, s.Severity, s.RiskClass)
+	logger.Debugf(
+		"profile: validating step id=%q type=%q severity=%q risk_class=%q\n",
+		s.ID, s.Type, s.Severity, s.RiskClass,
+	)
 
 	var issues []string
 
@@ -274,21 +289,21 @@ func (s Step) Affirm() error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
 	switch stepType {
 	case "packages", "template", "service", "firewall", "validate":
-		logger.Debugf("profile: step %q: type %q accepted", s.ID, stepType)
+		logger.Debugf("profile: step %q: type %q accepted\n", s.ID, stepType)
 	default:
 		issues = append(issues, fmt.Sprintf("step %q: invalid type %q", s.ID, s.Type))
 	}
 
 	switch s.Severity {
 	case "low", "medium", "high", "critical":
-		logger.Debugf("Severity: step %q: type %q accepted", s.ID, s.Severity)
+		logger.Debugf("Severity: step %q: type %q accepted\n", s.ID, s.Severity)
 	default:
 		issues = append(issues, fmt.Sprintf("step %q: invalid severity %q", s.ID, s.Severity))
 	}
 
 	switch s.RiskClass {
 	case "none", "access", "availability", "data_loss", "integrity", "compliance", "other":
-		logger.Debugf("risk_class: step %q: type %q accepted", s.ID, s.RiskClass)
+		logger.Debugf("risk_class: step %q: type %q accepted\n", s.ID, s.RiskClass)
 	default:
 		issues = append(issues, fmt.Sprintf("step %q: invalid risk_class %q", s.ID, s.RiskClass))
 	}
@@ -348,7 +363,7 @@ func (s Step) Affirm() error {
 		} else {
 			switch kind {
 			case "sshd", "firewall":
-				logger.Debugf("profile: step %q (validate): kind %q accepted", s.ID, kind)
+				logger.Debugf("profile: step %q (validate): kind %q accepted\n", s.ID, kind)
 			default:
 				issues = append(issues, fmt.Sprintf("step %q (type=validate): unsupported validate kind %q (only sshd or firewall are supported)", s.ID, s.Validate))
 			}
@@ -363,9 +378,15 @@ func (s Step) Affirm() error {
 
 func (af ActionFile) Affirm() error {
 	if af.Path != "" {
-		logger.Debugf("profile: validating action file %q with %d steps", af.Path, len(af.Steps))
+		logger.Debugf(
+			"profile: validating action file %q with %d steps\n",
+			af.Path, len(af.Steps),
+		)
 	} else {
-		logger.Debugf("profile: validating action file with %d steps", len(af.Steps))
+		logger.Debugf(
+			"profile: validating action file with %d steps\n",
+			len(af.Steps),
+		)
 	}
 
 	var issues []string

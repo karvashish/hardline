@@ -9,9 +9,9 @@ import (
 var debug bool
 
 const (
-	colorTagDefault    = "\033[38;5;208m"
-	colorDetailDefault = "\033[38;5;246m"
-	colorReset         = "\033[0m"
+	ColorTagDefault    = "\033[38;5;208m"
+	ColorDetailDefault = "\033[38;5;246m"
+	ColorReset         = "\033[0m"
 
 	ColorRed     = "\033[31m"
 	ColorGreen   = "\033[32m"
@@ -45,8 +45,8 @@ type DebugColors struct {
 }
 
 var debugColors = DebugColors{
-	TagColor:    colorTagDefault,
-	DetailColor: colorDetailDefault,
+	TagColor:    ColorTagDefault,
+	DetailColor: ColorDetailDefault,
 }
 
 func SetDebug(enabled bool) {
@@ -82,8 +82,9 @@ func Debugf(format string, args ...any) {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr,
-		tagColor+"[debug] "+detailColor+format+colorReset+"\n",
+	fmt.Fprintf(
+		os.Stderr,
+		tagColor+"[debug] "+detailColor+format+ColorReset,
 		args...,
 	)
 }
@@ -99,9 +100,17 @@ func Infof(format string, args ...any) {
 	}
 
 	if color == "" {
-		fmt.Fprintf(os.Stderr, format+"\n", args...)
+		fmt.Fprintf(os.Stderr, format, args...)
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, color+format+colorReset+"\n", args...)
+	fmt.Fprintf(os.Stderr, color+format+ColorReset, args...)
+}
+
+func Warnf(format string, args ...any) {
+	Infof("color="+ColorYellow+" "+format, args...)
+}
+
+func Errorf(format string, args ...any) {
+	Infof("color="+ColorRed+" "+format, args...)
 }

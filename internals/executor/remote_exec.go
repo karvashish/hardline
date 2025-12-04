@@ -10,7 +10,7 @@ import (
 )
 
 func run(client *ssh.Client, cmd string) error {
-	logger.Debugf("remote cmd: %s", cmd)
+	logger.Debugf("remote cmd: %s\n", cmd)
 
 	session, err := client.NewSession()
 	if err != nil {
@@ -31,7 +31,7 @@ func run(client *ssh.Client, cmd string) error {
 
 	if err := session.Run(cmd); err != nil {
 		if errb.Len() > 0 {
-			logger.Infof("cmd error: %s", errb.String())
+			logger.Infof("cmd error: %s\n", errb.String())
 		}
 		return err
 	}

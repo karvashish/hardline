@@ -42,14 +42,16 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 		}
 		return handleValidate(client, s.Validate)
 	default:
-		fmt.Fprintf(os.Stderr, "warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
+		logger.Warnf("warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
 		return nil
 	}
 }
 
 func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
-	logger.Debugf("handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v",
-		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
+	logger.Debugf(
+		"handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
+		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove,
+	)
 
 	if pk.Update {
 		if err := runRoot(client, "apt-get update -y"); err != nil {
@@ -87,7 +89,7 @@ func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
 }
 
 func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateSpec) error {
-	logger.Debugf("handleTemplate: src=%q dest=%q mode=%q", t.Src, t.Dest, t.Mode)
+	logger.Debugf("handleTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
 	data, err := p.LoadTemplate(t.Src)
 	if err != nil {
@@ -135,7 +137,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	}
 
 	unit := canonicalServiceName(s.Name)
-	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q", s.Name, unit, s.Enabled, s.State)
+	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	if s.Enabled != nil {
 		var cmd string
@@ -176,7 +178,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 }
 
 func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.FirewallSpec) error {
-	logger.Debugf("handleFirewall: backend=%q allow_rules=%d", fw.Backend, len(fw.Allow))
+	logger.Debugf("handleFirewall: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
 
 	if fw.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
@@ -232,7 +234,7 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 func handleValidate(client *ssh.Client, kind string) error {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "sshd":
-		logger.Debugf("handleValidate: kind=sshd")
+		logger.Debugf("handleValidate: kind=sshd\n")
 
 		ensureIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config || echo 'Include /etc/ssh/sshd_config.d/*.conf' >> /etc/ssh/sshd_config`
 		if err := runRoot(client, ensureIncludeCmd); err != nil {
@@ -245,7 +247,7 @@ func handleValidate(client *ssh.Client, kind string) error {
 		return nil
 
 	case "firewall":
-		logger.Debugf("handleValidate: kind=firewall")
+		logger.Debugf("handleValidate: kind=firewall\n")
 
 		ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
 		if err := runRoot(client, ensureIncludeCmd); err != nil {

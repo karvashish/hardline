@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/karvashish/hardline/pkg/logger"
 )
 
 type OSInfo struct {
@@ -81,6 +83,8 @@ type ActionFile struct {
 }
 
 func Load(dir string) (*Profile, error) {
+	logger.Debugf("profile.Load: dir=%q\n", dir)
+
 	if dir == "" {
 		return nil, fmt.Errorf("decode profile.json: profile not found")
 	}
@@ -99,6 +103,11 @@ func Load(dir string) (*Profile, error) {
 	}
 
 	p.profilePath = dir
+
+	logger.Debugf(
+		"profile.Load: loaded profile id=%q actions=%d templates=%d\n",
+		p.ID, len(p.Actions), len(p.Templates),
+	)
 
 	if err := p.loadActions(); err != nil {
 		return nil, err
@@ -132,7 +141,11 @@ func (p *Profile) loadActions() error {
 	paths := p.ActionPaths()
 	result := make([]ActionFile, 0, len(paths))
 
+	logger.Debugf("profile.loadActions: %d action paths\n", len(paths))
+
 	for _, path := range paths {
+		logger.Debugf("profile.loadActions: opening action file %q\n", path)
+
 		f, err := os.Open(path)
 		if err != nil {
 			return fmt.Errorf("open action file %q: %w", path, err)
@@ -144,6 +157,8 @@ func (p *Profile) loadActions() error {
 			return fmt.Errorf("decode action file %q: %w", path, err)
 		}
 		f.Close()
+
+		logger.Debugf("profile.loadActions: action file %q has %d steps\n", path, len(af.Steps))
 
 		for _, step := range af.Steps {
 			if step.Template != nil {
@@ -163,10 +178,13 @@ func (p *Profile) loadActions() error {
 	}
 
 	p.ActionFiles = result
+	logger.Debugf("profile.loadActions: loaded %d action files\n", len(p.ActionFiles))
 	return nil
 }
 
 func (p *Profile) LoadTemplate(rel string) ([]byte, error) {
+	logger.Debugf("profile.LoadTemplate: rel=%q\n", rel)
+
 	if !p.isDeclaredTemplate(rel) {
 		return nil, fmt.Errorf("template %q not declared in profile.json", rel)
 	}

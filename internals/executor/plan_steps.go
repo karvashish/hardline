@@ -99,7 +99,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 }
 
 func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string, error) {
-	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v",
+	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
 
 	var details []string
@@ -108,13 +108,13 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 	var purgeWillChange []string
 
 	if pk.Update {
-		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+colorReset)
+		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+logger.ColorReset)
 	}
 	if pk.Upgrade {
-		details = append(details, logger.ColorGreen+"will run: apt-get upgrade -y (packages with available updates will be upgraded)"+colorReset)
+		details = append(details, logger.ColorGreen+"will run: apt-get upgrade -y (packages with available updates will be upgraded)"+logger.ColorReset)
 	}
 	if pk.Autoremove {
-		details = append(details, logger.ColorGreen+"will run: apt-get autoremove -y (unused dependencies will be removed)"+colorReset)
+		details = append(details, logger.ColorGreen+"will run: apt-get autoremove -y (unused dependencies will be removed)"+logger.ColorReset)
 	}
 
 	for _, name := range pk.Install {
@@ -123,8 +123,8 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 		if err == nil {
 			line := fmt.Sprintf(
 				"%spackage %q:%s %scurrently installed (no install change)%s",
-				logger.ColorBlue, name, colorReset,
-				logger.ColorYellow, colorReset,
+				logger.ColorBlue, name, logger.ColorReset,
+				logger.ColorYellow, logger.ColorReset,
 			)
 			details = append(details, line)
 		} else {
@@ -132,8 +132,8 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 
 			line := fmt.Sprintf(
 				"%spackage %q:%s %snot installed (will be installed)%s",
-				logger.ColorBlue, name, colorReset,
-				logger.ColorGreen, colorReset,
+				logger.ColorBlue, name, logger.ColorReset,
+				logger.ColorGreen, logger.ColorReset,
 			)
 			details = append(details, line)
 		}
@@ -147,57 +147,48 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 
 			line := fmt.Sprintf(
 				"%spackage %q:%s %scurrently installed (will be purged)%s",
-				logger.ColorBlue, name, colorReset,
-				logger.ColorRed, colorReset,
+				logger.ColorBlue, name, logger.ColorReset,
+				logger.ColorRed, logger.ColorReset,
 			)
 			details = append(details, line)
 		} else {
 			line := fmt.Sprintf(
 				"%spackage %q:%s %snot installed (purge has no effect)%s",
-				logger.ColorBlue, name, colorReset,
-				logger.ColorDim, colorReset,
+				logger.ColorBlue, name, logger.ColorReset,
+				logger.ColorDim, logger.ColorReset,
 			)
 			details = append(details, line)
 		}
 	}
 
-	var summaryParts []string
-	if pk.Update {
-		summaryParts = append(summaryParts, logger.ColorGreen+"\n	will update package index\n"+colorReset)
-	}
-	if pk.Upgrade {
-		summaryParts = append(summaryParts, logger.ColorYellow+"	will upgrade installed packages\n"+colorReset)
-	}
-	if len(installWillChange) > 0 {
-		summaryParts = append(summaryParts,
-			fmt.Sprintf("%s	will install:\n%s%s		- %s%s",
-				logger.ColorGreen, colorReset,
-				logger.ColorBlue, strings.Join(installWillChange, "\n		- "), colorReset),
-		)
-	}
-	if len(purgeWillChange) > 0 {
-		summaryParts = append(summaryParts,
-			fmt.Sprintf("\n%s	will purge:\n%s%s		- %s%s",
-				logger.ColorRed, colorReset,
-				logger.ColorBlue, strings.Join(purgeWillChange, "\n		- "), colorReset),
-		)
-	}
-	if pk.Autoremove {
-		summaryParts = append(summaryParts, logger.ColorRed+"\n	autoremove will unused packages"+colorReset)
-	}
-
 	var summary string
-	if len(summaryParts) == 0 {
+	if !pk.Update && !pk.Upgrade && len(installWillChange) == 0 && len(purgeWillChange) == 0 && !pk.Autoremove {
 		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified)"
 	} else {
-		summary = "packages step: " + strings.Join(summaryParts, " ")
+		var summaryParts []string
+		if pk.Update {
+			summaryParts = append(summaryParts, "update package index")
+		}
+		if pk.Upgrade {
+			summaryParts = append(summaryParts, "upgrade installed packages")
+		}
+		if len(installWillChange) > 0 {
+			summaryParts = append(summaryParts, "install: "+strings.Join(installWillChange, ", "))
+		}
+		if len(purgeWillChange) > 0 {
+			summaryParts = append(summaryParts, "purge: "+strings.Join(purgeWillChange, ", "))
+		}
+		if pk.Autoremove {
+			summaryParts = append(summaryParts, "autoremove unused packages")
+		}
+		summary = "packages step: " + strings.Join(summaryParts, "; ")
 	}
 
 	return summary, details, nil
 }
 
 func planTemplate(client *ssh.Client, t *profile.TemplateSpec) (string, []string, error) {
-	logger.Debugf("planTemplate: src=%q dest=%q mode=%q", t.Src, t.Dest, t.Mode)
+	logger.Debugf("planTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
 	var details []string
 
@@ -211,15 +202,15 @@ func planTemplate(client *ssh.Client, t *profile.TemplateSpec) (string, []string
 	if err != nil {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sdoes not exist (file will be created)%s",
-			logger.ColorBlue, t.Dest, colorReset,
-			logger.ColorGreen, colorReset,
+			logger.ColorBlue, t.Dest, logger.ColorReset,
+			logger.ColorGreen, logger.ColorReset,
 		)
 		details = append(details, line)
 	} else {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sexists (size=%d bytes, mode=%#o)%s",
-			logger.ColorBlue, t.Dest, colorReset,
-			logger.ColorYellow, info.Size(), info.Mode().Perm(), colorReset,
+			logger.ColorBlue, t.Dest, logger.ColorReset,
+			logger.ColorYellow, info.Size(), info.Mode().Perm(), logger.ColorReset,
 		)
 		details = append(details, line)
 	}
@@ -229,14 +220,14 @@ func planTemplate(client *ssh.Client, t *profile.TemplateSpec) (string, []string
 		mode = "0600 (default in executor)"
 	}
 	details = append(details,
-		logger.ColorGreen+fmt.Sprintf("desired: template %q rendered to %q with mode %s", t.Src, t.Dest, mode)+colorReset,
+		logger.ColorGreen+fmt.Sprintf("desired: template %q rendered to %q with mode %s", t.Src, t.Dest, mode)+logger.ColorReset,
 	)
 
 	if strings.HasPrefix(t.Dest, "/etc/ssh/") {
-		details = append(details, logger.ColorDim+"note: this template affects SSH daemon configuration"+colorReset)
+		details = append(details, logger.ColorDim+"note: this template affects SSH daemon configuration"+logger.ColorReset)
 	}
 	if strings.Contains(t.Dest, "nftables") {
-		details = append(details, logger.ColorDim+"note: this template affects nftables firewall configuration"+colorReset)
+		details = append(details, logger.ColorDim+"note: this template affects nftables firewall configuration"+logger.ColorReset)
 	}
 
 	summary := fmt.Sprintf("template step: render %q to %q (mode %s)", t.Src, t.Dest, mode)
@@ -249,7 +240,7 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 	}
 
 	unit := canonicalServiceName(s.Name)
-	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q", s.Name, unit, s.Enabled, s.State)
+	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	var details []string
 
@@ -268,7 +259,7 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 	}
 
 	details = append(details,
-		logger.ColorYellow+fmt.Sprintf("current: enabled=%s, active=%s", enabledState, activeState)+colorReset,
+		logger.ColorYellow+fmt.Sprintf("current: enabled=%s, active=%s", enabledState, activeState)+logger.ColorReset,
 	)
 
 	desiredEnabled := "unchanged"
@@ -297,7 +288,7 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 	}
 
 	details = append(details,
-		logger.ColorGreen+fmt.Sprintf("desired: enabled=%s, state=%s", desiredEnabled, desiredState)+colorReset,
+		logger.ColorGreen+fmt.Sprintf("desired: enabled=%s, state=%s", desiredEnabled, desiredState)+logger.ColorReset,
 	)
 
 	var summaryParts []string
@@ -334,7 +325,7 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 }
 
 func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []string, error) {
-	logger.Debugf("planFirewall: backend=%q allow_rules=%d", fw.Backend, len(fw.Allow))
+	logger.Debugf("planFirewall: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
 
 	var details []string
 
@@ -362,29 +353,29 @@ func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []strin
 	if err != nil {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sdoes not exist (file will be created)%s",
-			logger.ColorBlue, destPath, colorReset,
-			logger.ColorGreen, colorReset,
+			logger.ColorBlue, destPath, logger.ColorReset,
+			logger.ColorGreen, logger.ColorReset,
 		)
 		details = append(details, line)
 	} else {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sexists (size=%d bytes, mode=%#o)%s",
-			logger.ColorBlue, destPath, colorReset,
-			logger.ColorYellow, info.Size(), info.Mode().Perm(), colorReset,
+			logger.ColorBlue, destPath, logger.ColorReset,
+			logger.ColorYellow, info.Size(), info.Mode().Perm(), logger.ColorReset,
 		)
 		details = append(details, line)
 	}
 
 	details = append(details,
-		logger.ColorBlue+fmt.Sprintf("template source: %q", tmplPath)+colorReset,
+		logger.ColorBlue+fmt.Sprintf("template source: %q", tmplPath)+logger.ColorReset,
 	)
 
 	if len(fw.Allow) == 0 {
 		details = append(details,
-			logger.ColorDim+"no allow rules specified (policy in template will apply as-is)"+colorReset,
+			logger.ColorDim+"no allow rules specified (policy in template will apply as-is)"+logger.ColorReset,
 		)
 	} else {
-		details = append(details, logger.ColorDim+"allow rules to be enforced:"+colorReset)
+		details = append(details, logger.ColorDim+"allow rules to be enforced:"+logger.ColorReset)
 		for _, rule := range fw.Allow {
 			proto := strings.ToLower(strings.TrimSpace(rule.Proto))
 			if proto == "" {
@@ -392,7 +383,7 @@ func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []strin
 			}
 			line := fmt.Sprintf(
 				"  %s- %s dport %d accept%s",
-				logger.ColorGreen, proto, rule.Port, colorReset,
+				logger.ColorGreen, proto, rule.Port, logger.ColorReset,
 			)
 			details = append(details, line)
 		}
@@ -407,29 +398,29 @@ func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []strin
 func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "sshd":
-		logger.Debugf("planValidate: kind=sshd")
+		logger.Debugf("planValidate: kind=sshd\n")
 
 		var details []string
 
 		includeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
 		if err := runRoot(client, includeCmd); err == nil {
 			details = append(details,
-				logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+colorReset,
+				logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+logger.ColorReset,
 			)
 		} else {
 			details = append(details,
-				logger.ColorYellow+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is missing (apply will append it)"+colorReset,
+				logger.ColorYellow+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is missing (apply will append it)"+logger.ColorReset,
 			)
 		}
 
 		testErr := runRoot(client, "sshd -t -f /etc/ssh/sshd_config")
 		if testErr == nil {
 			details = append(details,
-				logger.ColorGreen+"current sshd configuration: passes sshd -t"+colorReset,
+				logger.ColorGreen+"current sshd configuration: passes sshd -t"+logger.ColorReset,
 			)
 		} else {
 			details = append(details,
-				logger.ColorRed+fmt.Sprintf("current sshd configuration: sshd -t reports errors (%v)", testErr)+colorReset,
+				logger.ColorRed+fmt.Sprintf("current sshd configuration: sshd -t reports errors (%v)", testErr)+logger.ColorReset,
 			)
 		}
 
@@ -437,29 +428,29 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 		return summary, details, nil
 
 	case "firewall":
-		logger.Debugf("planValidate: kind=firewall")
+		logger.Debugf("planValidate: kind=firewall\n")
 
 		var details []string
 
 		includeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf`
 		if err := runRoot(client, includeCmd); err == nil {
 			details = append(details,
-				logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+colorReset,
+				logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
 			)
 		} else {
 			details = append(details,
-				logger.ColorYellow+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (apply will append it)`+colorReset,
+				logger.ColorYellow+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (apply will append it)`+logger.ColorReset,
 			)
 		}
 
 		testErr := runRoot(client, "nft -c -f /etc/nftables.conf")
 		if testErr == nil {
 			details = append(details,
-				logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+colorReset,
+				logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
 			)
 		} else {
 			details = append(details,
-				logger.ColorRed+fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr)+colorReset,
+				logger.ColorRed+fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr)+logger.ColorReset,
 			)
 		}
 

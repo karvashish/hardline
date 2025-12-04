@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"time"
@@ -15,10 +14,10 @@ import (
 
 func Apply(c cli.Command) {
 	if !c.Debug {
-		fmt.Fprintf(os.Stderr, "apply %s\n", c.Profile)
+		logger.Infof("apply %s\n", c.Profile)
 	}
 
-	logger.Debugf("apply: profile=%q host=%q user=%q key=%q", c.Profile, c.Host, c.User, c.KeyPath)
+	logger.Debugf("apply: profile=%q host=%q user=%q key=%q\n", c.Profile, c.Host, c.User, c.KeyPath)
 
 	config := &connection.Config{
 		User:    c.User,
@@ -28,35 +27,35 @@ func Apply(c cli.Command) {
 
 	sshClient, err := connection.NewSSHClient(*config)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "connect failed: %v\n", err)
+		logger.Errorf("connect failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer sshClient.Close()
 
-	logger.Debugf("ssh connection established")
+	logger.Debugf("ssh connection established\n")
 
 	p, err := profile.Load(c.Profile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "profile load failed: %v\n", err)
+		logger.Errorf("profile load failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	logger.Debugf("profile loaded, starting applyProfile")
+	logger.Debugf("profile loaded, starting applyProfile\n")
 
 	ver, schemaVer, err := cli.VersionCmd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "hardline version check failed: %v\n", err)
+		logger.Errorf("hardline version check failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	cmp, err := cli.CompareSemVer(ver.String(), p.MinHardline)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid profile.min_hardline value %q: %v\n", p.MinHardline, err)
+		logger.Errorf("invalid profile.min_hardline value %q: %v\n", p.MinHardline, err)
 		os.Exit(1)
 	}
 
 	if cmp < 0 {
-		fmt.Fprintf(os.Stderr,
+		logger.Errorf(
 			"hardline version %s is too old; minimum required is %s\n",
 			ver.String(), p.MinHardline,
 		)
@@ -64,7 +63,7 @@ func Apply(c cli.Command) {
 	}
 
 	if p.ProfileSchema > schemaVer {
-		fmt.Fprintf(os.Stderr,
+		logger.Errorf(
 			"profile schema %d is newer than supported %d; please upgrade hardline\n",
 			p.ProfileSchema, schemaVer,
 		)
@@ -72,30 +71,30 @@ func Apply(c cli.Command) {
 	}
 
 	if err := applyProfile(sshClient, p); err != nil {
-		fmt.Fprintf(os.Stderr, "apply failed: %v\n", err)
+		logger.Errorf("apply failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	if !c.Debug {
-		fmt.Fprintln(os.Stderr, "ok")
+		logger.Infof("ok\n")
 	}
 
-	logger.Debugf("apply completed")
+	logger.Debugf("apply completed\n")
 }
 
 func applyProfile(client *ssh.Client, p *profile.Profile) error {
-	logger.Debugf("applyProfile: %d action files", len(p.ActionFiles))
+	logger.Debugf("applyProfile: %d action files\n", len(p.ActionFiles))
 
 	for _, af := range p.ActionFiles {
 		for _, step := range af.Steps {
 			if !logger.DebugMode() {
-				fmt.Fprintf(os.Stderr, "step: %s (%s) ", step.ID, step.Type)
+				logger.Infof("step: %s (%s) ", step.ID, step.Type)
 			}
-			logger.Debugf("handleStep: id=%q type=%q", step.ID, step.Type)
+			logger.Debugf("handleStep: id=%q type=%q\n", step.ID, step.Type)
 
 			var stop func()
 			if !logger.DebugMode() {
-				stop = throbber(os.Stderr)
+				stop = throbber()
 			}
 
 			err := handleStep(client, p, step)
@@ -109,14 +108,14 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 			}
 
 			if !logger.DebugMode() {
-				fmt.Fprintln(os.Stderr, "✓")
+				logger.Infof("✓\n")
 			}
 		}
 	}
 	return nil
 }
 
-func throbber(dst *os.File) func() {
+func throbber() func() {
 	const total = 100
 	progress := 0
 	stop := make(chan struct{})
@@ -135,7 +134,7 @@ func throbber(dst *os.File) func() {
 				if progress >= total {
 					progress = 0
 				}
-				fmt.Fprint(dst, ".")
+				logger.Infof(".")
 				progress++
 				time.Sleep(expDelay(progress))
 			}

@@ -1,7 +1,11 @@
 # hardline
+
+***Always have rollback, and don’t lock yourself out.***
+
 Declarative, deterministic security profiles using a strict JSON-only schema and template system for reproducible hardening.
 
-## Why JSON?
+
+### Why JSON?
 
 1. **Determinism / safety**
 
@@ -21,3 +25,13 @@ Declarative, deterministic security profiles using a strict JSON-only schema and
    * JSON’s constraints are a feature, not a bug.
 
 *YAML is for human-facing infra manifests. Hardline profiles are machine-validated security policy; JSON’s strictness is intentional.*
+
+### Design philosophy
+
+- Keep behavior explicit and visible.
+- Prefer concrete code over abstraction layers.
+- Prefer small, focused functions over generic frameworks.
+- Limit helpers to mechanical concerns (SSH, file I/O, logging).
+- Do not use generics in domain logic.
+
+Code should make operational intent obvious at the call site. Local duplication is acceptable when it preserves clarity. Shared abstractions are introduced only when proven stable and beneficial over time.

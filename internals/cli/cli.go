@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/karvashish/hardline/internals/logger"
+	"github.com/karvashish/hardline/pkg/logger"
 )
 
 func Usage() {

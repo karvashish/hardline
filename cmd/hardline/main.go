@@ -6,7 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/executor"
-	"github.com/karvashish/hardline/internals/logger"
+	"github.com/karvashish/hardline/pkg/logger"
 )
 
 func main() {

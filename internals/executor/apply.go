@@ -8,7 +8,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
-	"github.com/karvashish/hardline/internals/logger"
+	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )

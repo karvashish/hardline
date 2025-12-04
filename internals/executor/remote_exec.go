@@ -5,7 +5,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/karvashish/hardline/internals/logger"
+	"github.com/karvashish/hardline/pkg/logger"
 	"golang.org/x/crypto/ssh"
 )
 

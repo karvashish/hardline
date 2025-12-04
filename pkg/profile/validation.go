@@ -198,7 +198,7 @@ func (s ServiceSpec) Affirm() error {
 	state := strings.TrimSpace(s.State)
 	if state != "" {
 		switch state {
-		case "started", "stopped", "restarted", "reloaded":
+		case "started", "stopped", "restarted", "reloaded", "reload-or-restart":
 			logger.Debugf("profile: service spec: state %q accepted\n", state)
 		default:
 			issues = append(issues, fmt.Sprintf("service.state %q is invalid (must be started, stopped, restarted, or reloaded)", s.State))

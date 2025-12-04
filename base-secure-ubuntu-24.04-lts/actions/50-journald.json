@@ -21,7 +21,7 @@
       "service": {
         "name": "systemd-journald",
         "enabled": true,
-        "state": "restarted"
+        "state": "reload-or-restart"
       }
     }
   ]

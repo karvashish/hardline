@@ -127,7 +127,8 @@
             "started",
             "stopped",
             "restarted",
-            "reloaded"
+            "reloaded",
+            "reload-or-restart"
           ]
         }
       },

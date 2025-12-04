@@ -164,7 +164,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 		cmd = fmt.Sprintf("systemctl stop %s", unit)
 	case "restarted", "restart":
 		cmd = fmt.Sprintf("systemctl restart %s", unit)
-	case "reloaded", "reload":
+	case "reloaded", "reload", "reload-or-restart":
 		cmd = fmt.Sprintf("systemctl reload-or-restart %s", unit)
 	default:
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)

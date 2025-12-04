@@ -3,7 +3,6 @@ package executor
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
@@ -134,65 +133,5 @@ func planProfile(client *ssh.Client, p *profile.Profile) error {
 		}
 	}
 
-	printPlanSummary(p, plans)
 	return nil
-}
-
-func printPlanSummary(p *profile.Profile, plans []StepPlan) {
-	if len(plans) == 0 {
-		logger.Infof("plan: profile %s has no steps", p.ID)
-		return
-	}
-
-	logger.Infof(logger.ColorBold+"plan for profile %s"+colorReset, p.ID)
-	logger.Infof(logger.ColorDim+"  %d step(s) across %d action file(s)"+colorReset,
-		len(plans), len(p.ActionFiles))
-	logger.Infof("")
-
-	for i, sp := range plans {
-		if i > 0 {
-			logger.Infof("") // blank line between steps
-		}
-
-		sevLabel, sevColor := severityLabelAndColor(sp.Severity)
-		riskLabel := strings.ToLower(strings.TrimSpace(sp.RiskClass))
-
-		// Header: [severity] (risk=...) step_id (type)
-		logger.Infof(
-			"%s[%s]%s %s(risk=%s)%s %s%s (%s)%s",
-			sevColor, sevLabel, colorReset,
-			logger.ColorDim, riskLabel, colorReset,
-			logger.ColorBold, sp.StepID, sp.StepType, colorReset,
-		)
-
-		logger.Infof("  %s", sp.Summary)
-
-		if logger.DebugMode() {
-			for _, line := range sp.Details {
-				logger.Infof("    %s", line)
-			}
-		}
-	}
-
-	logger.Infof("")
-}
-
-func severityLabelAndColor(severity string) (string, string) {
-	sev := strings.ToLower(strings.TrimSpace(severity))
-
-	switch sev {
-	case "critical":
-		return "critical", logger.ColorRed
-	case "high":
-		return "high", logger.ColorYellow
-	case "medium":
-		return "medium", logger.ColorBlue
-	case "low":
-		return "low", logger.ColorGreen
-	default:
-		if sev == "" {
-			return "unknown", logger.ColorDim
-		}
-		return sev, logger.ColorDim
-	}
 }

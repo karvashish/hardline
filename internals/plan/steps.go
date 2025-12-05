@@ -40,7 +40,10 @@ func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 		}
 		plan.Summary = summary
 		plan.Details = details
-		if noop {
+		switch noop {
+		case 1:
+			plan.Severity = "medium"
+		case 0:
 			plan.Severity = "low"
 		}
 		return plan, nil
@@ -100,7 +103,7 @@ func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 	}
 }
 
-func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []string, bool, error) {
+func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []string, int, error) {
 	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
 
@@ -207,27 +210,39 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 				logger.ColorRed+fmt.Sprintf("autoremove: failed to preview packages to be removed (%v)", err)+logger.ColorReset,
 			)
 		} else if len(pkgs) == 0 {
-			details = append(details,
-				logger.ColorBlue+"autoremove: no packages would be removed (no-op)"+logger.ColorReset,
-			)
+			msg := "autoremove: no packages would be removed (no-op)"
+			if pk.Upgrade {
+				msg = "autoremove: no packages would be removed (current state; may change after upgrade)"
+			}
+			details = append(details, logger.ColorBlue+msg+logger.ColorReset)
 		} else {
 			autoremoveWillChange = pkgs
-			details = append(details,
-				logger.ColorGreen+fmt.Sprintf("autoremove: would remove %d package(s): %s", len(pkgs), strings.Join(pkgs, ", "))+logger.ColorReset,
-			)
+			msg := fmt.Sprintf("autoremove: would remove %d package(s): %s", len(pkgs), strings.Join(pkgs, ", "))
+			if pk.Upgrade {
+				msg += " (may change after upgrade)"
+			}
+			details = append(details, logger.ColorGreen+msg+logger.ColorReset)
 		}
 	}
 
 	var summary string
-	var noop bool
+	var noop int = 2
 	if !pk.Update &&
 		(!pk.Upgrade || len(upgradeWillChange) == 0) &&
 		len(installWillChange) == 0 &&
 		len(installDepsWillChange) == 0 &&
 		len(purgeWillChange) == 0 &&
 		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
-		noop = true
+		noop = 0
 		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified or no changes required)"
+	} else if pk.Update &&
+		len(upgradeWillChange) == 0 &&
+		len(installWillChange) == 0 &&
+		len(installDepsWillChange) == 0 &&
+		len(purgeWillChange) == 0 &&
+		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
+		summary = "packages step: update package index (install/upgrade/purge/autoremove currently no-op; may change after update)"
+		noop = 1
 	} else {
 		var summaryParts []string
 		if pk.Update {
@@ -235,11 +250,18 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 		}
 		if pk.Upgrade {
 			if len(upgradeWillChange) == 0 {
-				summaryParts = append(summaryParts, "upgrade installed packages (none)")
+				if pk.Update {
+					summaryParts = append(summaryParts,
+						fmt.Sprintf("upgrade installed packages %s(none currently; may change after update)%s", logger.ColorYellow, logger.ColorReset))
+				} else {
+					summaryParts = append(summaryParts, fmt.Sprintf("upgrade installed packages %s(none)%s", logger.ColorGreen, logger.ColorReset))
+				}
 			} else {
-				summaryParts = append(summaryParts, "upgrade: "+strings.Join(upgradeWillChange, ", "))
+				summaryParts = append(summaryParts,
+					"upgrade: "+strings.Join(upgradeWillChange, ", "))
 			}
 		}
+
 		if len(installWillChange) > 0 {
 			summaryParts = append(summaryParts, "install: "+strings.Join(installWillChange, ", "))
 		}
@@ -251,9 +273,19 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 		}
 		if pk.Autoremove {
 			if len(autoremoveWillChange) == 0 {
-				summaryParts = append(summaryParts, "autoremove unused packages (no packages to remove)")
+				if pk.Upgrade {
+					summaryParts = append(summaryParts,
+						fmt.Sprintf("autoremove %s(none currently; may change after upgrade)%s", logger.ColorYellow, logger.ColorReset))
+				} else {
+					summaryParts = append(summaryParts,
+						"autoremove unused packages (no packages to remove)")
+				}
 			} else {
-				summaryParts = append(summaryParts, "autoremove unused packages: "+strings.Join(autoremoveWillChange, ", "))
+				line := "autoremove unused packages: " + strings.Join(autoremoveWillChange, ", ")
+				if pk.Upgrade {
+					line += " (may change after upgrade)"
+				}
+				summaryParts = append(summaryParts, line)
 			}
 		}
 		summary = "packages step: " + strings.Join(summaryParts, "; ")

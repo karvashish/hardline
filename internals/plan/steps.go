@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/karvashish/hardline/internals/remote"
+	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 type StepPlan struct {
@@ -21,7 +19,7 @@ type StepPlan struct {
 	Details []string
 }
 
-func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
+func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
 
 	plan := StepPlan{
@@ -36,7 +34,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 		if s.Packages == nil {
 			return plan, fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
 		}
-		summary, details, err := planPackages(client, s.Packages)
+		summary, details, err := planPackages(insp, s.Packages)
 		if err != nil {
 			return plan, err
 		}
@@ -48,7 +46,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 		if s.Template == nil {
 			return plan, fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
 		}
-		summary, details, err := planTemplate(client, s.Template)
+		summary, details, err := planTemplate(insp, s.Template)
 		if err != nil {
 			return plan, err
 		}
@@ -60,7 +58,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 		if s.Service == nil {
 			return plan, fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
 		}
-		summary, details, err := planService(client, s.Service)
+		summary, details, err := planService(insp, s.Service)
 		if err != nil {
 			return plan, err
 		}
@@ -72,7 +70,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 		if s.Firewall == nil {
 			return plan, fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
 		}
-		summary, details, err := planFirewall(client, s.Firewall)
+		summary, details, err := planFirewall(insp, s.Firewall)
 		if err != nil {
 			return plan, err
 		}
@@ -85,7 +83,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 		if kind == "" {
 			return plan, fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
 		}
-		summary, details, err := planValidate(client, kind)
+		summary, details, err := planValidate(insp, kind)
 		if err != nil {
 			return plan, err
 		}
@@ -99,7 +97,7 @@ func planStep(client *ssh.Client, s profile.Step) (StepPlan, error) {
 	}
 }
 
-func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string, error) {
+func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []string, error) {
 	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
 
@@ -119,9 +117,7 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 	}
 
 	for _, name := range pk.Install {
-		cmd := fmt.Sprintf("dpkg -s %q >/dev/null 2>&1", name)
-		err := remote.RunRoot(client, cmd)
-		if err == nil {
+		if insp.PackageInstalled(name) {
 			line := fmt.Sprintf(
 				"%spackage %q:%s %scurrently installed (no install change)%s",
 				logger.ColorBlue, name, logger.ColorReset,
@@ -141,9 +137,7 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 	}
 
 	for _, name := range pk.Purge {
-		cmd := fmt.Sprintf("dpkg -s %q >/dev/null 2>&1", name)
-		err := remote.RunRoot(client, cmd)
-		if err == nil {
+		if insp.PackageInstalled(name) {
 			purgeWillChange = append(purgeWillChange, name)
 
 			line := fmt.Sprintf(
@@ -188,18 +182,12 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 	return summary, details, nil
 }
 
-func planTemplate(client *ssh.Client, t *profile.TemplateSpec) (string, []string, error) {
+func planTemplate(insp inspector.Inspector, t *profile.TemplateSpec) (string, []string, error) {
 	logger.Debugf("planTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
 	var details []string
 
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		return "", nil, fmt.Errorf("planTemplate: new sftp client: %w", err)
-	}
-	defer sftpClient.Close()
-
-	info, err := sftpClient.Stat(t.Dest)
+	info, err := insp.Stat(t.Dest)
 	if err != nil {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sdoes not exist (file will be created)%s",
@@ -235,7 +223,7 @@ func planTemplate(client *ssh.Client, t *profile.TemplateSpec) (string, []string
 	return summary, details, nil
 }
 
-func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, error) {
+func planService(insp inspector.Inspector, s *profile.ServiceSpec) (string, []string, error) {
 	if s.Name == "" {
 		return "service step: invalid (missing service name)", nil, fmt.Errorf("service name is required")
 	}
@@ -250,14 +238,14 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 	var details []string
 
 	enabledState := "unknown"
-	if err := remote.RunRoot(client, fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)); err == nil {
+	if insp.IsServiceEnabled(unit) {
 		enabledState = "enabled"
 	} else {
 		enabledState = "disabled or not-found"
 	}
 
 	activeState := "unknown"
-	if err := remote.RunRoot(client, fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)); err == nil {
+	if insp.IsServiceActive(unit) {
 		activeState = "active"
 	} else {
 		activeState = "inactive or not-found"
@@ -329,7 +317,7 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 	return summary, details, nil
 }
 
-func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []string, error) {
+func planFirewall(insp inspector.Inspector, fw *profile.FirewallSpec) (string, []string, error) {
 	logger.Debugf("planFirewall: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
 
 	var details []string
@@ -348,13 +336,7 @@ func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []strin
 		destPath = "/etc/nftables.d/10-hardline.nft"
 	}
 
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		return "", nil, fmt.Errorf("planFirewall: new sftp client: %w", err)
-	}
-	defer sftpClient.Close()
-
-	info, err := sftpClient.Stat(destPath)
+	info, err := insp.Stat(destPath)
 	if err != nil {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sdoes not exist (file will be created)%s",
@@ -400,15 +382,14 @@ func planFirewall(client *ssh.Client, fw *profile.FirewallSpec) (string, []strin
 	return summary, details, nil
 }
 
-func planValidate(client *ssh.Client, kind string) (string, []string, error) {
+func planValidate(insp inspector.Inspector, kind string) (string, []string, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "sshd":
 		logger.Debugf("planValidate: kind=sshd\n")
 
 		var details []string
 
-		includeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
-		if err := remote.RunRoot(client, includeCmd); err == nil {
+		if insp.SSHIncludePresent() {
 			details = append(details,
 				logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+logger.ColorReset,
 			)
@@ -418,7 +399,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 			)
 		}
 
-		testErr := remote.RunRoot(client, "sshd -t -f /etc/ssh/sshd_config")
+		testErr := insp.SSHConfigTest()
 		if testErr == nil {
 			details = append(details,
 				logger.ColorGreen+"current sshd configuration: passes sshd -t"+logger.ColorReset,
@@ -437,8 +418,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 
 		var details []string
 
-		includeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf`
-		if err := remote.RunRoot(client, includeCmd); err == nil {
+		if insp.FirewallIncludePresent() {
 			details = append(details,
 				logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
 			)
@@ -448,7 +428,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 			)
 		}
 
-		testErr := remote.RunRoot(client, "nft -c -f /etc/nftables.conf")
+		testErr := insp.FirewallConfigTest()
 		if testErr == nil {
 			details = append(details,
 				logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,

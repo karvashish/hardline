@@ -6,6 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -114,7 +115,8 @@ func planProfile(client *ssh.Client, p *profile.Profile, host string) error {
 				stop = utils.Throbber()
 			}
 
-			sp, err := planStep(client, step)
+			insp := inspector.NewSSHInspector(client)
+			sp, err := planStep(insp, step)
 
 			if stop != nil {
 				stop()

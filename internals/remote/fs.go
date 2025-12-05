@@ -45,7 +45,7 @@ func WriteRootFile(client *ssh.Client, sftpClient *sftp.Client, remotePath strin
 	return nil
 }
 
-func readRootFile(client *ssh.Client, path string) (string, error) {
+func ReadRootFile(client *ssh.Client, path string) (string, error) {
 	logger.Debugf("readRootFile: path=%q\n", path)
 
 	cmd := "cat " + path

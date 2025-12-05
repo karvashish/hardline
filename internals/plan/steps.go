@@ -441,11 +441,12 @@ func planFirewall(insp inspector.Inspector, fw *profile.FirewallSpec) (string, [
 
 	tmplPath := strings.TrimSpace(fw.TemplateSrc)
 	if tmplPath == "" {
-		tmplPath = "templates/nftables_base.tmpl"
+		return "", nil, fmt.Errorf("firewall step: template_src is required for nftables backend")
 	}
+
 	destPath := strings.TrimSpace(fw.TemplateDest)
 	if destPath == "" {
-		destPath = "/etc/nftables.d/10-hardline.nft"
+		return "", nil, fmt.Errorf("firewall step: template_dest is required for nftables backend")
 	}
 
 	info, err := insp.Stat(destPath)
@@ -469,17 +470,63 @@ func planFirewall(insp inspector.Inspector, fw *profile.FirewallSpec) (string, [
 		logger.ColorBlue+fmt.Sprintf("template source: %q", tmplPath)+logger.ColorReset,
 	)
 
-	if len(fw.Allow) == 0 {
+	enabledState := "unknown"
+	if insp.IsServiceEnabled("nftables") {
+		enabledState = "enabled"
+	} else {
+		enabledState = "disabled or not-found"
+	}
+	activeState := "unknown"
+	if insp.IsServiceActive("nftables") {
+		activeState = "active"
+	} else {
+		activeState = "inactive or not-found"
+	}
+	details = append(details,
+		logger.ColorYellow+fmt.Sprintf("nftables service: enabled=%s, active=%s", enabledState, activeState)+logger.ColorReset,
+	)
+
+	if insp.FirewallIncludePresent() {
 		details = append(details,
-			logger.ColorDim+"no allow rules specified (policy in template will apply as-is)"+logger.ColorReset,
+			logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
 		)
 	} else {
-		details = append(details, logger.ColorDim+"allow rules to be enforced:"+logger.ColorReset)
+		details = append(details,
+			logger.ColorYellow+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (template file may not be loaded)`+logger.ColorReset,
+		)
+	}
+
+	if polLines, err := insp.FirewallPolicySummary(); err != nil {
+		details = append(details,
+			logger.ColorRed+fmt.Sprintf("failed to inspect current nftables base policy (%v)", err)+logger.ColorReset,
+		)
+	} else if len(polLines) > 0 {
+		details = append(details, logger.ColorDim+"current nftables base policy:"+logger.ColorReset)
+		for _, line := range polLines {
+			details = append(details, "  "+logger.ColorDim+line+logger.ColorReset)
+		}
+	}
+
+	type portKey struct {
+		proto string
+		port  int
+	}
+	desired := make(map[portKey]struct{})
+
+	if len(fw.Allow) == 0 {
+		details = append(details,
+			logger.ColorDim+"no allow rules specified in profile (policy from template will apply as-is)"+logger.ColorReset,
+		)
+	} else {
+		details = append(details, logger.ColorDim+"allow rules requested by profile:"+logger.ColorReset)
 		for _, rule := range fw.Allow {
 			proto := strings.ToLower(strings.TrimSpace(rule.Proto))
 			if proto == "" {
 				proto = "tcp"
 			}
+			k := portKey{proto: proto, port: rule.Port}
+			desired[k] = struct{}{}
+
 			line := fmt.Sprintf(
 				"  %s- %s dport %d accept%s",
 				logger.ColorGreen, proto, rule.Port, logger.ColorReset,
@@ -488,8 +535,88 @@ func planFirewall(insp inspector.Inspector, fw *profile.FirewallSpec) (string, [
 		}
 	}
 
-	summary := fmt.Sprintf("firewall step: backend=nftables, template=%q -> %q, %d allow rule(s)",
-		tmplPath, destPath, len(fw.Allow))
+	var alreadyAllowed []string
+	var willOpen []string
+	var currentlyOpenNotDesired []string
+
+	if currentAllows, err := insp.FirewallAllowedPorts(); err != nil {
+		details = append(details,
+			logger.ColorRed+fmt.Sprintf("failed to inspect current nftables allow rules (%v)", err)+logger.ColorReset,
+		)
+	} else {
+		current := make(map[portKey]struct{})
+		for proto, ports := range currentAllows {
+			p := strings.ToLower(strings.TrimSpace(proto))
+			if p == "" {
+				p = "tcp"
+			}
+			for _, port := range ports {
+				current[portKey{proto: p, port: port}] = struct{}{}
+			}
+		}
+
+		for k := range desired {
+			if _, ok := current[k]; ok {
+				alreadyAllowed = append(alreadyAllowed, fmt.Sprintf("%s/%d", k.proto, k.port))
+			} else {
+				willOpen = append(willOpen, fmt.Sprintf("%s/%d", k.proto, k.port))
+			}
+		}
+
+		if len(desired) > 0 {
+			for k := range current {
+				if _, ok := desired[k]; !ok {
+					currentlyOpenNotDesired = append(currentlyOpenNotDesired, fmt.Sprintf("%s/%d", k.proto, k.port))
+				}
+			}
+		}
+
+		details = append(details, logger.ColorDim+"comparison with currently applied nftables allow rules:"+logger.ColorReset)
+
+		if len(alreadyAllowed) > 0 {
+			details = append(details,
+				logger.ColorBlue+fmt.Sprintf("  already allowed and requested by profile: %s", strings.Join(alreadyAllowed, ", "))+logger.ColorReset,
+			)
+		}
+		if len(willOpen) > 0 {
+			details = append(details,
+				logger.ColorGreen+fmt.Sprintf("  new allow rules (will open): %s", strings.Join(willOpen, ", "))+logger.ColorReset,
+			)
+		}
+		if len(currentlyOpenNotDesired) > 0 {
+			details = append(details,
+				logger.ColorYellow+fmt.Sprintf("  currently allowed but not requested by profile (may be closed by template): %s",
+					strings.Join(currentlyOpenNotDesired, ", "))+logger.ColorReset,
+			)
+		}
+		if len(alreadyAllowed) == 0 && len(willOpen) == 0 && len(currentlyOpenNotDesired) == 0 {
+			details = append(details,
+				logger.ColorDim+"  no simple tcp/udp dport accept rules detected or no differences found"+logger.ColorReset,
+			)
+		}
+	}
+
+	openedCount := len(willOpen)
+	closedCount := len(currentlyOpenNotDesired)
+
+	var summary string
+	switch {
+	case len(fw.Allow) == 0:
+		summary = fmt.Sprintf(
+			"firewall step: backend=nftables, template=%q -> %q,\n 		no profile allow rules (template policy only)",
+			tmplPath, destPath,
+		)
+	case openedCount == 0 && closedCount == 0:
+		summary = fmt.Sprintf(
+			"firewall step: backend=nftables, template=%q -> %q,\n 		%d allow rule(s), no port changes vs current ruleset",
+			tmplPath, destPath, len(fw.Allow),
+		)
+	default:
+		summary = fmt.Sprintf(
+			"firewall step: backend=nftables, template=%q -> %q,\n 		%d allow rule(s), opens %d and may close %d ports",
+			tmplPath, destPath, len(fw.Allow), openedCount, closedCount,
+		)
+	}
 
 	return summary, details, nil
 }

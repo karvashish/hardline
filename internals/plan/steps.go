@@ -34,12 +34,15 @@ func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 		if s.Packages == nil {
 			return plan, fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
 		}
-		summary, details, err := planPackages(insp, s.Packages)
+		summary, details, noop, err := planPackages(insp, s.Packages)
 		if err != nil {
 			return plan, err
 		}
 		plan.Summary = summary
 		plan.Details = details
+		if noop {
+			plan.Severity = "low"
+		}
 		return plan, nil
 
 	case "template":
@@ -97,7 +100,7 @@ func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 	}
 }
 
-func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []string, error) {
+func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []string, bool, error) {
 	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
 
@@ -105,15 +108,13 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 
 	var installWillChange []string
 	var purgeWillChange []string
+	var autoremoveWillChange []string
 
 	if pk.Update {
 		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+logger.ColorReset)
 	}
 	if pk.Upgrade {
 		details = append(details, logger.ColorGreen+"will run: apt-get upgrade -y (packages with available updates will be upgraded)"+logger.ColorReset)
-	}
-	if pk.Autoremove {
-		details = append(details, logger.ColorGreen+"will run: apt-get autoremove -y (unused dependencies will be removed)"+logger.ColorReset)
 	}
 
 	for _, name := range pk.Install {
@@ -156,9 +157,33 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 		}
 	}
 
+	if pk.Autoremove {
+		pkgs, err := insp.AptAutoremovePreview()
+		if err != nil {
+			details = append(details,
+				logger.ColorRed+fmt.Sprintf("autoremove: failed to preview packages to be removed (%v)", err)+logger.ColorReset,
+			)
+		} else if len(pkgs) == 0 {
+			details = append(details,
+				logger.ColorBlue+"autoremove: no packages would be removed (no-op)"+logger.ColorReset,
+			)
+		} else {
+			autoremoveWillChange = pkgs
+			details = append(details,
+				logger.ColorGreen+fmt.Sprintf("autoremove: would remove %d package(s): %s", len(pkgs), strings.Join(pkgs, ", "))+logger.ColorReset,
+			)
+		}
+	}
+
 	var summary string
-	if !pk.Update && !pk.Upgrade && len(installWillChange) == 0 && len(purgeWillChange) == 0 && !pk.Autoremove {
-		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified)"
+	var noop bool
+	if !pk.Update &&
+		!pk.Upgrade &&
+		len(installWillChange) == 0 &&
+		len(purgeWillChange) == 0 &&
+		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
+		noop = true
+		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified or no changes required)"
 	} else {
 		var summaryParts []string
 		if pk.Update {
@@ -174,12 +199,16 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 			summaryParts = append(summaryParts, "purge: "+strings.Join(purgeWillChange, ", "))
 		}
 		if pk.Autoremove {
-			summaryParts = append(summaryParts, "autoremove unused packages")
+			if len(autoremoveWillChange) == 0 {
+				summaryParts = append(summaryParts, "autoremove unused packages (no packages to remove)")
+			} else {
+				summaryParts = append(summaryParts, "autoremove unused packages: "+strings.Join(autoremoveWillChange, ", "))
+			}
 		}
 		summary = "packages step: " + strings.Join(summaryParts, "; ")
 	}
 
-	return summary, details, nil
+	return summary, details, noop, nil
 }
 
 func planTemplate(insp inspector.Inspector, t *profile.TemplateSpec) (string, []string, error) {

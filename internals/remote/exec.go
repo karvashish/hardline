@@ -43,3 +43,32 @@ func RunRoot(client *ssh.Client, cmd string) error {
 	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
 	return Run(client, wrapped)
 }
+
+func RunWithOutput(client *ssh.Client, cmd string) (string, error) {
+	logger.Debugf("remote cmd: %s\n", cmd)
+
+	session, err := client.NewSession()
+	if err != nil {
+		return "", err
+	}
+	defer session.Close()
+
+	var out bytes.Buffer
+	var errb bytes.Buffer
+	session.Stdout = &out
+	session.Stderr = &errb
+
+	if err := session.Run(cmd); err != nil {
+		if errb.Len() > 0 {
+			logger.Infof("cmd error: %s\n", errb.String())
+		}
+		return out.String(), err
+	}
+
+	return out.String(), nil
+}
+
+func RunRootWithOutput(client *ssh.Client, cmd string) (string, error) {
+	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
+	return RunWithOutput(client, wrapped)
+}

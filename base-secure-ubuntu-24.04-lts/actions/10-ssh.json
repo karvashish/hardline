@@ -15,7 +15,7 @@
     {
       "id": "ssh-config-validate",
       "type": "validate",
-      "severity": "medium",
+      "severity": "low",
       "risk_class": "access",
       "control_tags": [],
       "validate": "sshd"

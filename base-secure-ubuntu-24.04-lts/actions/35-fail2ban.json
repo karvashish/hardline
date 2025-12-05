@@ -15,7 +15,7 @@
     {
       "id": "fail2ban-service-enable",
       "type": "service",
-      "severity": "critical",
+      "severity": "high",
       "risk_class": "access",
       "control_tags": [],
       "service": {

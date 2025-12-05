@@ -3,7 +3,7 @@
     {
       "id": "firewall-default-deny",
       "type": "firewall",
-      "severity": "medium",
+      "severity": "high",
       "risk_class": "access",
       "control_tags": [],
       "firewall": {
@@ -22,7 +22,7 @@
     {
       "id": "firewall-config-validate",
       "type": "validate",
-      "severity": "medium",
+      "severity": "low",
       "risk_class": "access",
       "control_tags": [],
       "validate": "firewall"

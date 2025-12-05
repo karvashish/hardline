@@ -15,13 +15,13 @@
     {
       "id": "journald-reload",
       "type": "service",
-      "severity": "high",
+      "severity": "medium",
       "risk_class": "compliance",
       "control_tags": [],
       "service": {
         "name": "systemd-journald",
         "enabled": true,
-        "state": "reload-or-restart"
+        "state": "restarted"
       }
     }
   ]

@@ -3,7 +3,7 @@
     {
       "id": "timesyncd-enable",
       "type": "service",
-      "severity": "high",
+      "severity": "low",
       "risk_class": "availability",
       "control_tags": [],
       "service": {

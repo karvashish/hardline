@@ -16,6 +16,7 @@ type Inspector interface {
 	PackageInstalled(name string) bool
 	AptAutoremovePreview() ([]string, error)
 	AptUpgradePreview() ([]string, error)
+	AptInstallPreview(pkgs []string) ([]string, error)
 	Stat(path string) (os.FileInfo, error)
 	IsServiceEnabled(unit string) bool
 	IsServiceActive(unit string) bool
@@ -161,4 +162,48 @@ func (i *SSHInspector) AptUpgradePreview() ([]string, error) {
 	}
 
 	return pkgs, nil
+}
+
+func (i *SSHInspector) AptInstallPreview(pkgs []string) ([]string, error) {
+	if len(pkgs) == 0 {
+		return nil, nil
+	}
+	cmd := "DEBIAN_FRONTEND=noninteractive apt-get -s install " + strings.Join(pkgs, " ")
+
+	out, err := remote.RunRootWithOutput(i.client, cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	var result []string
+	seen := make(map[string]struct{})
+
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if !strings.HasPrefix(line, "Inst ") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		pkg := fields[1]
+		if _, ok := seen[pkg]; ok {
+			continue
+		}
+
+		seen[pkg] = struct{}{}
+		result = append(result, pkg)
+	}
+
+	if err := scanner.Err(); err != nil {
+		logger.Debugf("AptInstallPreview: scanner error: %v\n", err)
+		return result, err
+	}
+
+	return result, nil
 }

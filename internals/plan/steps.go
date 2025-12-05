@@ -107,6 +107,7 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 	var details []string
 
 	var installWillChange []string
+	var installDepsWillChange []string
 	var purgeWillChange []string
 	var upgradeWillChange []string
 	var autoremoveWillChange []string
@@ -153,6 +154,32 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 		}
 	}
 
+	if len(pk.Install) > 0 {
+		all, err := insp.AptInstallPreview(pk.Install)
+		if err != nil {
+			details = append(details,
+				logger.ColorRed+fmt.Sprintf("install: failed to preview dependency installs (%v)", err)+logger.ColorReset,
+			)
+		} else if len(all) > 0 {
+			explicit := make(map[string]struct{}, len(pk.Install))
+			for _, name := range pk.Install {
+				explicit[name] = struct{}{}
+			}
+			for _, name := range all {
+				if _, ok := explicit[name]; ok {
+					continue
+				}
+				installDepsWillChange = append(installDepsWillChange, name)
+			}
+			if len(installDepsWillChange) > 0 {
+				details = append(details,
+					logger.ColorDim+fmt.Sprintf("apt will also install %d dependency package(s): %s",
+						len(installDepsWillChange), strings.Join(installDepsWillChange, ", "))+logger.ColorReset,
+				)
+			}
+		}
+	}
+
 	for _, name := range pk.Purge {
 		if insp.PackageInstalled(name) {
 			purgeWillChange = append(purgeWillChange, name)
@@ -194,10 +221,11 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 	var summary string
 	var noop bool
 	if !pk.Update &&
+		(!pk.Upgrade || len(upgradeWillChange) == 0) &&
 		len(installWillChange) == 0 &&
+		len(installDepsWillChange) == 0 &&
 		len(purgeWillChange) == 0 &&
-		(!pk.Autoremove || len(autoremoveWillChange) == 0) &&
-		(!pk.Upgrade || len(upgradeWillChange) == 0) {
+		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
 		noop = true
 		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified or no changes required)"
 	} else {
@@ -214,6 +242,9 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 		}
 		if len(installWillChange) > 0 {
 			summaryParts = append(summaryParts, "install: "+strings.Join(installWillChange, ", "))
+		}
+		if len(installDepsWillChange) > 0 {
+			summaryParts = append(summaryParts, "install dependencies: "+strings.Join(installDepsWillChange, ", "))
 		}
 		if len(purgeWillChange) > 0 {
 			summaryParts = append(summaryParts, "purge: "+strings.Join(purgeWillChange, ", "))

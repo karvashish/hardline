@@ -1,9 +1,10 @@
-package executor
+package plan
 
 import (
 	"fmt"
 	"strings"
 
+	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
@@ -119,7 +120,7 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 
 	for _, name := range pk.Install {
 		cmd := fmt.Sprintf("dpkg -s %q >/dev/null 2>&1", name)
-		err := runRoot(client, cmd)
+		err := remote.RunRoot(client, cmd)
 		if err == nil {
 			line := fmt.Sprintf(
 				"%spackage %q:%s %scurrently installed (no install change)%s",
@@ -141,7 +142,7 @@ func planPackages(client *ssh.Client, pk *profile.PackageSpec) (string, []string
 
 	for _, name := range pk.Purge {
 		cmd := fmt.Sprintf("dpkg -s %q >/dev/null 2>&1", name)
-		err := runRoot(client, cmd)
+		err := remote.RunRoot(client, cmd)
 		if err == nil {
 			purgeWillChange = append(purgeWillChange, name)
 
@@ -239,20 +240,24 @@ func planService(client *ssh.Client, s *profile.ServiceSpec) (string, []string, 
 		return "service step: invalid (missing service name)", nil, fmt.Errorf("service name is required")
 	}
 
-	unit := canonicalServiceName(s.Name)
+	unit := s.Name
+
+	if unit == "sshd" {
+		unit = "ssh"
+	}
 	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	var details []string
 
 	enabledState := "unknown"
-	if err := runRoot(client, fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)); err == nil {
+	if err := remote.RunRoot(client, fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)); err == nil {
 		enabledState = "enabled"
 	} else {
 		enabledState = "disabled or not-found"
 	}
 
 	activeState := "unknown"
-	if err := runRoot(client, fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)); err == nil {
+	if err := remote.RunRoot(client, fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)); err == nil {
 		activeState = "active"
 	} else {
 		activeState = "inactive or not-found"
@@ -403,7 +408,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 		var details []string
 
 		includeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
-		if err := runRoot(client, includeCmd); err == nil {
+		if err := remote.RunRoot(client, includeCmd); err == nil {
 			details = append(details,
 				logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+logger.ColorReset,
 			)
@@ -413,7 +418,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 			)
 		}
 
-		testErr := runRoot(client, "sshd -t -f /etc/ssh/sshd_config")
+		testErr := remote.RunRoot(client, "sshd -t -f /etc/ssh/sshd_config")
 		if testErr == nil {
 			details = append(details,
 				logger.ColorGreen+"current sshd configuration: passes sshd -t"+logger.ColorReset,
@@ -433,7 +438,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 		var details []string
 
 		includeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf`
-		if err := runRoot(client, includeCmd); err == nil {
+		if err := remote.RunRoot(client, includeCmd); err == nil {
 			details = append(details,
 				logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
 			)
@@ -443,7 +448,7 @@ func planValidate(client *ssh.Client, kind string) (string, []string, error) {
 			)
 		}
 
-		testErr := runRoot(client, "nft -c -f /etc/nftables.conf")
+		testErr := remote.RunRoot(client, "nft -c -f /etc/nftables.conf")
 		if testErr == nil {
 			details = append(details,
 				logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,

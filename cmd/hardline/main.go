@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/karvashish/hardline/internals/apply"
 	"github.com/karvashish/hardline/internals/cli"
-	"github.com/karvashish/hardline/internals/executor"
+	"github.com/karvashish/hardline/internals/plan"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
 )
 
@@ -21,15 +23,15 @@ func main() {
 	case "plan":
 		c := cli.Parse(cmd, os.Args[2:])
 		logger.SetDebug(c.Debug)
-		executor.Plan(c)
+		plan.Plan(c)
 	case "apply":
 		c := cli.Parse(cmd, os.Args[2:])
 		logger.SetDebug(c.Debug)
-		executor.Apply(c)
+		apply.Apply(c)
 	case "verify-profile", "vp":
 		c := cli.Parse(cmd, os.Args[2:])
 		logger.SetDebug(c.Debug)
-		executor.Verify(c)
+		verify.Verify(c)
 	case "version", "-v":
 		ver, _, err := cli.VersionCmd()
 		if err != nil {

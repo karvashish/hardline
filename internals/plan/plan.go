@@ -1,4 +1,4 @@
-package executor
+package plan
 
 import (
 	"os"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
@@ -110,7 +111,7 @@ func planProfile(client *ssh.Client, p *profile.Profile, host string) error {
 
 			var stop func()
 			if !logger.DebugMode() {
-				stop = throbber()
+				stop = utils.Throbber()
 			}
 
 			sp, err := planStep(client, step)

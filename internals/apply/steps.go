@@ -1,4 +1,4 @@
-package executor
+package apply
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
@@ -54,33 +55,33 @@ func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
 	)
 
 	if pk.Update {
-		if err := runRoot(client, "apt-get update -y"); err != nil {
+		if err := remote.RunRoot(client, "apt-get update -y"); err != nil {
 			return fmt.Errorf("apt-get update failed: %w", err)
 		}
 	}
 
 	if pk.Upgrade {
-		if err := runRoot(client, "apt-get upgrade -y"); err != nil {
+		if err := remote.RunRoot(client, "apt-get upgrade -y"); err != nil {
 			return fmt.Errorf("apt-get upgrade failed: %w", err)
 		}
 	}
 
 	if len(pk.Install) > 0 {
 		cmd := "apt-get install -y " + strings.Join(pk.Install, " ")
-		if err := runRoot(client, cmd); err != nil {
+		if err := remote.RunRoot(client, cmd); err != nil {
 			return fmt.Errorf("apt-get install failed (%s): %w", strings.Join(pk.Install, ","), err)
 		}
 	}
 
 	if len(pk.Purge) > 0 {
 		cmd := "apt-get purge -y " + strings.Join(pk.Purge, " ")
-		if err := runRoot(client, cmd); err != nil {
+		if err := remote.RunRoot(client, cmd); err != nil {
 			return fmt.Errorf("apt-get purge failed (%s): %w", strings.Join(pk.Purge, ","), err)
 		}
 	}
 
 	if pk.Autoremove {
-		if err := runRoot(client, "apt-get autoremove -y"); err != nil {
+		if err := remote.RunRoot(client, "apt-get autoremove -y"); err != nil {
 			return fmt.Errorf("apt-get autoremove failed: %w", err)
 		}
 	}
@@ -112,23 +113,16 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 
 	dir := path.Dir(t.Dest)
 	if dir != "" && dir != "." {
-		if err := runRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := remote.RunRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
 
-	if err := writeRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
-		return fmt.Errorf("writeRootFile %s: %w", t.Dest, err)
+	if err := remote.WriteRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
+		return fmt.Errorf("remote.WriteRootFile %s: %w", t.Dest, err)
 	}
 
 	return nil
-}
-
-func canonicalServiceName(name string) string {
-	if name == "sshd" {
-		return "ssh"
-	}
-	return name
 }
 
 func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
@@ -136,7 +130,11 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 		return fmt.Errorf("service name is required")
 	}
 
-	unit := canonicalServiceName(s.Name)
+	unit := s.Name
+
+	if unit == "sshd" {
+		unit = "ssh"
+	}
 	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	if s.Enabled != nil {
@@ -146,7 +144,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 		} else {
 			cmd = fmt.Sprintf("systemctl disable %s", unit)
 		}
-		if err := runRoot(client, cmd); err != nil {
+		if err := remote.RunRoot(client, cmd); err != nil {
 			return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
 		}
 	}
@@ -170,7 +168,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
 	}
 
-	if err := runRoot(client, cmd); err != nil {
+	if err := remote.RunRoot(client, cmd); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
 	}
 
@@ -214,7 +212,7 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
-		if err := runRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := remote.RunRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
@@ -225,8 +223,8 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	}
 	defer sftpClient.Close()
 
-	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
-		return fmt.Errorf("writeRootFile %s: %w", destPath, err)
+	if err := remote.WriteRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
+		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
 	return nil
 }
@@ -237,11 +235,11 @@ func handleValidate(client *ssh.Client, kind string) error {
 		logger.Debugf("handleValidate: kind=sshd\n")
 
 		ensureIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config || echo 'Include /etc/ssh/sshd_config.d/*.conf' >> /etc/ssh/sshd_config`
-		if err := runRoot(client, ensureIncludeCmd); err != nil {
+		if err := remote.RunRoot(client, ensureIncludeCmd); err != nil {
 			return fmt.Errorf("ensure Include for sshd_config.d: %w", err)
 		}
 
-		if err := runRoot(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
+		if err := remote.RunRoot(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
 			return fmt.Errorf("sshd config test failed: %w", err)
 		}
 		return nil
@@ -250,11 +248,11 @@ func handleValidate(client *ssh.Client, kind string) error {
 		logger.Debugf("handleValidate: kind=firewall\n")
 
 		ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
-		if err := runRoot(client, ensureIncludeCmd); err != nil {
+		if err := remote.RunRoot(client, ensureIncludeCmd); err != nil {
 			return fmt.Errorf("ensure include for nftables.d: %w", err)
 		}
 
-		if err := runRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
+		if err := remote.RunRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
 			return fmt.Errorf("nftables config check failed: %w", err)
 		}
 		return nil

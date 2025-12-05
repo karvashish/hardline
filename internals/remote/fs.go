@@ -1,4 +1,4 @@
-package executor
+package remote
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func writeFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
+func WriteFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
 	logger.Debugf("writeFile: path=%q size=%d\n", remotePath, len(data))
 
 	f, err := sftpClient.OpenFile(remotePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
@@ -27,19 +27,19 @@ func writeFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.
 	return f.Chmod(mode)
 }
 
-func writeRootFile(client *ssh.Client, sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
+func WriteRootFile(client *ssh.Client, sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
 	tmpPath := fmt.Sprintf("/tmp/.hardline-%d", time.Now().UnixNano())
 
 	logger.Debugf("writeRootFile: tmp=%q dest=%q\n", tmpPath, remotePath)
 
-	if err := writeFile(sftpClient, tmpPath, data, 0600); err != nil {
+	if err := WriteFile(sftpClient, tmpPath, data, 0600); err != nil {
 		return err
 	}
 
 	modeOct := strconv.FormatUint(uint64(mode.Perm()), 8)
 	cmd := fmt.Sprintf("install -m %s %s %s && rm -f %s", modeOct, tmpPath, remotePath, tmpPath)
 
-	if err := runRoot(client, cmd); err != nil {
+	if err := RunRoot(client, cmd); err != nil {
 		return err
 	}
 	return nil

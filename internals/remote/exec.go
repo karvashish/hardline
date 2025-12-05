@@ -1,4 +1,4 @@
-package executor
+package remote
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func run(client *ssh.Client, cmd string) error {
+func Run(client *ssh.Client, cmd string) error {
 	logger.Debugf("remote cmd: %s\n", cmd)
 
 	session, err := client.NewSession()
@@ -39,7 +39,7 @@ func run(client *ssh.Client, cmd string) error {
 	return nil
 }
 
-func runRoot(client *ssh.Client, cmd string) error {
+func RunRoot(client *ssh.Client, cmd string) error {
 	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
-	return run(client, wrapped)
+	return Run(client, wrapped)
 }

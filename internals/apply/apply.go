@@ -1,12 +1,11 @@
-package executor
+package apply
 
 import (
-	"math"
 	"os"
-	"time"
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
@@ -94,7 +93,7 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 
 			var stop func()
 			if !logger.DebugMode() {
-				stop = throbber()
+				stop = utils.Throbber()
 			}
 
 			err := handleStep(client, p, step)
@@ -113,35 +112,4 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 		}
 	}
 	return nil
-}
-
-func throbber() func() {
-	const total = 100
-	progress := 0
-	stop := make(chan struct{})
-
-	expDelay := func(p int) time.Duration {
-		delay := math.Exp((float64(p)/float64(total))*3.0) * 150.0
-		return time.Duration(delay) * time.Millisecond
-	}
-
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				if progress >= total {
-					progress = 0
-				}
-				logger.Infof(".")
-				progress++
-				time.Sleep(expDelay(progress))
-			}
-		}
-	}()
-
-	return func() {
-		close(stop)
-	}
 }

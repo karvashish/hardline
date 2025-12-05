@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/karvashish/hardline/internals/remote"
+	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -14,6 +15,7 @@ import (
 type Inspector interface {
 	PackageInstalled(name string) bool
 	AptAutoremovePreview() ([]string, error)
+	AptUpgradePreview() ([]string, error)
 	Stat(path string) (os.FileInfo, error)
 	IsServiceEnabled(unit string) bool
 	IsServiceActive(unit string) bool
@@ -118,4 +120,45 @@ func (i *SSHInspector) FirewallIncludePresent() bool {
 
 func (i *SSHInspector) FirewallConfigTest() error {
 	return remote.RunRoot(i.client, "nft -c -f /etc/nftables.conf")
+}
+
+func (i *SSHInspector) AptUpgradePreview() ([]string, error) {
+	cmd := "DEBIAN_FRONTEND=noninteractive apt-get -s upgrade"
+
+	out, err := remote.RunRootWithOutput(i.client, cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	var pkgs []string
+	seen := make(map[string]struct{})
+
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if !strings.HasPrefix(line, "Inst ") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		name := fields[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+
+		seen[name] = struct{}{}
+		pkgs = append(pkgs, name)
+	}
+
+	if err := scanner.Err(); err != nil {
+		logger.Debugf("AptUpgradePreview: scanner error: %v\n", err)
+		return pkgs, err
+	}
+
+	return pkgs, nil
 }

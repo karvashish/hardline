@@ -108,13 +108,29 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 
 	var installWillChange []string
 	var purgeWillChange []string
+	var upgradeWillChange []string
 	var autoremoveWillChange []string
 
 	if pk.Update {
 		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+logger.ColorReset)
 	}
 	if pk.Upgrade {
-		details = append(details, logger.ColorGreen+"will run: apt-get upgrade -y (packages with available updates will be upgraded)"+logger.ColorReset)
+		up, err := insp.AptUpgradePreview()
+		if err != nil {
+			details = append(details,
+				logger.ColorRed+fmt.Sprintf("upgrade: failed to preview upgrades (%v)", err)+logger.ColorReset,
+			)
+		} else if len(up) == 0 {
+			details = append(details,
+				logger.ColorBlue+"upgrade: no packages would be upgraded (no-op)"+logger.ColorReset,
+			)
+		} else {
+			upgradeWillChange = up
+			details = append(details,
+				logger.ColorGreen+fmt.Sprintf("upgrade: would upgrade %d package(s): %s",
+					len(up), strings.Join(up, ", "))+logger.ColorReset,
+			)
+		}
 	}
 
 	for _, name := range pk.Install {
@@ -178,10 +194,10 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 	var summary string
 	var noop bool
 	if !pk.Update &&
-		!pk.Upgrade &&
 		len(installWillChange) == 0 &&
 		len(purgeWillChange) == 0 &&
-		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
+		(!pk.Autoremove || len(autoremoveWillChange) == 0) &&
+		(!pk.Upgrade || len(upgradeWillChange) == 0) {
 		noop = true
 		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified or no changes required)"
 	} else {
@@ -190,7 +206,11 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 			summaryParts = append(summaryParts, "update package index")
 		}
 		if pk.Upgrade {
-			summaryParts = append(summaryParts, "upgrade installed packages")
+			if len(upgradeWillChange) == 0 {
+				summaryParts = append(summaryParts, "upgrade installed packages (none)")
+			} else {
+				summaryParts = append(summaryParts, "upgrade: "+strings.Join(upgradeWillChange, ", "))
+			}
 		}
 		if len(installWillChange) > 0 {
 			summaryParts = append(summaryParts, "install: "+strings.Join(installWillChange, ", "))

@@ -1,10 +1,12 @@
 package apply
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path"
 	"strings"
+	"text/template"
 
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
@@ -192,17 +194,35 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 		return fmt.Errorf("load nftables template %q: %w", tmplPath, err)
 	}
 
-	var lines []string
-	for _, rule := range fw.Allow {
-		proto := strings.ToLower(strings.TrimSpace(rule.Proto))
-		if proto == "" {
-			proto = "tcp"
-		}
-		lines = append(lines, fmt.Sprintf("    %s dport %d accept", proto, rule.Port))
+	funcMap := template.FuncMap{
+		"allow_rules": func() string {
+			var b strings.Builder
+			if len(fw.Allow) == 0 {
+				b.WriteString("# hardline: no explicit allow rules in profile\n")
+				return b.String()
+			}
+			b.WriteString("# hardline: allow rules from profile\n")
+			for _, rule := range fw.Allow {
+				proto := strings.ToLower(strings.TrimSpace(rule.Proto))
+				if proto == "" {
+					proto = "tcp"
+				}
+				fmt.Fprintf(&b, "    %s dport %d accept\n", proto, rule.Port)
+			}
+			return b.String()
+		},
 	}
-	allowBlock := strings.Join(lines, "\n")
 
-	rendered := strings.Replace(string(tmplData), "{{allow_rules}}", allowBlock, 1)
+	t, err := template.New("nftables").Funcs(funcMap).Parse(string(tmplData))
+	if err != nil {
+		return fmt.Errorf("parse nftables template %q: %w", tmplPath, err)
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, nil); err != nil {
+		return fmt.Errorf("execute nftables template %q: %w", tmplPath, err)
+	}
+	rendered := buf.String()
 
 	// allow firewall spec to override destination; fallback keeps old behavior
 	destPath := strings.TrimSpace(fw.TemplateDest)
@@ -247,7 +267,7 @@ func handleValidate(client *ssh.Client, kind string) error {
 	case "firewall":
 		logger.Debugf("handleValidate: kind=firewall\n")
 
-		ensureIncludeCmd := `grep -q 'include "/etc/nftables.d/*.nft"' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
+		ensureIncludeCmd := `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
 		if err := remote.RunRoot(client, ensureIncludeCmd); err != nil {
 			return fmt.Errorf("ensure include for nftables.d: %w", err)
 		}

@@ -6,7 +6,7 @@ require (
 	github.com/google/jsonschema-go v0.3.0
 	github.com/invopop/jsonschema v0.13.0
 	github.com/pkg/sftp v1.13.10
-	golang.org/x/crypto v0.45.0
+	golang.org/x/crypto v0.46.0
 )
 
 require (
@@ -19,5 +19,5 @@ require (
 
 require (
 	github.com/kr/fs v0.1.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
 )

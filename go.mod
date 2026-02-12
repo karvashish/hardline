@@ -3,7 +3,7 @@ module github.com/karvashish/hardline
 go 1.25.4
 
 require (
-	github.com/google/jsonschema-go v0.3.0
+	github.com/google/jsonschema-go v0.4.2
 	github.com/invopop/jsonschema v0.13.0
 	github.com/pkg/sftp v1.13.10
 	golang.org/x/crypto v0.48.0

@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "actions/00-packages.json",
+      "sha256": "acf98240f721f7e26575a73283ea5f9bf79533808527c7792dc22890b2df00b7"
+    },
+    {
+      "path": "actions/10-ssh.json",
+      "sha256": "aaff032a813654f82dcbed110cdc4a08f0632fbd94e6d64df82cedac681895ca"
+    },
+    {
+      "path": "actions/15-unattended-upgrades.json",
+      "sha256": "1d94a3c93e73a472c8f9250353a9769adbd2be77c73423ed6586166abf4f1332"
+    },
+    {
+      "path": "actions/20-sysctl.json",
+      "sha256": "9cc5c5edd2f2d16d549768f37eb58fcde20f1a7ff1e96e8032ba90a8892231bc"
+    },
+    {
+      "path": "actions/25-timesync.json",
+      "sha256": "21855544931da27f035a2aa817cb498155230f1a6ebdd9bf192f767a7174fa87"
+    },
+    {
+      "path": "actions/30-firewall.json",
+      "sha256": "19bbd3a57c26f0628ea7988e5c5d24817acbaee7fade9b9b559768b62f7eb1a0"
+    },
+    {
+      "path": "actions/35-fail2ban.json",
+      "sha256": "e60d4464882656ccbd0d3209c8ef637415ca6f3d6cf65e57fc43118414c4c8a4"
+    },
+    {
+      "path": "actions/40-audit.json",
+      "sha256": "215084f00ae8619cdc46a93aab0f726450f679908079bae6e878494111ab65c5"
+    },
+    {
+      "path": "actions/50-journald.json",
+      "sha256": "639774a59b205d4386dac2c13e0c45e6e4aacf10a6f18dbf011a6ccb101af962"
+    },
+    {
+      "path": "profile.json",
+      "sha256": "a6b7843f9e394c6e8b6acf70ad7fdc9fbadd02a0e877b39b716c72a0ac0641e5"
+    },
+    {
+      "path": "templates/10-ssh-sshd-config.tmpl",
+      "sha256": "406fd7f1180b51e2c946873db4020647d7be53d91939de140c1c5a93d6464027"
+    },
+    {
+      "path": "templates/15-unattended-upgrades.tmpl",
+      "sha256": "d742d9edfb7f0e166ee6b847294f4933db30a1cbacbc45adaca051f1b0ed69bb"
+    },
+    {
+      "path": "templates/20-sysctl-hardening.conf.tmpl",
+      "sha256": "1d084b194066543b2b012a9b1c5293e82e7aa64bac8395383198ae98626adcd7"
+    },
+    {
+      "path": "templates/30-firewall-nftables-base.tmpl",
+      "sha256": "c7d348a6de1b58f61540f6ce424076448b13d8c14ee7a51b8f38c4759d90ee3e"
+    },
+    {
+      "path": "templates/35-fail2ban-ssh-protection.tmpl",
+      "sha256": "dd23173b94df3835d6e45ed719fb76241d88be754ffcaa51460514385f58657e"
+    },
+    {
+      "path": "templates/40-audit-hardening-rules.tmpl",
+      "sha256": "f105dbd692678ceb5e05dee1dc1fa6a14503511d21746251a86efc12c0d10308"
+    },
+    {
+      "path": "templates/50-journald-hardening.conf.tmpl",
+      "sha256": "1697a1c414ca72cdd0db5e5e20b4f9376ce326bb51042ec16cd62311d5afc39f"
+    }
+  ]
+}

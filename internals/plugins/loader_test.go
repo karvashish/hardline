@@ -220,7 +220,7 @@ func TestRegisterPluginBundle(t *testing.T) {
 		restore := stubLoaderDeps()
 		defer restore()
 
-		var applyCount, planCount int
+		var applyCount, planCount, rollbackCount int
 		registerApplyAction = func(pluginapi.ApplyHandler) error {
 			applyCount++
 			return nil
@@ -229,17 +229,36 @@ func TestRegisterPluginBundle(t *testing.T) {
 			planCount++
 			return nil
 		}
+		registerRollbackAction = func(pluginapi.RollbackHandler) error {
+			rollbackCount++
+			return nil
+		}
 
 		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name:          "ok",
-			ApplyHandlers: []pluginapi.ApplyHandler{{Type: "a1"}, {Type: "a2"}},
-			PlanHandlers:  []pluginapi.PlanHandler{{Type: "p1"}},
+			Name:             "ok",
+			ApplyHandlers:    []pluginapi.ApplyHandler{{Type: "a1"}, {Type: "a2"}},
+			PlanHandlers:     []pluginapi.PlanHandler{{Type: "p1"}},
+			RollbackHandlers: []pluginapi.RollbackHandler{{Type: "r1"}},
 		}, "/tmp/ok.so")
 		if err != nil {
 			t.Fatalf("registerPluginBundle failed: %v", err)
 		}
-		if applyCount != 2 || planCount != 1 {
-			t.Fatalf("unexpected registration counts: apply=%d plan=%d", applyCount, planCount)
+		if applyCount != 2 || planCount != 1 || rollbackCount != 1 {
+			t.Fatalf("unexpected registration counts: apply=%d plan=%d rollback=%d", applyCount, planCount, rollbackCount)
+		}
+	})
+
+	t.Run("rollback registration error", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		registerRollbackAction = func(pluginapi.RollbackHandler) error { return errors.New("rollback fail") }
+		err := registerPluginBundle(pluginapi.PluginBundle{
+			Name:             "p",
+			RollbackHandlers: []pluginapi.RollbackHandler{{Type: "z"}},
+		}, "/tmp/p.so")
+		if err == nil || !strings.Contains(err.Error(), "rollback action") {
+			t.Fatalf("expected rollback registration error, got %v", err)
 		}
 	})
 }
@@ -250,11 +269,13 @@ func stubLoaderDeps() func() {
 	prevOpen := openSharedObject
 	prevRegApply := registerApplyAction
 	prevRegPlan := registerPlanAction
+	prevRegRollback := registerRollbackAction
 
 	executablePath = os.Executable
 	readDirEntries = os.ReadDir
 	registerApplyAction = func(pluginapi.ApplyHandler) error { return nil }
 	registerPlanAction = func(pluginapi.PlanHandler) error { return nil }
+	registerRollbackAction = func(pluginapi.RollbackHandler) error { return nil }
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return fakePlugin{symbols: map[string]any{
 			pluginSymbolV1: pluginapi.PluginBundle{Name: filepath.Base(path)},
@@ -267,6 +288,7 @@ func stubLoaderDeps() func() {
 		openSharedObject = prevOpen
 		registerApplyAction = prevRegApply
 		registerPlanAction = prevRegPlan
+		registerRollbackAction = prevRegRollback
 	}
 }
 

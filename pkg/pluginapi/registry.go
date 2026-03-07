@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/karvashish/hardline/internals/inspector"
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
@@ -18,6 +19,11 @@ type ApplyContext struct {
 type PlanContext struct {
 	Inspector inspector.Inspector
 	Profile   *profile.Profile
+}
+
+type RollbackContext struct {
+	Client  *ssh.Client
+	Profile *profile.Profile
 }
 
 type PlanResult struct {
@@ -38,10 +44,16 @@ type PlanHandler struct {
 	ValidateKinds map[string]func(PlanContext) (PlanResult, error)
 }
 
+type RollbackHandler struct {
+	Type    string
+	Capture func(RollbackContext, profile.Step) (rollback.StepRecord, error)
+}
+
 type PluginBundle struct {
-	Name          string
-	ApplyHandlers []ApplyHandler
-	PlanHandlers  []PlanHandler
+	Name             string
+	ApplyHandlers    []ApplyHandler
+	PlanHandlers     []PlanHandler
+	RollbackHandlers []RollbackHandler
 }
 
 type ApplyRegistry struct {
@@ -56,6 +68,11 @@ type PlanRegistry struct {
 	byValidate map[string]func(PlanContext) (PlanResult, error)
 }
 
+type RollbackRegistry struct {
+	mu     sync.RWMutex
+	byType map[string]RollbackHandler
+}
+
 func NewApplyRegistry() *ApplyRegistry {
 	return &ApplyRegistry{
 		byType:     make(map[string]ApplyHandler),
@@ -67,6 +84,12 @@ func NewPlanRegistry() *PlanRegistry {
 	return &PlanRegistry{
 		byType:     make(map[string]PlanHandler),
 		byValidate: make(map[string]func(PlanContext) (PlanResult, error)),
+	}
+}
+
+func NewRollbackRegistry() *RollbackRegistry {
+	return &RollbackRegistry{
+		byType: make(map[string]RollbackHandler),
 	}
 }
 
@@ -186,6 +209,30 @@ func (r *PlanRegistry) Register(h PlanHandler) error {
 	return nil
 }
 
+func (r *RollbackRegistry) Register(h RollbackHandler) error {
+	if r == nil {
+		return fmt.Errorf("rollback registry is nil")
+	}
+	typ := normalizeType(h.Type)
+	if typ == "" {
+		return fmt.Errorf("rollback handler type is required")
+	}
+	if h.Capture == nil {
+		return fmt.Errorf("rollback handler %q is missing Capture func", typ)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.byType[typ]; exists {
+		return fmt.Errorf("rollback handler already registered for type %q", typ)
+	}
+
+	h.Type = typ
+	r.byType[typ] = h
+	return nil
+}
+
 func (r *ApplyRegistry) LookupType(stepType string) (ApplyHandler, bool) {
 	if r == nil {
 		return ApplyHandler{}, false
@@ -199,6 +246,16 @@ func (r *ApplyRegistry) LookupType(stepType string) (ApplyHandler, bool) {
 func (r *PlanRegistry) LookupType(stepType string) (PlanHandler, bool) {
 	if r == nil {
 		return PlanHandler{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	h, ok := r.byType[normalizeType(stepType)]
+	return h, ok
+}
+
+func (r *RollbackRegistry) LookupType(stepType string) (RollbackHandler, bool) {
+	if r == nil {
+		return RollbackHandler{}, false
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()

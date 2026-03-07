@@ -3,6 +3,7 @@ package firewalltemplate
 import (
 	"fmt"
 
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
@@ -27,6 +28,25 @@ func PlanHandler(planFn func(pluginapi.PlanContext, *profile.FirewallTemplateSpe
 				return pluginapi.PlanResult{}, fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
 			}
 			return planFn(ctx, s.FirewallTemplate)
+		},
+	}
+}
+
+func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
+	return ApplyHandler(func(ctx pluginapi.ApplyContext, spec *profile.FirewallTemplateSpec) error {
+		return Apply(ctx, spec, deps)
+	})
+}
+
+func DefaultPlanHandler() pluginapi.PlanHandler {
+	return PlanHandler(Plan)
+}
+
+func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
+	return pluginapi.RollbackHandler{
+		Type: "firewall_template",
+		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
+			return CaptureRollback(ctx, s, deps)
 		},
 	}
 }

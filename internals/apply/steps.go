@@ -1,12 +1,8 @@
 package apply
 
 import (
-	"bytes"
 	"fmt"
-	"os"
-	"path"
 	"strings"
-	"text/template"
 
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
@@ -24,23 +20,12 @@ var (
 	serviceDirty         = make(map[string]bool)
 )
 
-const (
-	defaultManagedFirewallTemplateDest = "/etc/nftables.d/99-hardline-firewall.nft"
-	nftablesMainConfigPath             = "/etc/nftables.conf"
-	nftablesIncludeLine                = `include "/etc/nftables.d/*.nft"`
-	firewallIncludeCheckCmd            = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
-)
-
 func resetApplyStepState() {
 	serviceDirty = make(map[string]bool)
 }
 
 func normalizeServiceUnit(unit string) string {
-	name := strings.TrimSpace(unit)
-	if name == "sshd" {
-		return "ssh"
-	}
-	return name
+	return strings.TrimSpace(unit)
 }
 
 func markServiceDirty(unit string) {
@@ -61,36 +46,6 @@ func isServiceDirty(unit string) bool {
 	return serviceDirty[u]
 }
 
-func serviceForManagedPath(dest string) string {
-	p := strings.TrimSpace(dest)
-	switch {
-	case strings.HasPrefix(p, "/etc/ssh/"):
-		return "ssh"
-	case strings.HasPrefix(p, "/etc/sysctl.d/"):
-		return "systemd-sysctl"
-	case strings.HasPrefix(p, "/etc/fail2ban/"):
-		return "fail2ban"
-	case strings.HasPrefix(p, "/etc/audit/"):
-		return "auditd"
-	case strings.HasPrefix(p, "/etc/systemd/journald.conf.d/"):
-		return "systemd-journald"
-	case strings.Contains(p, "nftables"):
-		return "nftables"
-	default:
-		return ""
-	}
-}
-
-func serviceIsEnabled(client *ssh.Client, unit string) bool {
-	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)
-	return runRootCmd(client, cmd) == nil
-}
-
-func serviceIsActive(client *ssh.Client, unit string) bool {
-	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
-	return runRootCmd(client, cmd) == nil
-}
-
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
 
@@ -98,7 +53,7 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 		if strings.TrimSpace(s.Validate) == "" {
 			return fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
 		}
-		return handleValidate(client, s.Validate)
+		return handleValidate(client, p, s.Validate)
 	}
 
 	handler, ok := applyActionRegistry.LookupType(stepType)
@@ -110,289 +65,7 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	return handler.Apply(applyActionContext(client, p), s)
 }
 
-func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
-	logger.Debugf(
-		"handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
-		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove,
-	)
-
-	if pk.Update {
-		if err := runRootCmd(client, "apt-get update -y"); err != nil {
-			return fmt.Errorf("apt-get update failed: %w", err)
-		}
-	}
-
-	if pk.Upgrade {
-		if err := runRootCmd(client, "apt-get upgrade -y"); err != nil {
-			return fmt.Errorf("apt-get upgrade failed: %w", err)
-		}
-	}
-
-	if len(pk.Install) > 0 {
-		cmd := "apt-get install -y " + strings.Join(pk.Install, " ")
-		if err := runRootCmd(client, cmd); err != nil {
-			return fmt.Errorf("apt-get install failed (%s): %w", strings.Join(pk.Install, ","), err)
-		}
-	}
-
-	if len(pk.Purge) > 0 {
-		cmd := "apt-get purge -y " + strings.Join(pk.Purge, " ")
-		if err := runRootCmd(client, cmd); err != nil {
-			return fmt.Errorf("apt-get purge failed (%s): %w", strings.Join(pk.Purge, ","), err)
-		}
-	}
-
-	if pk.Autoremove {
-		if err := runRootCmd(client, "apt-get autoremove -y"); err != nil {
-			return fmt.Errorf("apt-get autoremove failed: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateSpec) error {
-	logger.Debugf("handleTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
-
-	data, err := p.LoadTemplate(t.Src)
-	if err != nil {
-		return fmt.Errorf("load template %q: %w", t.Src, err)
-	}
-
-	sftpClient, err := newSFTPClient(client)
-	if err != nil {
-		return fmt.Errorf("new sftp client: %w", err)
-	}
-	if sftpClient != nil {
-		defer sftpClient.Close()
-	}
-
-	mode := os.FileMode(0600)
-	if t.Mode != "" {
-		var parsed uint64
-		if _, err := fmt.Sscanf(t.Mode, "%o", &parsed); err == nil {
-			mode = os.FileMode(parsed)
-		}
-	}
-
-	dir := path.Dir(t.Dest)
-	if dir != "" && dir != "." {
-		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
-			return fmt.Errorf("mkdir -p %s: %w", dir, err)
-		}
-	}
-
-	if err := writeRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
-		return fmt.Errorf("remote.WriteRootFile %s: %w", t.Dest, err)
-	}
-	markServiceDirty(serviceForManagedPath(t.Dest))
-
-	return nil
-}
-
-func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
-	if s.Name == "" {
-		return fmt.Errorf("service name is required")
-	}
-
-	unit := s.Name
-
-	if unit == "sshd" {
-		unit = "ssh"
-	}
-	unit = normalizeServiceUnit(unit)
-	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
-
-	if s.Enabled != nil {
-		enabledNow := serviceIsEnabled(client, unit)
-		if *s.Enabled != enabledNow {
-			var cmd string
-			if *s.Enabled {
-				cmd = fmt.Sprintf("systemctl enable %s", unit)
-			} else {
-				cmd = fmt.Sprintf("systemctl disable %s", unit)
-			}
-			if err := runRootCmd(client, cmd); err != nil {
-				return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
-			}
-		} else {
-			logger.Debugf("handleService: enablement already matches for %s, skipping toggle\n", unit)
-		}
-	}
-
-	state := strings.ToLower(strings.TrimSpace(s.State))
-	if state == "" {
-		return nil
-	}
-
-	var cmd string
-	switch state {
-	case "started", "start":
-		if serviceIsActive(client, unit) {
-			logger.Debugf("handleService: %s already active, skipping start\n", unit)
-			clearServiceDirty(unit)
-			return nil
-		}
-		cmd = fmt.Sprintf("systemctl start %s", unit)
-	case "stopped", "stop":
-		if !serviceIsActive(client, unit) {
-			logger.Debugf("handleService: %s already inactive, skipping stop\n", unit)
-			clearServiceDirty(unit)
-			return nil
-		}
-		cmd = fmt.Sprintf("systemctl stop %s", unit)
-	case "restarted", "restart":
-		if !isServiceDirty(unit) && serviceIsActive(client, unit) {
-			logger.Debugf("handleService: %s clean and active, skipping restart\n", unit)
-			return nil
-		}
-		cmd = fmt.Sprintf("systemctl restart %s", unit)
-	case "reloaded", "reload", "reload-or-restart":
-		if !isServiceDirty(unit) && serviceIsActive(client, unit) {
-			logger.Debugf("handleService: %s clean and active, skipping reload-or-restart\n", unit)
-			return nil
-		}
-		cmd = fmt.Sprintf("systemctl reload-or-restart %s", unit)
-	default:
-		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
-	}
-
-	if err := runRootCmd(client, cmd); err != nil {
-		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
-	}
-	clearServiceDirty(unit)
-
-	return nil
-}
-
-func handleFirewallTemplate(client *ssh.Client, p *profile.Profile, fw *profile.FirewallTemplateSpec) error {
-	logger.Debugf("handleFirewallTemplate: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
-
-	if fw.Backend != "nftables" {
-		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
-	}
-
-	tmplPath := strings.TrimSpace(fw.TemplateSrc)
-	if tmplPath == "" {
-		tmplPath = "templates/nftables_base.tmpl"
-	}
-
-	tmplData, err := p.LoadTemplate(tmplPath)
-	if err != nil {
-		return fmt.Errorf("load nftables template %q: %w", tmplPath, err)
-	}
-
-	funcMap := template.FuncMap{
-		"allow_rules": func() string {
-			var b strings.Builder
-			if len(fw.Allow) == 0 {
-				b.WriteString("# hardline: no explicit allow rules in profile\n")
-				return b.String()
-			}
-			b.WriteString("# hardline: allow rules from profile\n")
-			for _, rule := range fw.Allow {
-				proto := strings.ToLower(strings.TrimSpace(rule.Proto))
-				if proto == "" {
-					proto = "tcp"
-				}
-				fmt.Fprintf(&b, "    %s dport %d accept\n", proto, rule.Port)
-			}
-			return b.String()
-		},
-	}
-
-	t, err := template.New("nftables").Funcs(funcMap).Parse(string(tmplData))
-	if err != nil {
-		return fmt.Errorf("parse nftables template %q: %w", tmplPath, err)
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, nil); err != nil {
-		return fmt.Errorf("execute nftables template %q: %w", tmplPath, err)
-	}
-	rendered := buf.String()
-
-	// allow firewall spec to override destination; fallback keeps old behavior
-	destPath := managedFirewallTemplateDestination(fw)
-
-	dir := path.Dir(destPath)
-	if dir != "" && dir != "." {
-		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
-		}
-	}
-
-	if err := ensureNftablesInclude(client); err != nil {
-		return err
-	}
-
-	sftpClient, err := newSFTPClient(client)
-	if err != nil {
-		return fmt.Errorf("new sftp client: %w", err)
-	}
-	if sftpClient != nil {
-		defer sftpClient.Close()
-	}
-
-	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
-		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
-	}
-	markServiceDirty("nftables")
-	return nil
-}
-
-func managedFirewallTemplateDestination(fw *profile.FirewallTemplateSpec) string {
-	if fw == nil {
-		return defaultManagedFirewallTemplateDest
-	}
-	dest := strings.TrimSpace(fw.TemplateDest)
-	if dest == "" {
-		return defaultManagedFirewallTemplateDest
-	}
-	return dest
-}
-
-func ensureNftablesInclude(client *ssh.Client) error {
-	if err := runRootCmd(client, firewallIncludeCheckCmd); err == nil {
-		return nil
-	}
-
-	appendCmd := "printf '\\ninclude \"/etc/nftables.d/*.nft\"\\n' >> /etc/nftables.conf"
-	if err := runRootCmd(client, appendCmd); err != nil {
-		return fmt.Errorf("ensure %q in %s: %w", nftablesIncludeLine, nftablesMainConfigPath, err)
-	}
-
-	if err := runRootCmd(client, firewallIncludeCheckCmd); err != nil {
-		return fmt.Errorf("verify %q in %s: %w", nftablesIncludeLine, nftablesMainConfigPath, err)
-	}
-
-	return nil
-}
-
-func handleValidate(client *ssh.Client, kind string) error {
+func handleValidate(client *ssh.Client, p *profile.Profile, kind string) error {
 	logger.Debugf("handleValidate: kind=%s\n", strings.ToLower(strings.TrimSpace(kind)))
-	return applyValidateByKind(client, nil, kind)
-}
-
-func validateSSHD(client *ssh.Client) error {
-	checkIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
-	if err := runRootCmd(client, checkIncludeCmd); err != nil {
-		return fmt.Errorf("sshd_config missing Include for /etc/ssh/sshd_config.d/*.conf: %w", err)
-	}
-
-	if err := runRootCmd(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
-		return fmt.Errorf("sshd config test failed: %w", err)
-	}
-	return nil
-}
-
-func validateFirewall(client *ssh.Client) error {
-	if err := runRootCmd(client, firewallIncludeCheckCmd); err != nil {
-		return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
-	}
-
-	if err := runRootCmd(client, "nft -c -f /etc/nftables.conf"); err != nil {
-		return fmt.Errorf("nftables config check failed: %w", err)
-	}
-	return nil
+	return applyValidateByKind(client, p, kind)
 }

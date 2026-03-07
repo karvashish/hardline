@@ -30,8 +30,9 @@ var (
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return plugin.Open(path)
 	}
-	registerApplyAction = apply.RegisterApplyAction
-	registerPlanAction  = plan.RegisterPlanAction
+	registerApplyAction    = apply.RegisterApplyAction
+	registerPlanAction     = plan.RegisterPlanAction
+	registerRollbackAction = apply.RegisterRollbackAction
 )
 
 func LoadFromBinaryDir() error {
@@ -137,6 +138,11 @@ func registerPluginBundle(bundle pluginapi.PluginBundle, path string) error {
 	for _, h := range bundle.PlanHandlers {
 		if err := registerPlanAction(h); err != nil {
 			return fmt.Errorf("register plugin %q (%s) plan action %q: %w", path, name, h.Type, err)
+		}
+	}
+	for _, h := range bundle.RollbackHandlers {
+		if err := registerRollbackAction(h); err != nil {
+			return fmt.Errorf("register plugin %q (%s) rollback action %q: %w", path, name, h.Type, err)
 		}
 	}
 	return nil

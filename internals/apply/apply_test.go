@@ -8,6 +8,7 @@ import (
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/internals/rollback"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
@@ -377,16 +378,29 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
+		prevRollbackRegistry := applyRollbackRegistry
+		defer func() {
+			applyRollbackRegistry = prevRollbackRegistry
+		}()
+
+		registry := pluginapi.NewRollbackRegistry()
+		if err := registry.Register(pluginapi.RollbackHandler{
+			Type: "failing",
+			Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
+				return rollback.StepRecord{}, errors.New("capture failed")
+			},
+		}); err != nil {
+			t.Fatalf("register rollback handler failed: %v", err)
+		}
+		applyRollbackRegistry = registry
+
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
 				{
 					Steps: []profile.Step{
 						{
-							ID:   "bad-template",
-							Type: "template",
-							Template: &profile.TemplateSpec{
-								Dest: "/tmp/not-managed.conf",
-							},
+							ID:   "bad-step",
+							Type: "failing",
 						},
 					},
 				},
@@ -394,8 +408,8 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 
 		err := applyProfile(nil, p, rollback.NewJournal("example.com", "p", "profile"))
-		if err == nil || !strings.Contains(err.Error(), "outside /etc managed scope") {
-			t.Fatalf("expected managed path capture error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "capture failed") {
+			t.Fatalf("expected capture error, got %v", err)
 		}
 	})
 }
@@ -411,6 +425,8 @@ func stubApplyDeps() func() {
 	prevRunApplyCommand := runApplyCommand
 	prevExit := exitProcess
 	prevRunStep := runStep
+	prevApplyRegistry := applyActionRegistry
+	prevRollbackRegistry := applyRollbackRegistry
 
 	return func() {
 		newSSHClient = prevNewSSH
@@ -423,5 +439,7 @@ func stubApplyDeps() func() {
 		runApplyCommand = prevRunApplyCommand
 		exitProcess = prevExit
 		runStep = prevRunStep
+		applyActionRegistry = prevApplyRegistry
+		applyRollbackRegistry = prevRollbackRegistry
 	}
 }

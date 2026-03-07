@@ -1,4 +1,4 @@
-package apply
+package firewall
 
 import (
 	"encoding/json"
@@ -9,19 +9,42 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/karvashish/hardline/internals/plugins/rollbackutil"
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
-type normalizedFirewallSpec struct {
+const (
+	NftablesMainConfigPath = "/etc/nftables.conf"
+	NftablesIncludeLine    = `include "/etc/nftables.d/*.nft"`
+	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+)
+
+type ApplyDeps struct {
+	RunRoot          func(*ssh.Client, string) error
+	NewSFTPClient    func(*ssh.Client) (*sftp.Client, error)
+	WriteRootFile    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
+	MarkServiceDirty func(string)
+}
+
+type RollbackDeps struct {
+	RunRoot           func(*ssh.Client, string) error
+	RunRootWithOutput func(*ssh.Client, string) (string, error)
+	ReadRootFile      func(*ssh.Client, string) (string, error)
+}
+
+type NormalizedSpec struct {
 	Family   string
 	Table    string
 	Policies map[string]string
-	Rules    []normalizedFirewallRule
+	Rules    []NormalizedRule
 }
 
-type normalizedFirewallRule struct {
+type NormalizedRule struct {
 	Chain        string
 	Action       string
 	Proto        string
@@ -33,39 +56,39 @@ type normalizedFirewallRule struct {
 	CTStates     []string
 }
 
-type normalizedFirewallDiff struct {
+type NormalizedDiff struct {
 	PolicyChanges []string
-	RulesToAdd    []normalizedFirewallRule
-	RulesToRemove []normalizedFirewallRule
+	RulesToAdd    []NormalizedRule
+	RulesToRemove []NormalizedRule
 }
 
-func handleFirewall(client *ssh.Client, fw *profile.FirewallSpec) error {
+func Apply(ctx pluginapi.ApplyContext, fw *profile.FirewallSpec, deps ApplyDeps) error {
 	logger.Debugf("handleFirewall: backend=%q policies=%d rules=%d\n", fw.Backend, len(fw.Policies), len(fw.Rules))
 
 	if fw.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
 	}
 
-	desired, err := normalizeDesiredFirewallSpec(fw)
+	desired, err := NormalizeDesiredSpec(fw)
 	if err != nil {
 		return err
 	}
-	destPath := managedFirewallDestination(fw)
+	destPath := ManagedDestination(fw)
 	if destPath == "" {
 		return fmt.Errorf("firewall managed_dest is required")
 	}
 
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
-		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := deps.RunRoot(ctx.Client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
-	if err := ensureNftablesInclude(client); err != nil {
+	if err := EnsureNftablesInclude(ctx.Client, deps.RunRoot); err != nil {
 		return err
 	}
 
-	sftpClient, err := newSFTPClient(client)
+	sftpClient, err := deps.NewSFTPClient(ctx.Client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
 	}
@@ -73,17 +96,143 @@ func handleFirewall(client *ssh.Client, fw *profile.FirewallSpec) error {
 		defer sftpClient.Close()
 	}
 
-	desiredRendered := renderNormalizedFirewall(desired)
-	if err := writeRootFile(client, sftpClient, destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
+	desiredRendered := RenderNormalized(desired)
+	if err := deps.WriteRootFile(ctx.Client, sftpClient, destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
-	markServiceDirty("nftables")
+	if deps.MarkServiceDirty != nil {
+		deps.MarkServiceDirty("nftables")
+	}
 
 	logger.Debugf("handleFirewall: rendered deterministic firewall rules to %q\n", destPath)
 	return nil
 }
 
-func managedFirewallDestination(fw *profile.FirewallSpec) string {
+func Plan(ctx pluginapi.PlanContext, fw *profile.FirewallSpec) (pluginapi.PlanResult, error) {
+	logger.Debugf("planFirewall: backend=%q family=%q table=%q policies=%d rules=%d\n", fw.Backend, fw.Family, fw.Table, len(fw.Policies), len(fw.Rules))
+
+	var details []string
+
+	if fw.Backend != "nftables" {
+		summary := fmt.Sprintf("firewall step: unsupported backend %q (no-op)", fw.Backend)
+		return pluginapi.PlanResult{Summary: summary, Details: []string{"only nftables backend is supported by executor"}, Noop: 2}, nil
+	}
+	if strings.TrimSpace(fw.Family) == "" {
+		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: family is required")
+	}
+	if strings.TrimSpace(fw.Table) == "" {
+		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: table is required")
+	}
+	if strings.TrimSpace(fw.ManagedDest) == "" {
+		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: managed_dest is required")
+	}
+	if len(fw.Policies) == 0 {
+		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: policies are required")
+	}
+
+	info, err := ctx.Inspector.Stat(fw.ManagedDest)
+	if err != nil {
+		details = append(details,
+			logger.ColorBlue+fmt.Sprintf("managed destination %q: does not exist (file will be created)", fw.ManagedDest)+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorBlue+fmt.Sprintf("managed destination %q: exists (size=%d mode=%#o)", fw.ManagedDest, info.Size(), info.Mode().Perm())+logger.ColorReset,
+		)
+	}
+
+	details = append(details, logger.ColorGreen+fmt.Sprintf("desired table: %s %s", fw.Family, fw.Table)+logger.ColorReset)
+	details = append(details, logger.ColorGreen+fmt.Sprintf("desired chain policies: %d", len(fw.Policies))+logger.ColorReset)
+	details = append(details, logger.ColorGreen+fmt.Sprintf("desired rules: %d", len(fw.Rules))+logger.ColorReset)
+
+	if ctx.Inspector.FirewallIncludePresent() {
+		details = append(details, logger.ColorGreen+`nftables.conf include "/etc/nftables.d/*.nft" is present`+logger.ColorReset)
+	} else {
+		details = append(details, logger.ColorRed+`nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset)
+	}
+
+	summary := fmt.Sprintf(
+		"firewall step (deterministic): backend=nftables table=%s %s, managed_dest=%q, policies=%d, rules=%d",
+		fw.Family, fw.Table, fw.ManagedDest, len(fw.Policies), len(fw.Rules),
+	)
+	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
+}
+
+func ValidateApply(ctx pluginapi.ApplyContext, runRoot func(*ssh.Client, string) error) error {
+	if err := runRoot(ctx.Client, IncludeCheckCmd); err != nil {
+		return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
+	}
+
+	if err := runRoot(ctx.Client, "nft -c -f /etc/nftables.conf"); err != nil {
+		return fmt.Errorf("nftables config check failed: %w", err)
+	}
+	return nil
+}
+
+func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
+	logger.Debugf("planValidate: kind=firewall\n")
+
+	var details []string
+
+	if ctx.Inspector.FirewallIncludePresent() {
+		details = append(details,
+			logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorRed+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset,
+		)
+	}
+
+	testErr := ctx.Inspector.FirewallConfigTest()
+	if testErr == nil {
+		details = append(details,
+			logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorRed+fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr)+logger.ColorReset,
+		)
+	}
+
+	return pluginapi.PlanResult{
+		Summary: "validate firewall: check include for /etc/nftables.d/*.nft and nft -c on /etc/nftables.conf",
+		Details: details,
+		Noop:    2,
+	}, nil
+}
+
+func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps RollbackDeps) (rollback.StepRecord, error) {
+	record := rollback.StepRecord{
+		ID:   s.ID,
+		Type: "firewall",
+	}
+	if s.Firewall == nil {
+		return record, fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
+	}
+
+	dest := ManagedDestination(s.Firewall)
+	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
+		return record, fmt.Errorf("step %q (type=%s): %w", s.ID, s.Type, err)
+	}
+
+	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{
+		RunRoot:           deps.RunRoot,
+		RunRootWithOutput: deps.RunRootWithOutput,
+		ReadRootFile:      deps.ReadRootFile,
+	})
+	if err != nil {
+		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
+	}
+
+	record.RollbackMode = rollback.ModeDeterministic
+	record.Objects = []rollback.ObjectRecord{
+		{Kind: rollback.ObjectFile, File: &snap},
+	}
+	return record, nil
+}
+
+func ManagedDestination(fw *profile.FirewallSpec) string {
 	if fw == nil {
 		return ""
 	}
@@ -93,22 +242,39 @@ func managedFirewallDestination(fw *profile.FirewallSpec) string {
 	return ""
 }
 
-func normalizeDesiredFirewallSpec(fw *profile.FirewallSpec) (normalizedFirewallSpec, error) {
+func EnsureNftablesInclude(client *ssh.Client, runRoot func(*ssh.Client, string) error) error {
+	if err := runRoot(client, IncludeCheckCmd); err == nil {
+		return nil
+	}
+
+	appendCmd := "printf '\\ninclude \"/etc/nftables.d/*.nft\"\\n' >> /etc/nftables.conf"
+	if err := runRoot(client, appendCmd); err != nil {
+		return fmt.Errorf("ensure %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
+	}
+
+	if err := runRoot(client, IncludeCheckCmd); err != nil {
+		return fmt.Errorf("verify %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
+	}
+
+	return nil
+}
+
+func NormalizeDesiredSpec(fw *profile.FirewallSpec) (NormalizedSpec, error) {
 	family := normalizeFirewallFamily(fw.Family)
 	if family == "" {
-		return normalizedFirewallSpec{}, fmt.Errorf("firewall family is required")
+		return NormalizedSpec{}, fmt.Errorf("firewall family is required")
 	}
 	switch family {
 	case "inet", "ip", "ip6":
 	default:
-		return normalizedFirewallSpec{}, fmt.Errorf("unsupported firewall family %q", fw.Family)
+		return NormalizedSpec{}, fmt.Errorf("unsupported firewall family %q", fw.Family)
 	}
 	table := normalizeFirewallTable(fw.Table)
 	if table == "" {
-		return normalizedFirewallSpec{}, fmt.Errorf("firewall table is required")
+		return NormalizedSpec{}, fmt.Errorf("firewall table is required")
 	}
 
-	out := normalizedFirewallSpec{
+	out := NormalizedSpec{
 		Family:   family,
 		Table:    table,
 		Policies: make(map[string]string),
@@ -118,14 +284,14 @@ func normalizeDesiredFirewallSpec(fw *profile.FirewallSpec) (normalizedFirewallS
 		return out, fmt.Errorf("firewall policies are required")
 	}
 	for _, cp := range fw.Policies {
-		cn, err := normalizeFirewallChain(cp.Chain)
+		cn, err := NormalizeChain(cp.Chain)
 		if err != nil {
 			return out, fmt.Errorf("normalize firewall chain %q: %w", cp.Chain, err)
 		}
 		if cn == "" {
 			return out, fmt.Errorf("normalize firewall chain %q: chain is required", cp.Chain)
 		}
-		pn, err := normalizeFirewallPolicy(cp.Policy)
+		pn, err := NormalizePolicy(cp.Policy)
 		if err != nil {
 			return out, fmt.Errorf("normalize firewall policy for chain %q: %w", cp.Chain, err)
 		}
@@ -134,7 +300,7 @@ func normalizeDesiredFirewallSpec(fw *profile.FirewallSpec) (normalizedFirewallS
 
 	seen := make(map[string]struct{})
 	for idx, rule := range fw.Rules {
-		normRules, err := normalizeDesiredFirewallRule(rule)
+		normRules, err := NormalizeDesiredRule(rule)
 		if err != nil {
 			return out, fmt.Errorf("normalize firewall rule #%d: %w", idx+1, err)
 		}
@@ -159,8 +325,8 @@ func normalizeDesiredFirewallSpec(fw *profile.FirewallSpec) (normalizedFirewallS
 	return out, nil
 }
 
-func normalizeDesiredFirewallRule(rule profile.FirewallRule) ([]normalizedFirewallRule, error) {
-	chain, err := normalizeFirewallChain(rule.Chain)
+func NormalizeDesiredRule(rule profile.FirewallRule) ([]NormalizedRule, error) {
+	chain, err := NormalizeChain(rule.Chain)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +398,7 @@ func normalizeDesiredFirewallRule(rule profile.FirewallRule) ([]normalizedFirewa
 	}
 
 	if len(filteredPorts) == 0 {
-		return []normalizedFirewallRule{{
+		return []NormalizedRule{{
 			Chain:        chain,
 			Action:       action,
 			Proto:        proto,
@@ -245,9 +411,9 @@ func normalizeDesiredFirewallRule(rule profile.FirewallRule) ([]normalizedFirewa
 		}}, nil
 	}
 
-	out := make([]normalizedFirewallRule, 0, len(filteredPorts))
+	out := make([]NormalizedRule, 0, len(filteredPorts))
 	for _, port := range filteredPorts {
-		out = append(out, normalizedFirewallRule{
+		out = append(out, NormalizedRule{
 			Chain:        chain,
 			Action:       action,
 			Proto:        proto,
@@ -270,7 +436,7 @@ func normalizeFirewallTable(table string) string {
 	return strings.TrimSpace(table)
 }
 
-func normalizeFirewallPolicy(policy string) (string, error) {
+func NormalizePolicy(policy string) (string, error) {
 	p := strings.ToLower(strings.TrimSpace(policy))
 	switch p {
 	case "accept":
@@ -284,7 +450,7 @@ func normalizeFirewallPolicy(policy string) (string, error) {
 	}
 }
 
-func normalizeFirewallChain(chain string) (string, error) {
+func NormalizeChain(chain string) (string, error) {
 	c := strings.ToLower(strings.TrimSpace(chain))
 	if c == "" {
 		return "", fmt.Errorf("chain is required")
@@ -348,8 +514,8 @@ type nftJSONRule struct {
 	Expr   []json.RawMessage `json:"expr"`
 }
 
-func normalizeCurrentFirewallState(nftJSON, family, table string) (normalizedFirewallSpec, error) {
-	out := normalizedFirewallSpec{
+func NormalizeCurrentState(nftJSON, family, table string) (NormalizedSpec, error) {
+	out := NormalizedSpec{
 		Family:   family,
 		Table:    table,
 		Policies: make(map[string]string),
@@ -366,9 +532,9 @@ func normalizeCurrentFirewallState(nftJSON, family, table string) (normalizedFir
 			var c nftJSONChain
 			if err := json.Unmarshal(rawChain, &c); err == nil {
 				if c.Family == family && c.Table == table && strings.TrimSpace(c.Hook) != "" {
-					chain, err := normalizeFirewallChain(c.Hook)
+					chain, err := NormalizeChain(c.Hook)
 					if err == nil && strings.TrimSpace(c.Policy) != "" {
-						pol, err := normalizeFirewallPolicy(c.Policy)
+						pol, err := NormalizePolicy(c.Policy)
 						if err == nil {
 							out.Policies[chain] = pol
 						}
@@ -402,8 +568,8 @@ func normalizeCurrentFirewallState(nftJSON, family, table string) (normalizedFir
 	return out, nil
 }
 
-func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
-	chain, err := normalizeFirewallChain(r.Chain)
+func normalizeNftRuleExpr(r nftJSONRule) []NormalizedRule {
+	chain, err := NormalizeChain(r.Chain)
 	if err != nil {
 		return nil
 	}
@@ -457,24 +623,24 @@ func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
 			if err := json.Unmarshal(rawPayload, &payload); err == nil {
 				switch {
 				case (payload.Protocol == "tcp" || payload.Protocol == "udp") && payload.Field == "dport":
-					if p := decodeNftPortValues(match.Right); len(p) > 0 {
+					if p := DecodeNftPortValues(match.Right); len(p) > 0 {
 						proto = payload.Protocol
 						ports = append(ports, p...)
 					}
 				case (payload.Protocol == "ip" || payload.Protocol == "ip6") && payload.Field == "saddr":
-					if s := decodeNftStringValue(match.Right); s != "" {
+					if s := DecodeNftStringValue(match.Right); s != "" {
 						src = s
 					}
 				case (payload.Protocol == "ip" || payload.Protocol == "ip6") && payload.Field == "daddr":
-					if s := decodeNftStringValue(match.Right); s != "" {
+					if s := DecodeNftStringValue(match.Right); s != "" {
 						dst = s
 					}
 				case payload.Protocol == "ip" && payload.Field == "protocol":
-					if s := strings.ToLower(strings.TrimSpace(decodeNftStringValue(match.Right))); s == "icmp" {
+					if s := strings.ToLower(strings.TrimSpace(DecodeNftStringValue(match.Right))); s == "icmp" {
 						proto = "icmp"
 					}
 				case payload.Protocol == "ip6" && payload.Field == "nexthdr":
-					if s := strings.ToLower(strings.TrimSpace(decodeNftStringValue(match.Right))); s == "icmpv6" {
+					if s := strings.ToLower(strings.TrimSpace(DecodeNftStringValue(match.Right))); s == "icmpv6" {
 						proto = "icmpv6"
 					}
 				}
@@ -488,11 +654,11 @@ func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
 			if err := json.Unmarshal(rawMeta, &meta); err == nil {
 				switch meta.Key {
 				case "iifname":
-					if s := decodeNftStringValue(match.Right); s != "" {
+					if s := DecodeNftStringValue(match.Right); s != "" {
 						iif = s
 					}
 				case "oifname":
-					if s := decodeNftStringValue(match.Right); s != "" {
+					if s := DecodeNftStringValue(match.Right); s != "" {
 						oif = s
 					}
 				}
@@ -504,7 +670,7 @@ func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
 				Key string `json:"key"`
 			}
 			if err := json.Unmarshal(rawCT, &ct); err == nil && ct.Key == "state" {
-				ctStates = append(ctStates, decodeNftStringValues(match.Right)...)
+				ctStates = append(ctStates, DecodeNftStringValues(match.Right)...)
 			}
 		}
 	}
@@ -536,9 +702,9 @@ func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
 		if proto != "tcp" && proto != "udp" {
 			return nil
 		}
-		out := make([]normalizedFirewallRule, 0, len(filteredPorts))
+		out := make([]NormalizedRule, 0, len(filteredPorts))
 		for _, port := range filteredPorts {
-			out = append(out, normalizedFirewallRule{
+			out = append(out, NormalizedRule{
 				Chain:        chain,
 				Action:       action,
 				Proto:        proto,
@@ -559,7 +725,7 @@ func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
 	if proto == "" && len(ctStates) == 0 && src == "" && dst == "" && iif == "" && oif == "" {
 		return nil
 	}
-	return []normalizedFirewallRule{{
+	return []NormalizedRule{{
 		Chain:        chain,
 		Action:       action,
 		Proto:        proto,
@@ -571,7 +737,7 @@ func normalizeNftRuleExpr(r nftJSONRule) []normalizedFirewallRule {
 	}}
 }
 
-func decodeNftPortValues(raw json.RawMessage) []int {
+func DecodeNftPortValues(raw json.RawMessage) []int {
 	var anyVal any
 	if err := json.Unmarshal(raw, &anyVal); err != nil {
 		return nil
@@ -616,7 +782,7 @@ func decodeNftPortValues(raw json.RawMessage) []int {
 	return values
 }
 
-func decodeNftStringValues(raw json.RawMessage) []string {
+func DecodeNftStringValues(raw json.RawMessage) []string {
 	var anyVal any
 	if err := json.Unmarshal(raw, &anyVal); err != nil {
 		return nil
@@ -665,20 +831,20 @@ func decodeNftStringValues(raw json.RawMessage) []string {
 	return out
 }
 
-func decodeNftStringValue(raw json.RawMessage) string {
+func DecodeNftStringValue(raw json.RawMessage) string {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		return strings.TrimSpace(s)
 	}
-	values := decodeNftStringValues(raw)
+	values := DecodeNftStringValues(raw)
 	if len(values) == 1 {
 		return values[0]
 	}
 	return ""
 }
 
-func diffNormalizedFirewall(current, desired normalizedFirewallSpec) normalizedFirewallDiff {
-	diff := normalizedFirewallDiff{}
+func DiffNormalized(current, desired NormalizedSpec) NormalizedDiff {
+	diff := NormalizedDiff{}
 
 	managedChains := make(map[string]struct{})
 	for chain := range desired.Policies {
@@ -705,11 +871,11 @@ func diffNormalizedFirewall(current, desired normalizedFirewallSpec) normalizedF
 		}
 	}
 
-	desiredSet := make(map[string]normalizedFirewallRule, len(desired.Rules))
+	desiredSet := make(map[string]NormalizedRule, len(desired.Rules))
 	for _, rule := range desired.Rules {
 		desiredSet[rule.key()] = rule
 	}
-	currentSet := make(map[string]normalizedFirewallRule)
+	currentSet := make(map[string]NormalizedRule)
 	for _, rule := range current.Rules {
 		if _, managed := managedChains[rule.Chain]; !managed {
 			continue
@@ -738,7 +904,7 @@ func diffNormalizedFirewall(current, desired normalizedFirewallSpec) normalizedF
 	return diff
 }
 
-func renderNormalizedFirewall(spec normalizedFirewallSpec) string {
+func RenderNormalized(spec NormalizedSpec) string {
 	managedChains := make(map[string]struct{})
 	for chain := range spec.Policies {
 		managedChains[chain] = struct{}{}
@@ -761,7 +927,7 @@ func renderNormalizedFirewall(spec normalizedFirewallSpec) string {
 			if rule.Chain != chain {
 				continue
 			}
-			fmt.Fprintf(&b, "    %s\n", renderNormalizedFirewallRule(spec.Family, rule))
+			fmt.Fprintf(&b, "    %s\n", RenderNormalizedRule(spec.Family, rule))
 		}
 		b.WriteString("  }\n")
 	}
@@ -791,7 +957,7 @@ func orderedFirewallChains(set map[string]struct{}) []string {
 	return out
 }
 
-func renderNormalizedFirewallRule(family string, r normalizedFirewallRule) string {
+func RenderNormalizedRule(family string, r NormalizedRule) string {
 	parts := make([]string, 0, 10)
 	if r.InInterface != "" {
 		parts = append(parts, fmt.Sprintf(`iif "%s"`, r.InInterface))
@@ -827,7 +993,11 @@ func renderNormalizedFirewallRule(family string, r normalizedFirewallRule) strin
 	return strings.Join(parts, " ")
 }
 
-func (r normalizedFirewallRule) key() string {
+func (r NormalizedRule) Key() string {
+	return r.key()
+}
+
+func (r NormalizedRule) key() string {
 	return strings.Join([]string{
 		r.Chain,
 		r.Action,

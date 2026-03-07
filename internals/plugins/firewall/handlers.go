@@ -3,6 +3,7 @@ package firewall
 import (
 	"fmt"
 
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
@@ -47,4 +48,28 @@ func PlanHandler(
 		}
 	}
 	return h
+}
+
+func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
+	return ApplyHandler(
+		func(ctx pluginapi.ApplyContext, spec *profile.FirewallSpec) error {
+			return Apply(ctx, spec, deps)
+		},
+		func(ctx pluginapi.ApplyContext) error {
+			return ValidateApply(ctx, deps.RunRoot)
+		},
+	)
+}
+
+func DefaultPlanHandler() pluginapi.PlanHandler {
+	return PlanHandler(Plan, ValidatePlan)
+}
+
+func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
+	return pluginapi.RollbackHandler{
+		Type: "firewall",
+		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
+			return CaptureRollback(ctx, s, deps)
+		},
+	}
 }

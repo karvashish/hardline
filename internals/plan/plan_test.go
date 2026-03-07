@@ -12,6 +12,7 @@ import (
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/pkg/logger"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
@@ -44,19 +45,35 @@ func TestPlanProfile(t *testing.T) {
 	})
 
 	t.Run("step error bubbles up", func(t *testing.T) {
+		prevRegistry := planActionRegistry
+		defer func() {
+			planActionRegistry = prevRegistry
+		}()
+
+		registry := pluginapi.NewPlanRegistry()
+		if err := registry.Register(pluginapi.PlanHandler{
+			Type: "boom",
+			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+				return pluginapi.PlanResult{}, errors.New("plan boom")
+			},
+		}); err != nil {
+			t.Fatalf("register plan handler: %v", err)
+		}
+		planActionRegistry = registry
+
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
 				{
 					Steps: []profile.Step{
-						{ID: "bad", Type: "packages"},
+						{ID: "bad", Type: "boom"},
 					},
 				},
 			},
 		}
 
 		err := planProfile(nil, p, "example-host")
-		if err == nil || !strings.Contains(err.Error(), "packages spec missing") {
-			t.Fatalf("expected packages missing error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "plan boom") {
+			t.Fatalf("expected plan handler error, got %v", err)
 		}
 	})
 }
@@ -75,7 +92,7 @@ func TestPrintPlan(t *testing.T) {
 	steps := []StepPlan{
 		{
 			StepID:    "s1",
-			StepType:  "template",
+			StepType:  "custom",
 			Severity:  "medium",
 			RiskClass: "integrity",
 			Summary:   "render file",

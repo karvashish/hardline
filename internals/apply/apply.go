@@ -140,7 +140,7 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 				stop = utils.Throbber()
 			}
 
-			stepRecord, err := captureStepRecord(client, step)
+			stepRecord, err := captureStepRecord(client, p, step)
 			if err != nil {
 				if stop != nil {
 					stop()

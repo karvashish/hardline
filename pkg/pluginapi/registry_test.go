@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
@@ -266,5 +267,72 @@ func TestPlanRegistry_LookupNilRegistry(t *testing.T) {
 	}
 	if _, ok := nilReg.LookupValidate("x"); ok {
 		t.Fatalf("expected nil registry validate lookup miss")
+	}
+}
+
+func TestRollbackRegistry_RegisterAndLookup(t *testing.T) {
+	r := NewRollbackRegistry()
+
+	err := r.Register(RollbackHandler{
+		Type: "  TEMPLATE  ",
+		Capture: func(RollbackContext, profile.Step) (step rollback.StepRecord, err error) {
+			return rollback.StepRecord{Type: "template"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("register rollback handler failed: %v", err)
+	}
+
+	h, ok := r.LookupType("template")
+	if !ok {
+		t.Fatalf("expected rollback handler lookup success")
+	}
+	if h.Type != "template" {
+		t.Fatalf("expected normalized handler type, got %q", h.Type)
+	}
+}
+
+func TestRollbackRegistry_RegisterErrors(t *testing.T) {
+	var nilReg *RollbackRegistry
+	if err := nilReg.Register(RollbackHandler{}); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("expected nil registry error, got %v", err)
+	}
+
+	r := NewRollbackRegistry()
+	err := r.Register(RollbackHandler{})
+	if err == nil || !strings.Contains(err.Error(), "type is required") {
+		t.Fatalf("expected missing type error, got %v", err)
+	}
+
+	err = r.Register(RollbackHandler{Type: "x"})
+	if err == nil || !strings.Contains(err.Error(), "missing Capture func") {
+		t.Fatalf("expected missing capture func error, got %v", err)
+	}
+
+	err = r.Register(RollbackHandler{
+		Type: "x",
+		Capture: func(RollbackContext, profile.Step) (rollback.StepRecord, error) {
+			return rollback.StepRecord{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("register rollback handler failed: %v", err)
+	}
+
+	err = r.Register(RollbackHandler{
+		Type: "x",
+		Capture: func(RollbackContext, profile.Step) (rollback.StepRecord, error) {
+			return rollback.StepRecord{}, nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "already registered") {
+		t.Fatalf("expected duplicate type error, got %v", err)
+	}
+}
+
+func TestRollbackRegistry_LookupNilRegistry(t *testing.T) {
+	var nilReg *RollbackRegistry
+	if _, ok := nilReg.LookupType("x"); ok {
+		t.Fatalf("expected nil registry type lookup miss")
 	}
 }

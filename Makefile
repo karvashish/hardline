@@ -5,7 +5,7 @@ SCHEMA_BIN := $(OUTDIR)/genschema
 PROFILE_TOOL_BIN := $(OUTDIR)/profiletool
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X internals/cli.version=$(VERSION)
-COVER_PACKAGES := ./cmd/profiletool ./internals/verify
+COVER_PACKAGES := ./cmd/profiletool ./internals/verify ./pkg/profile
 COVER_PROFILE := $(abspath $(OUTDIR)/active.cover.out)
 GO_CACHE_DIR := $(abspath $(OUTDIR)/.gocache)
 MIN_COVERAGE ?= 90
@@ -14,21 +14,58 @@ PROFILE_DIR ?= base-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= profile_signing.key
 SIGNING_PUB ?= profile_signing_pub.pem
 
-.PHONY: all test build profiletool ensure-embedded-pubkey keygen sign-profile genschema tidy clean
+.PHONY: all check-cover-packages test build profiletool ensure-embedded-pubkey keygen sign-profile genschema tidy clean
 
 all: test build
 
 checkversion:
 	@test -f internals/cli/version.json || (echo "version.json missing"; exit 1)
 
-test:
-	@echo "== running targeted tests with coverage =="
+check-cover-packages:
+	@echo "== checking touched Go packages are listed in COVER_PACKAGES =="
+	@changed_files="$$( \
+		{ \
+			git diff --name-only --diff-filter=ACMRTUXB -- '*.go'; \
+			git diff --name-only --cached --diff-filter=ACMRTUXB -- '*.go'; \
+			git ls-files --others --exclude-standard -- '*.go'; \
+		} | sort -u \
+	)"; \
+	if [ -z "$$changed_files" ]; then \
+		echo "no changed Go files detected"; \
+		exit 0; \
+	fi; \
+	missing_pkgs="$$( \
+		for f in $$changed_files; do \
+			d=$$(dirname "$$f"); \
+			if [ "$$d" = "." ]; then pkg="."; else pkg="./$$d"; fi; \
+			case " $(COVER_PACKAGES) " in \
+				*" $$pkg "*) ;; \
+				*) echo "$$pkg" ;; \
+			esac; \
+		done | sort -u \
+	)"; \
+	if [ -n "$$missing_pkgs" ]; then \
+		echo "coverage policy violation: add these packages to COVER_PACKAGES:"; \
+		echo "$$missing_pkgs" | sed 's/^/  - /'; \
+		exit 1; \
+	fi
+
+test: check-cover-packages
+	@echo "== running package coverage checks =="
 	@mkdir -p $(OUTDIR)
+	@for pkg in $(COVER_PACKAGES); do \
+		pkg_file=$$(echo "$$pkg" | tr '/.' '__'); \
+		pkg_profile="$(abspath $(OUTDIR))/coverage.$$pkg_file.out"; \
+		echo "== testing $$pkg =="; \
+		GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test $$pkg -coverprofile=$$pkg_profile || exit 1; \
+		cov=$$(go tool cover -func=$$pkg_profile | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
+		echo "coverage $$pkg: $$cov%"; \
+		awk "BEGIN { if ($$cov < $(MIN_COVERAGE)) exit 1 }" || \
+			(echo "coverage $$pkg $$cov% is below minimum $(MIN_COVERAGE)%"; exit 1); \
+	done
+	@echo "== aggregate coverage across COVER_PACKAGES =="
 	GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test $(COVER_PACKAGES) -coverprofile=$(COVER_PROFILE)
 	@go tool cover -func=$(COVER_PROFILE) | tail -n 1
-	@cov=$$(go tool cover -func=$(COVER_PROFILE) | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
-		awk "BEGIN { if ($$cov < $(MIN_COVERAGE)) exit 1 }" || \
-		(echo "coverage $$cov% is below minimum $(MIN_COVERAGE)%"; exit 1)
 
 build: tidy checkversion ensure-embedded-pubkey genschema
 	@echo "== building $(BINARY) ($(VERSION)) =="

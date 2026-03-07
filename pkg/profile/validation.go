@@ -10,15 +10,20 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-func (p *Profile) Affirm() any {
+func (p *Profile) Affirm() error {
+	if p.profilePath == "" {
+		return fmt.Errorf("profile path is empty; load profile before validation")
+	}
 
-	data, err := os.ReadFile("base-secure-ubuntu-24.04-lts/profile.json")
+	profileJSONPath := p.abs("profile.json")
+
+	data, err := os.ReadFile(profileJSONPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("read profile json %q: %w", profileJSONPath, err)
 	}
 	var instance any
 	if err := json.Unmarshal(data, &instance); err != nil {
-		return err
+		return fmt.Errorf("decode profile json %q: %w", profileJSONPath, err)
 	}
 
 	abs, err := filepath.Abs("schema/profile.schema.json")

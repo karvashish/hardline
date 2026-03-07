@@ -6,6 +6,7 @@ import (
 	"github.com/karvashish/hardline/internals/apply"
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/plan"
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
 )
@@ -15,6 +16,7 @@ var (
 	showUsage     = cli.Usage
 	runPlan       = plan.Plan
 	runApply      = apply.Apply
+	runRollback   = rollback.Rollback
 	runVerify     = verify.Verify
 	setDebugMode  = logger.SetDebug
 	resolveVerCmd = cli.VersionCmd
@@ -46,6 +48,11 @@ func run(args []string) int {
 		// Apply must always execute preflight planning/validation first.
 		runPlan(c)
 		runApply(c)
+		return 0
+	case "rollback":
+		c := parseCmd(cmd, args[2:])
+		setDebugMode(c.Debug)
+		runRollback(c)
 		return 0
 	case "verify-profile", "vp":
 		c := parseCmd(cmd, args[2:])

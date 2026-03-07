@@ -6,6 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -95,9 +96,17 @@ func applyCommand(c cli.Command) error {
 		)
 	}
 
-	if err := runApplyProfile(sshClient, p); err != nil {
+	journal := rollback.NewJournal(c.Host, p.ID, c.Profile)
+
+	if err := runApplyProfile(sshClient, p, journal); err != nil {
 		logger.Errorf("apply failed: %v\n", err)
 		return fmt.Errorf("apply failed: %w", err)
+	}
+
+	journal.Status = "success"
+	if err := journal.SaveLast(); err != nil {
+		logger.Errorf("persist rollback journal failed: %v\n", err)
+		return fmt.Errorf("persist rollback journal failed: %w", err)
 	}
 
 	if !c.Debug {
@@ -108,7 +117,7 @@ func applyCommand(c cli.Command) error {
 	return nil
 }
 
-func applyProfile(client *ssh.Client, p *profile.Profile) error {
+func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error {
 	logger.Debugf("applyProfile: %d action files\n", len(p.ActionFiles))
 
 	for _, af := range p.ActionFiles {
@@ -123,7 +132,15 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 				stop = utils.Throbber()
 			}
 
-			err := runStep(client, p, step)
+			stepRecord, err := captureStepRecord(client, step)
+			if err != nil {
+				if stop != nil {
+					stop()
+				}
+				return err
+			}
+
+			err = runStep(client, p, step)
 
 			if stop != nil {
 				stop()
@@ -131,6 +148,10 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 
 			if err != nil {
 				return err
+			}
+
+			if journal != nil {
+				journal.Steps = append(journal.Steps, stepRecord)
 			}
 
 			if !logger.DebugMode() {

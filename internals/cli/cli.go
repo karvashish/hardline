@@ -23,6 +23,8 @@ Commands:
                          run plan with profile
   apply <profile> [--host HOST| -h HOST] [--user USER| -u USER] [--keypath PATH| -k PATH] [--debug| -d]
                          run apply with profile
+  rollback last [--host HOST| -h HOST] [--user USER| -u USER] [--keypath PATH| -k PATH] [--debug| -d]
+                         rollback the last successful apply run
   verify-profile <profile> [--debug| -d]
                          run verify-profile with profile
   vp <profile> [--debug| -d]
@@ -33,6 +35,7 @@ Commands:
 Examples:
   hardline plan dev --host example.com --user deploy --keypath ~/.ssh/id_rsa
   hardline apply prod -h example.com -u deploy -k ~/.ssh/id_rsa -d
+  hardline rollback last -h example.com -u deploy -k ~/.ssh/id_rsa
   hardline vp staging --debug
   hardline -v
 `)
@@ -59,7 +62,7 @@ func Parse(command string, args []string) Command {
 	fs.SetOutput(io.Discard)
 
 	switch command {
-	case "plan", "apply":
+	case "plan", "apply", "rollback":
 		fs.StringVar(&host, "host", "", "remote host")
 		fs.StringVar(&host, "h", "", "remote host (shorthand)")
 		fs.StringVar(&user, "user", "", "remote user")

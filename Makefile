@@ -5,7 +5,7 @@ SCHEMA_BIN := $(OUTDIR)/genschema
 PROFILE_TOOL_BIN := $(OUTDIR)/profiletool
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X internals/cli.version=$(VERSION)
-COVER_PACKAGES := ./cmd/hardline ./cmd/profiletool ./internals/apply ./internals/cli ./internals/connection ./internals/verify ./pkg/profile
+COVER_PACKAGES := ./cmd/hardline ./cmd/profiletool ./internals/apply ./internals/cli ./internals/connection ./internals/rollback ./internals/verify ./pkg/profile
 COVER_PROFILE := $(abspath $(OUTDIR)/active.cover.out)
 GO_CACHE_DIR := $(abspath $(OUTDIR)/.gocache)
 MIN_COVERAGE ?= 90
@@ -53,19 +53,19 @@ check-cover-packages:
 test: check-cover-packages
 	@echo "== running package coverage checks =="
 	@mkdir -p $(OUTDIR)
-	@for pkg in $(COVER_PACKAGES); do \
+	@set -e; for pkg in $(COVER_PACKAGES); do \
 		pkg_file=$$(echo "$$pkg" | tr '/.' '__'); \
 		pkg_profile="$(abspath $(OUTDIR))/coverage.$$pkg_file.out"; \
 		echo "== testing $$pkg =="; \
 		GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test $$pkg -coverprofile=$$pkg_profile || exit 1; \
-		cov=$$(go tool cover -func=$$pkg_profile | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
+		cov=$$(GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go tool cover -func=$$pkg_profile | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
 		echo "coverage $$pkg: $$cov%"; \
 		awk "BEGIN { if ($$cov < $(MIN_COVERAGE)) exit 1 }" || \
-			(echo "coverage $$pkg $$cov% is below minimum $(MIN_COVERAGE)%"; exit 1); \
+			{ echo "coverage $$pkg $$cov% is below minimum $(MIN_COVERAGE)%"; exit 1; }; \
 	done
 	@echo "== aggregate coverage across COVER_PACKAGES =="
 	GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test $(COVER_PACKAGES) -coverprofile=$(COVER_PROFILE)
-	@go tool cover -func=$(COVER_PROFILE) | tail -n 1
+	@GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go tool cover -func=$(COVER_PROFILE) | tail -n 1
 
 build: tidy checkversion ensure-embedded-pubkey genschema
 	@echo "== building $(BINARY) ($(VERSION)) =="

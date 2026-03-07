@@ -68,6 +68,7 @@ func TestRun_PlanDispatch(t *testing.T) {
 		planCalled = true
 	}
 	runApply = func(cli.Command) { t.Fatal("apply handler should not be called for plan command") }
+	runRollback = func(cli.Command) { t.Fatal("rollback handler should not be called for plan command") }
 
 	code := run([]string{"hardline", "plan", "profile"})
 	if code != 0 {
@@ -96,6 +97,7 @@ func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
 	var order []string
 	runPlan = func(cli.Command) { order = append(order, "plan") }
 	runApply = func(cli.Command) { order = append(order, "apply") }
+	runRollback = func(cli.Command) { t.Fatal("rollback handler should not be called for apply command") }
 
 	code := run([]string{"hardline", "apply", "profile"})
 	if code != 0 {
@@ -129,6 +131,34 @@ func TestRun_VerifyDispatch(t *testing.T) {
 	}
 	if verifyCalls != 1 {
 		t.Fatalf("expected verify call once, got %d", verifyCalls)
+	}
+}
+
+func TestRun_RollbackDispatch(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "last"}
+	}
+	setDebugMode = func(bool) {}
+
+	var rollbackCalls int
+	runRollback = func(c cli.Command) {
+		rollbackCalls++
+		if c.Name != "rollback" {
+			t.Fatalf("expected rollback command name, got %q", c.Name)
+		}
+	}
+	runPlan = func(cli.Command) { t.Fatal("plan handler should not be called for rollback command") }
+	runApply = func(cli.Command) { t.Fatal("apply handler should not be called for rollback command") }
+
+	code := run([]string{"hardline", "rollback", "last"})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if rollbackCalls != 1 {
+		t.Fatalf("expected rollback call once, got %d", rollbackCalls)
 	}
 }
 
@@ -190,6 +220,7 @@ func stubHandlers() func() {
 	prevUsage := showUsage
 	prevPlan := runPlan
 	prevApply := runApply
+	prevRollback := runRollback
 	prevVerify := runVerify
 	prevSetDebug := setDebugMode
 	prevVersion := resolveVerCmd
@@ -201,6 +232,7 @@ func stubHandlers() func() {
 		showUsage = prevUsage
 		runPlan = prevPlan
 		runApply = prevApply
+		runRollback = prevRollback
 		runVerify = prevVerify
 		setDebugMode = prevSetDebug
 		resolveVerCmd = prevVersion

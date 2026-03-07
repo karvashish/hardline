@@ -7,11 +7,14 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
 
 func TestApplyCommand_ErrorPaths(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
 	c := cli.Command{
 		Profile: "profile",
 		Host:    "example.com",
@@ -124,16 +127,45 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
-		runApplyProfile = func(client *ssh.Client, p *profile.Profile) error { return errors.New("boom") }
+		runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error {
+			return errors.New("boom")
+		}
 
 		err := applyCommand(c)
 		if err == nil || !strings.Contains(err.Error(), "apply failed") {
 			t.Fatalf("expected apply failed error, got %v", err)
 		}
 	})
+
+	t.Run("rollback journal save failed", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		loadProfile = func(string) (*profile.Profile, error) {
+			return &profile.Profile{ID: "p", MinHardline: "1.0.0", ProfileSchema: 1}, nil
+		}
+		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+		compareSemVer = func(a, b string) (int, error) { return 0, nil }
+		runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+
+		bad := cli.Command{
+			Profile: "profile",
+			Host:    "",
+			User:    "deployer",
+			KeyPath: "/tmp/key",
+			Debug:   true,
+		}
+		err := applyCommand(bad)
+		if err == nil || !strings.Contains(err.Error(), "persist rollback journal failed") {
+			t.Fatalf("expected rollback journal persist error, got %v", err)
+		}
+	})
 }
 
 func TestApplyCommand_Success(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
 	restore := stubApplyDeps()
 	defer restore()
 
@@ -158,10 +190,13 @@ func TestApplyCommand_Success(t *testing.T) {
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 
 	called := false
-	runApplyProfile = func(client *ssh.Client, p *profile.Profile) error {
+	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error {
 		called = true
 		if p.MinHardline != "1.0.0" {
 			t.Fatalf("unexpected profile passed to apply: %+v", p)
+		}
+		if journal == nil {
+			t.Fatal("expected rollback journal to be passed")
 		}
 		return nil
 	}
@@ -233,12 +268,16 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 				{Steps: []profile.Step{{ID: "s2", Type: "validate"}}},
 			},
 		}
+		journal := rollback.NewJournal("example.com", "p", "profile")
 
-		if err := applyProfile(nil, p); err != nil {
+		if err := applyProfile(nil, p, journal); err != nil {
 			t.Fatalf("applyProfile failed: %v", err)
 		}
 		if strings.Join(seen, ",") != "s1,s2" {
 			t.Fatalf("unexpected step order: %v", seen)
+		}
+		if len(journal.Steps) != 2 {
+			t.Fatalf("expected 2 journal steps, got %d", len(journal.Steps))
 		}
 	})
 
@@ -255,9 +294,35 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 			},
 		}
 
-		err := applyProfile(nil, p)
+		err := applyProfile(nil, p, nil)
 		if err == nil || !strings.Contains(err.Error(), "step boom") {
 			t.Fatalf("expected step error, got %v", err)
+		}
+	})
+
+	t.Run("snapshot capture error bubbles", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		p := &profile.Profile{
+			ActionFiles: []profile.ActionFile{
+				{
+					Steps: []profile.Step{
+						{
+							ID:   "bad-template",
+							Type: "template",
+							Template: &profile.TemplateSpec{
+								Dest: "/tmp/not-managed.conf",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		err := applyProfile(nil, p, rollback.NewJournal("example.com", "p", "profile"))
+		if err == nil || !strings.Contains(err.Error(), "outside /etc managed scope") {
+			t.Fatalf("expected managed path capture error, got %v", err)
 		}
 	})
 }

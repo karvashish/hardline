@@ -20,6 +20,9 @@ func TestUsage_LogsHelp(t *testing.T) {
 	if !strings.Contains(got, "Usage:") || !strings.Contains(got, "hardline <command>") {
 		t.Fatalf("expected usage text, got %q", got)
 	}
+	if !strings.Contains(got, "rollback last") {
+		t.Fatalf("expected rollback command in usage, got %q", got)
+	}
 }
 
 func TestParse_ExitPaths(t *testing.T) {
@@ -86,6 +89,16 @@ func TestParse_SuccessPaths(t *testing.T) {
 	}
 	if verifyCmd.Host != "" || verifyCmd.User != "" || verifyCmd.KeyPath != "" {
 		t.Fatalf("verify command should not parse host/user/key fields: %+v", verifyCmd)
+	}
+
+	rollbackCmd := Parse("rollback", []string{
+		"last",
+		"-h", "example.com",
+		"-u", "deployer",
+		"-k", "/tmp/key",
+	})
+	if rollbackCmd.Name != "rollback" || rollbackCmd.Profile != "last" || rollbackCmd.Host != "example.com" || rollbackCmd.User != "deployer" || rollbackCmd.KeyPath != "/tmp/key" {
+		t.Fatalf("unexpected parsed rollback command: %+v", rollbackCmd)
 	}
 }
 

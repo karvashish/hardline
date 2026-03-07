@@ -484,7 +484,7 @@ func TestHandleFirewall(t *testing.T) {
 		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
-			if dest != "/etc/nftables.d/10-hardline.nft" {
+			if dest != defaultManagedFirewallDest {
 				t.Fatalf("unexpected destination: %q", dest)
 			}
 			if mode != 0o644 {
@@ -631,11 +631,15 @@ func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
 
 func stubStepDeps() func() {
 	prevRunRoot := runRootCmd
+	prevRunRootOut := runRootCmdWithOutput
+	prevReadRoot := readRootFile
 	prevNewSFTP := newSFTPClient
 	prevWriteRoot := writeRootFile
 
 	return func() {
 		runRootCmd = prevRunRoot
+		runRootCmdWithOutput = prevRunRootOut
+		readRootFile = prevReadRoot
 		newSFTPClient = prevNewSFTP
 		writeRootFile = prevWriteRoot
 	}

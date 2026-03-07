@@ -16,10 +16,14 @@ import (
 )
 
 var (
-	runRootCmd    = remote.RunRoot
-	newSFTPClient = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
-	writeRootFile = remote.WriteRootFile
+	runRootCmd           = remote.RunRoot
+	runRootCmdWithOutput = remote.RunRootWithOutput
+	readRootFile         = remote.ReadRootFile
+	newSFTPClient        = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
+	writeRootFile        = remote.WriteRootFile
 )
+
+const defaultManagedFirewallDest = "/etc/nftables.d/99-hardline-firewall.nft"
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
@@ -235,7 +239,7 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	// allow firewall spec to override destination; fallback keeps old behavior
 	destPath := strings.TrimSpace(fw.TemplateDest)
 	if destPath == "" {
-		destPath = "/etc/nftables.d/10-hardline.nft"
+		destPath = defaultManagedFirewallDest
 	}
 
 	dir := path.Dir(destPath)

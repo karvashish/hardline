@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,8 +137,14 @@ func TestRunSign_RequiresPrivateKey(t *testing.T) {
 }
 
 func TestRun_NoArgsAndUnknownCommand(t *testing.T) {
+	restore := stubProfileToolLoggers()
+	defer restore()
+
 	var errOut bytes.Buffer
-	if code := run([]string{"profiletool"}, &errOut); code != 2 {
+	profileErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+	if code := run([]string{"profiletool"}); code != 2 {
 		t.Fatalf("expected exit code 2 for no args, got %d", code)
 	}
 	if !strings.Contains(errOut.String(), "Usage:") {
@@ -145,7 +152,7 @@ func TestRun_NoArgsAndUnknownCommand(t *testing.T) {
 	}
 
 	errOut.Reset()
-	if code := run([]string{"profiletool", "unknown"}, &errOut); code != 2 {
+	if code := run([]string{"profiletool", "unknown"}); code != 2 {
 		t.Fatalf("expected exit code 2 for unknown command, got %d", code)
 	}
 	if !strings.Contains(errOut.String(), "Usage:") {
@@ -154,8 +161,14 @@ func TestRun_NoArgsAndUnknownCommand(t *testing.T) {
 }
 
 func TestRun_CommandFailureCodes(t *testing.T) {
+	restore := stubProfileToolLoggers()
+	defer restore()
+
 	var errOut bytes.Buffer
-	if code := run([]string{"profiletool", "keygen", "--bad-flag"}, &errOut); code != 1 {
+	profileErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+	if code := run([]string{"profiletool", "keygen", "--bad-flag"}); code != 1 {
 		t.Fatalf("expected exit code 1 for keygen parse failure, got %d", code)
 	}
 	if !strings.Contains(errOut.String(), "keygen failed") {
@@ -163,7 +176,7 @@ func TestRun_CommandFailureCodes(t *testing.T) {
 	}
 
 	errOut.Reset()
-	if code := run([]string{"profiletool", "sign", "--profile-dir", "x"}, &errOut); code != 1 {
+	if code := run([]string{"profiletool", "sign", "--profile-dir", "x"}); code != 1 {
 		t.Fatalf("expected exit code 1 for sign arg failure, got %d", code)
 	}
 	if !strings.Contains(errOut.String(), "sign failed") {
@@ -172,17 +185,23 @@ func TestRun_CommandFailureCodes(t *testing.T) {
 }
 
 func TestRun_SuccessPaths(t *testing.T) {
+	restore := stubProfileToolLoggers()
+	defer restore()
+
 	tmp := t.TempDir()
 	profileDir := filepath.Join(tmp, "profile")
 	writeTestFile(t, filepath.Join(profileDir, "profile.json"), []byte(`{"name":"ok"}`))
 
 	withChdir(t, tmp, func() {
 		var errOut bytes.Buffer
+		profileErrorf = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(&errOut, format, args...)
+		}
 		if code := run([]string{
 			"profiletool", "keygen",
 			"--private-out", "keys/private.pem",
 			"--public-out", embeddedVerifyPubKeyPath,
-		}, &errOut); code != 0 {
+		}); code != 0 {
 			t.Fatalf("expected keygen success exit code 0, got %d, stderr=%q", code, errOut.String())
 		}
 
@@ -191,10 +210,19 @@ func TestRun_SuccessPaths(t *testing.T) {
 			"profiletool", "sign",
 			"--profile-dir", profileDir,
 			"--private-key", filepath.Join(tmp, "keys/private.pem"),
-		}, &errOut); code != 0 {
+		}); code != 0 {
 			t.Fatalf("expected sign success exit code 0, got %d, stderr=%q", code, errOut.String())
 		}
 	})
+}
+
+func stubProfileToolLoggers() func() {
+	prevInfo := profileInfof
+	prevErr := profileErrorf
+	return func() {
+		profileInfof = prevInfo
+		profileErrorf = prevErr
+	}
 }
 
 func TestRunKeygen_Errors(t *testing.T) {

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"os"
 
 	"github.com/karvashish/hardline/internals/apply"
@@ -20,13 +18,15 @@ var (
 	runVerify     = verify.Verify
 	setDebugMode  = logger.SetDebug
 	resolveVerCmd = cli.VersionCmd
+	logInfof      = logger.Infof
+	logErrorf     = logger.Errorf
 )
 
 func main() {
-	os.Exit(run(os.Args, os.Stdout, os.Stderr))
+	os.Exit(run(os.Args))
 }
 
-func run(args []string, out io.Writer, errOut io.Writer) int {
+func run(args []string) int {
 	if len(args) < 2 {
 		showUsage()
 		return 1
@@ -55,13 +55,13 @@ func run(args []string, out io.Writer, errOut io.Writer) int {
 	case "version", "-v":
 		ver, _, err := resolveVerCmd()
 		if err != nil {
-			fmt.Fprintf(errOut, "version check failed: %v\n", err)
+			logErrorf("version check failed: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(out, "hardline version %s\n", ver.String())
+		logInfof("hardline version %s\n", ver.String())
 		return 0
 	default:
-		fmt.Fprintf(errOut, "unknown command: %s\n", cmd)
+		logErrorf("unknown command: %s\n", cmd)
 		showUsage()
 		return 1
 	}

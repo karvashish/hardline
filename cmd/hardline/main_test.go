@@ -15,7 +15,7 @@ func TestRun_NoArgs_ShowsUsage(t *testing.T) {
 	var usageCalls int
 	showUsage = func() { usageCalls++ }
 
-	code := run([]string{"hardline"}, &bytes.Buffer{}, &bytes.Buffer{})
+	code := run([]string{"hardline"})
 	if code != 1 {
 		t.Fatalf("expected exit code 1, got %d", code)
 	}
@@ -30,9 +30,12 @@ func TestRun_UnknownCommand_ShowsUsage(t *testing.T) {
 
 	var usageCalls int
 	showUsage = func() { usageCalls++ }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
 
-	var out, errOut bytes.Buffer
-	code := run([]string{"hardline", "nope"}, &out, &errOut)
+	code := run([]string{"hardline", "nope"})
 	if code != 1 {
 		t.Fatalf("expected exit code 1, got %d", code)
 	}
@@ -66,7 +69,7 @@ func TestRun_PlanDispatch(t *testing.T) {
 	}
 	runApply = func(cli.Command) { t.Fatal("apply handler should not be called for plan command") }
 
-	code := run([]string{"hardline", "plan", "profile"}, &bytes.Buffer{}, &bytes.Buffer{})
+	code := run([]string{"hardline", "plan", "profile"})
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
 	}
@@ -94,7 +97,7 @@ func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
 	runPlan = func(cli.Command) { order = append(order, "plan") }
 	runApply = func(cli.Command) { order = append(order, "apply") }
 
-	code := run([]string{"hardline", "apply", "profile"}, &bytes.Buffer{}, &bytes.Buffer{})
+	code := run([]string{"hardline", "apply", "profile"})
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
 	}
@@ -120,7 +123,7 @@ func TestRun_VerifyDispatch(t *testing.T) {
 		}
 	}
 
-	code := run([]string{"hardline", "vp", "profile"}, &bytes.Buffer{}, &bytes.Buffer{})
+	code := run([]string{"hardline", "vp", "profile"})
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
 	}
@@ -137,17 +140,20 @@ func TestRun_VersionPaths(t *testing.T) {
 		resolveVerCmd = func() (cli.SemVer, int, error) {
 			return cli.SemVer{Major: 1, Minor: 2, Patch: 3}, 1, nil
 		}
+		var out bytes.Buffer
+		logInfof = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(&out, format, args...)
+		}
+		logErrorf = func(format string, args ...any) {
+			t.Fatalf("unexpected error log: "+format, args...)
+		}
 
-		var out, errOut bytes.Buffer
-		code := run([]string{"hardline", "version"}, &out, &errOut)
+		code := run([]string{"hardline", "version"})
 		if code != 0 {
 			t.Fatalf("expected exit code 0, got %d", code)
 		}
 		if got := out.String(); got != "hardline version 1.2.3\n" {
 			t.Fatalf("unexpected version output: %q", got)
-		}
-		if errOut.Len() != 0 {
-			t.Fatalf("expected empty stderr, got %q", errOut.String())
 		}
 	})
 
@@ -158,9 +164,15 @@ func TestRun_VersionPaths(t *testing.T) {
 		resolveVerCmd = func() (cli.SemVer, int, error) {
 			return cli.SemVer{}, 0, fmt.Errorf("boom")
 		}
-
 		var out, errOut bytes.Buffer
-		code := run([]string{"hardline", "-v"}, &out, &errOut)
+		logInfof = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(&out, format, args...)
+		}
+		logErrorf = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(&errOut, format, args...)
+		}
+
+		code := run([]string{"hardline", "-v"})
 		if code != 1 {
 			t.Fatalf("expected exit code 1, got %d", code)
 		}
@@ -181,6 +193,8 @@ func stubHandlers() func() {
 	prevVerify := runVerify
 	prevSetDebug := setDebugMode
 	prevVersion := resolveVerCmd
+	prevInfo := logInfof
+	prevError := logErrorf
 
 	return func() {
 		parseCmd = prevParse
@@ -190,5 +204,7 @@ func stubHandlers() func() {
 		runVerify = prevVerify
 		setDebugMode = prevSetDebug
 		resolveVerCmd = prevVersion
+		logInfof = prevInfo
+		logErrorf = prevError
 	}
 }

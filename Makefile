@@ -5,7 +5,7 @@ SCHEMA_BIN := $(OUTDIR)/genschema
 PROFILE_TOOL_BIN := $(OUTDIR)/profiletool
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X internals/cli.version=$(VERSION)
-COVER_PACKAGES := ./cmd/hardline ./cmd/profiletool ./internals/apply ./internals/connection ./internals/verify ./pkg/profile
+COVER_PACKAGES := ./cmd/hardline ./cmd/profiletool ./internals/apply ./internals/cli ./internals/connection ./internals/verify ./pkg/profile
 COVER_PROFILE := $(abspath $(OUTDIR)/active.cover.out)
 GO_CACHE_DIR := $(abspath $(OUTDIR)/.gocache)
 MIN_COVERAGE ?= 90

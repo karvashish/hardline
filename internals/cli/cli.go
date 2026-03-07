@@ -2,14 +2,20 @@ package cli
 
 import (
 	"flag"
-	"fmt"
+	"io"
 	"os"
 
 	"github.com/karvashish/hardline/pkg/logger"
 )
 
+var (
+	infof    = logger.Infof
+	errorf   = logger.Errorf
+	exitFunc = os.Exit
+)
+
 func Usage() {
-	fmt.Println(`Usage:
+	infof(`Usage:
   hardline <command> [args]
 
 Commands:
@@ -28,13 +34,15 @@ Examples:
   hardline plan dev --host example.com --user deploy --keypath ~/.ssh/id_rsa
   hardline apply prod -h example.com -u deploy -k ~/.ssh/id_rsa -d
   hardline vp staging --debug
-  hardline -v`)
+  hardline -v
+`)
 }
 
 func Parse(command string, args []string) Command {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "%s requires a profile\n", command)
-		os.Exit(1)
+		errorf("%s requires a profile\n", command)
+		exitFunc(1)
+		return Command{}
 	}
 
 	profile := args[0]
@@ -47,7 +55,8 @@ func Parse(command string, args []string) Command {
 		debug   bool
 	)
 
-	fs := flag.NewFlagSet(command, flag.ExitOnError)
+	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 
 	switch command {
 	case "plan", "apply":
@@ -65,7 +74,9 @@ func Parse(command string, args []string) Command {
 	}
 
 	if err := fs.Parse(rest); err != nil {
-		os.Exit(2)
+		errorf("invalid flags for %s: %v\n", command, err)
+		exitFunc(2)
+		return Command{}
 	}
 
 	if debug {

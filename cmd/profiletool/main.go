@@ -17,6 +17,8 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+
+	"github.com/karvashish/hardline/pkg/logger"
 )
 
 const embeddedVerifyPubKeyPath = "internals/verify/profile_signing_pub.pem"
@@ -36,8 +38,13 @@ type manifestEntry struct {
 	SHA256 string `json:"sha256"`
 }
 
-func usage(w io.Writer) {
-	fmt.Fprintln(w, `Usage:
+var (
+	profileInfof  = logger.Infof
+	profileErrorf = logger.Errorf
+)
+
+func usage() {
+	profileErrorf(`Usage:
   go run ./cmd/profiletool <command> [options]
 
 Commands:
@@ -46,32 +53,33 @@ Commands:
 
 Examples:
   go run ./cmd/profiletool keygen --private-out /tmp/profile_signing.key --public-out /tmp/profile_signing_pub.pem
-  go run ./cmd/profiletool sign --profile-dir base-secure-ubuntu-24.04-lts --private-key /tmp/profile_signing.key`)
+  go run ./cmd/profiletool sign --profile-dir base-secure-ubuntu-24.04-lts --private-key /tmp/profile_signing.key
+`)
 }
 
 func main() {
-	os.Exit(run(os.Args, os.Stderr))
+	os.Exit(run(os.Args))
 }
 
-func run(args []string, errw io.Writer) int {
+func run(args []string) int {
 	if len(args) < 2 {
-		usage(errw)
+		usage()
 		return 2
 	}
 
 	switch args[1] {
 	case "keygen":
 		if err := runKeygen(args[2:]); err != nil {
-			fmt.Fprintf(errw, "keygen failed: %v\n", err)
+			profileErrorf("keygen failed: %v\n", err)
 			return 1
 		}
 	case "sign":
 		if err := runSign(args[2:]); err != nil {
-			fmt.Fprintf(errw, "sign failed: %v\n", err)
+			profileErrorf("sign failed: %v\n", err)
 			return 1
 		}
 	default:
-		usage(errw)
+		usage()
 		return 2
 	}
 	return 0
@@ -126,10 +134,10 @@ func runKeygen(args []string) error {
 		}
 	}
 
-	fmt.Printf("wrote private key: %s\n", *privateOut)
-	fmt.Printf("wrote public key : %s\n", *publicOut)
-	fmt.Printf("wrote embedded key: %s\n", embeddedVerifyPubKeyPath)
-	fmt.Println("rebuild hardline after key rotation so the new embedded public key is used")
+	profileInfof("wrote private key: %s\n", *privateOut)
+	profileInfof("wrote public key : %s\n", *publicOut)
+	profileInfof("wrote embedded key: %s\n", embeddedVerifyPubKeyPath)
+	profileInfof("rebuild hardline after key rotation so the new embedded public key is used\n")
 	return nil
 }
 
@@ -190,8 +198,8 @@ func runSign(args []string) error {
 		return fmt.Errorf("write signature %q: %w", signaturePath, err)
 	}
 
-	fmt.Printf("wrote manifest : %s\n", manifestPath)
-	fmt.Printf("wrote signature: %s\n", signaturePath)
+	profileInfof("wrote manifest : %s\n", manifestPath)
+	profileInfof("wrote signature: %s\n", signaturePath)
 	return nil
 }
 

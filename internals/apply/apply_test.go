@@ -42,6 +42,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) { return nil, errors.New("no profile") }
 
 		err := applyCommand(c)
@@ -55,6 +56,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
 		}
@@ -71,6 +73,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{MinHardline: "x.y.z", ProfileSchema: 1}, nil
 		}
@@ -88,6 +91,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{MinHardline: "2.0.0", ProfileSchema: 1}, nil
 		}
@@ -105,6 +109,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 2}, nil
 		}
@@ -122,6 +127,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
 		}
@@ -142,6 +148,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{ID: "p", MinHardline: "1.0.0", ProfileSchema: 1}, nil
 		}
@@ -159,6 +166,19 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		err := applyCommand(bad)
 		if err == nil || !strings.Contains(err.Error(), "persist rollback journal failed") {
 			t.Fatalf("expected rollback journal persist error, got %v", err)
+		}
+	})
+
+	t.Run("sudo preflight failed", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return errors.New("sudo denied") }
+
+		err := applyCommand(c)
+		if err == nil || !strings.Contains(err.Error(), "sudo preflight failed") {
+			t.Fatalf("expected sudo preflight error, got %v", err)
 		}
 	})
 }
@@ -183,6 +203,7 @@ func TestApplyCommand_Success(t *testing.T) {
 		}
 		return nil, nil
 	}
+	ensureApplySudo = func(_ *ssh.Client) error { return nil }
 	loadProfile = func(string) (*profile.Profile, error) {
 		return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
 	}
@@ -300,6 +321,58 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 	})
 
+	t.Run("step error triggers automatic rollback", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
+			return errors.New("step boom")
+		}
+		rollbackCalled := false
+		runRollbackStep = func(_ *ssh.Client, steps []rollback.StepRecord) error {
+			rollbackCalled = true
+			if len(steps) != 1 {
+				t.Fatalf("expected one captured step for rollback, got %d", len(steps))
+			}
+			return nil
+		}
+		p := &profile.Profile{
+			ActionFiles: []profile.ActionFile{
+				{Steps: []profile.Step{{ID: "s1", Type: "validate"}}},
+			},
+		}
+
+		err := applyProfile(nil, p, rollback.NewJournal("example.com", "p", "profile"))
+		if err == nil || !strings.Contains(err.Error(), "automatic rollback completed") {
+			t.Fatalf("expected automatic rollback completion error, got %v", err)
+		}
+		if !rollbackCalled {
+			t.Fatal("expected automatic rollback to be invoked")
+		}
+	})
+
+	t.Run("step error and rollback failure", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
+			return errors.New("step boom")
+		}
+		runRollbackStep = func(_ *ssh.Client, _ []rollback.StepRecord) error {
+			return errors.New("rollback boom")
+		}
+		p := &profile.Profile{
+			ActionFiles: []profile.ActionFile{
+				{Steps: []profile.Step{{ID: "s1", Type: "validate"}}},
+			},
+		}
+
+		err := applyProfile(nil, p, rollback.NewJournal("example.com", "p", "profile"))
+		if err == nil || !strings.Contains(err.Error(), "automatic rollback failed") {
+			t.Fatalf("expected automatic rollback failure error, got %v", err)
+		}
+	})
+
 	t.Run("snapshot capture error bubbles", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
@@ -332,7 +405,9 @@ func stubApplyDeps() func() {
 	prevLoad := loadProfile
 	prevVersion := versionCmd
 	prevCompare := compareSemVer
+	prevEnsureSudo := ensureApplySudo
 	prevRunApplyProfile := runApplyProfile
+	prevRunRollbackStep := runRollbackStep
 	prevRunApplyCommand := runApplyCommand
 	prevExit := exitProcess
 	prevRunStep := runStep
@@ -342,7 +417,9 @@ func stubApplyDeps() func() {
 		loadProfile = prevLoad
 		versionCmd = prevVersion
 		compareSemVer = prevCompare
+		ensureApplySudo = prevEnsureSudo
 		runApplyProfile = prevRunApplyProfile
+		runRollbackStep = prevRunRollbackStep
 		runApplyCommand = prevRunApplyCommand
 		exitProcess = prevExit
 		runStep = prevRunStep

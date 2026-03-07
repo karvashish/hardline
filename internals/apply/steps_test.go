@@ -506,6 +506,95 @@ func TestHandleFirewall(t *testing.T) {
 			t.Fatalf("handleFirewall failed: %v", err)
 		}
 	})
+
+	t.Run("missing include is enabled during apply", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+		p := mustLoadProfileForTests(t, map[string]string{
+			"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}",
+		})
+
+		var cmds []string
+		checkCount := 0
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			if cmd == firewallIncludeCheckCmd {
+				checkCount++
+				if checkCount == 1 {
+					return errors.New("missing include")
+				}
+			}
+			return nil
+		}
+		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
+		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
+
+		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "nftables"})
+		if err != nil {
+			t.Fatalf("handleFirewall failed: %v", err)
+		}
+
+		joined := strings.Join(cmds, "\n")
+		if !strings.Contains(joined, `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`) {
+			t.Fatalf("expected include append command, got %#v", cmds)
+		}
+		if checkCount != 2 {
+			t.Fatalf("expected include check before and after append, got %d", checkCount)
+		}
+	})
+
+	t.Run("enable include command failure", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+		p := mustLoadProfileForTests(t, map[string]string{
+			"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}",
+		})
+
+		checkCount := 0
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if cmd == firewallIncludeCheckCmd {
+				checkCount++
+				return errors.New("missing include")
+			}
+			if strings.Contains(cmd, ">> /etc/nftables.conf") {
+				return errors.New("append failed")
+			}
+			return nil
+		}
+
+		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "nftables"})
+		if err == nil || !strings.Contains(err.Error(), "ensure") {
+			t.Fatalf("expected ensure include error, got %v", err)
+		}
+		if checkCount != 1 {
+			t.Fatalf("expected one include check before failed append, got %d", checkCount)
+		}
+	})
+
+	t.Run("enable include verification failure", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+		p := mustLoadProfileForTests(t, map[string]string{
+			"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}",
+		})
+
+		checkCount := 0
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if cmd == firewallIncludeCheckCmd {
+				checkCount++
+				return errors.New("still missing")
+			}
+			return nil
+		}
+
+		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "nftables"})
+		if err == nil || !strings.Contains(err.Error(), "verify") {
+			t.Fatalf("expected verify include error, got %v", err)
+		}
+		if checkCount != 2 {
+			t.Fatalf("expected two include checks, got %d", checkCount)
+		}
+	})
 }
 
 func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
@@ -587,7 +676,7 @@ func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("firewall missing include", func(t *testing.T) {
+	t.Run("firewall missing include is non-fatal", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 		count := 0
@@ -599,8 +688,11 @@ func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
 			return nil
 		}
 		err := handleValidate(nil, "firewall")
-		if err == nil || !strings.Contains(err.Error(), "missing include") {
-			t.Fatalf("expected missing include error, got %v", err)
+		if err != nil {
+			t.Fatalf("expected missing include to be non-fatal, got %v", err)
+		}
+		if count != 2 {
+			t.Fatalf("expected include check and nft check, got %d calls", count)
 		}
 	})
 

@@ -18,7 +18,9 @@ var (
 	loadProfile     = profile.Load
 	versionCmd      = cli.VersionCmd
 	compareSemVer   = cli.CompareSemVer
+	ensureApplySudo = connection.EnsureNonInteractiveSudo
 	runApplyProfile = applyProfile
+	runRollbackStep = rollback.RollbackSteps
 	runApplyCommand = applyCommand
 	exitProcess     = os.Exit
 	runStep         = handleStep
@@ -53,6 +55,11 @@ func applyCommand(c cli.Command) error {
 	}
 
 	logger.Debugf("ssh connection established\n")
+
+	if err := ensureApplySudo(sshClient); err != nil {
+		logger.Errorf("sudo preflight failed: %v\n", err)
+		return fmt.Errorf("sudo preflight failed: %w", err)
+	}
 
 	p, err := loadProfile(c.Profile)
 	if err != nil {
@@ -140,6 +147,10 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 				return err
 			}
 
+			if journal != nil {
+				journal.Steps = append(journal.Steps, stepRecord)
+			}
+
 			err = runStep(client, p, step)
 
 			if stop != nil {
@@ -147,11 +158,14 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 			}
 
 			if err != nil {
+				if journal != nil {
+					rbErr := runRollbackStep(client, journal.Steps)
+					if rbErr != nil {
+						return fmt.Errorf("step %q failed: %w; automatic rollback failed: %v", step.ID, err, rbErr)
+					}
+					return fmt.Errorf("step %q failed: %w; automatic rollback completed", step.ID, err)
+				}
 				return err
-			}
-
-			if journal != nil {
-				journal.Steps = append(journal.Steps, stepRecord)
 			}
 
 			if !logger.DebugMode() {

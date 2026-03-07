@@ -176,6 +176,129 @@ func TestNewSSHClient_KnownHostsAndDialPaths(t *testing.T) {
 	})
 }
 
+func TestNewSSHClient_SudoPreflight(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "id.key")
+	writeEd25519PrivateKeyPEM(t, keyPath)
+
+	knownHosts := filepath.Join(t.TempDir(), "known_hosts")
+	if err := os.WriteFile(knownHosts, nil, 0o644); err != nil {
+		t.Fatalf("write known_hosts: %v", err)
+	}
+
+	t.Run("preflight failure", func(t *testing.T) {
+		prevDial := dialSSH
+		prevRunRoot := runRoot
+		called := false
+		client := &ssh.Client{}
+
+		dialSSH = func(network, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+			return client, nil
+		}
+		runRoot = func(got *ssh.Client, cmd string) error {
+			called = true
+			if got != client {
+				t.Fatalf("unexpected client passed to preflight")
+			}
+			if cmd != "true" {
+				t.Fatalf("unexpected preflight command: %q", cmd)
+			}
+			return errors.New("sudo denied")
+		}
+		t.Cleanup(func() {
+			dialSSH = prevDial
+			runRoot = prevRunRoot
+		})
+
+		_, err := NewSSHClient(Config{
+			User:           "u",
+			Host:           "example.com",
+			KeyPath:        keyPath,
+			KnownHostsPath: knownHosts,
+		})
+		if !called {
+			t.Fatal("expected preflight to run")
+		}
+		if err == nil || !strings.Contains(err.Error(), "sudo preflight failed") {
+			t.Fatalf("expected sudo preflight error, got %v", err)
+		}
+	})
+
+	t.Run("preflight success", func(t *testing.T) {
+		prevDial := dialSSH
+		prevRunRoot := runRoot
+		client := &ssh.Client{}
+
+		dialSSH = func(network, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+			return client, nil
+		}
+		runRoot = func(got *ssh.Client, cmd string) error {
+			if got != client {
+				t.Fatalf("unexpected client passed to preflight")
+			}
+			if cmd != "true" {
+				t.Fatalf("unexpected preflight command: %q", cmd)
+			}
+			return nil
+		}
+		t.Cleanup(func() {
+			dialSSH = prevDial
+			runRoot = prevRunRoot
+		})
+
+		got, err := NewSSHClient(Config{
+			User:           "u",
+			Host:           "example.com",
+			KeyPath:        keyPath,
+			KnownHostsPath: knownHosts,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != client {
+			t.Fatalf("unexpected client returned")
+		}
+	})
+}
+
+func TestEnsureNonInteractiveSudo(t *testing.T) {
+	t.Run("nil client", func(t *testing.T) {
+		if err := EnsureNonInteractiveSudo(nil); err != nil {
+			t.Fatalf("expected nil client to pass, got %v", err)
+		}
+	})
+
+	t.Run("run root failure", func(t *testing.T) {
+		prevRunRoot := runRoot
+		runRoot = func(_ *ssh.Client, _ string) error { return errors.New("sudo denied") }
+		t.Cleanup(func() { runRoot = prevRunRoot })
+
+		err := EnsureNonInteractiveSudo(&ssh.Client{})
+		if err == nil || !strings.Contains(err.Error(), "non-interactive sudo is required") {
+			t.Fatalf("expected sudo preflight error, got %v", err)
+		}
+	})
+
+	t.Run("run root success", func(t *testing.T) {
+		prevRunRoot := runRoot
+		called := false
+		runRoot = func(_ *ssh.Client, cmd string) error {
+			called = true
+			if cmd != "true" {
+				t.Fatalf("unexpected command: %q", cmd)
+			}
+			return nil
+		}
+		t.Cleanup(func() { runRoot = prevRunRoot })
+
+		if err := EnsureNonInteractiveSudo(&ssh.Client{}); err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+		if !called {
+			t.Fatal("expected runRoot to be called")
+		}
+	})
+}
+
 func writeEd25519PrivateKeyPEM(t *testing.T, path string) {
 	t.Helper()
 

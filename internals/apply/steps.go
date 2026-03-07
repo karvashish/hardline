@@ -23,7 +23,12 @@ var (
 	writeRootFile        = remote.WriteRootFile
 )
 
-const defaultManagedFirewallDest = "/etc/nftables.d/99-hardline-firewall.nft"
+const (
+	defaultManagedFirewallDest = "/etc/nftables.d/99-hardline-firewall.nft"
+	nftablesMainConfigPath     = "/etc/nftables.conf"
+	nftablesIncludeLine        = `include "/etc/nftables.d/*.nft"`
+	firewallIncludeCheckCmd    = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+)
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
@@ -249,6 +254,10 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 		}
 	}
 
+	if err := ensureNftablesInclude(client); err != nil {
+		return err
+	}
+
 	sftpClient, err := newSFTPClient(client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
@@ -260,6 +269,23 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
+	return nil
+}
+
+func ensureNftablesInclude(client *ssh.Client) error {
+	if err := runRootCmd(client, firewallIncludeCheckCmd); err == nil {
+		return nil
+	}
+
+	appendCmd := "printf '\\ninclude \"/etc/nftables.d/*.nft\"\\n' >> /etc/nftables.conf"
+	if err := runRootCmd(client, appendCmd); err != nil {
+		return fmt.Errorf("ensure %q in %s: %w", nftablesIncludeLine, nftablesMainConfigPath, err)
+	}
+
+	if err := runRootCmd(client, firewallIncludeCheckCmd); err != nil {
+		return fmt.Errorf("verify %q in %s: %w", nftablesIncludeLine, nftablesMainConfigPath, err)
+	}
+
 	return nil
 }
 
@@ -281,9 +307,8 @@ func handleValidate(client *ssh.Client, kind string) error {
 	case "firewall":
 		logger.Debugf("handleValidate: kind=firewall\n")
 
-		checkIncludeCmd := `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
-		if err := runRootCmd(client, checkIncludeCmd); err != nil {
-			return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
+		if err := runRootCmd(client, firewallIncludeCheckCmd); err != nil {
+			logger.Warnf("nftables.conf missing include for /etc/nftables.d/*.nft (apply will enforce it)\n")
 		}
 
 		if err := runRootCmd(client, "nft -c -f /etc/nftables.conf"); err != nil {

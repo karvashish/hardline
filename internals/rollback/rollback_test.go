@@ -75,6 +75,7 @@ func TestRollbackCommand_Success(t *testing.T) {
 		seenCfg = cfg
 		return nil, nil
 	}
+	ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
 	var cmds []string
 	runRootCmd = func(_ *ssh.Client, cmd string) error {
 		cmds = append(cmds, cmd)
@@ -116,6 +117,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 			t.Fatal("newSSHClient should not be called when status is not success")
 			return nil, nil
 		}
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
 		err := rollbackCommand(cli.Command{
 			Profile: "last",
 			Host:    "example.com",
@@ -141,6 +143,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		}
 
 		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, errors.New("dial") }
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
 		err := rollbackCommand(cli.Command{
 			Profile: "last",
 			Host:    "example.com",
@@ -176,6 +179,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		}
 
 		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
 		err := rollbackCommand(cli.Command{
 			Profile: "last",
 			Host:    "example.com",
@@ -185,6 +189,107 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		})
 		if err == nil || !strings.Contains(err.Error(), "rollback step") {
 			t.Fatalf("expected rollback step failure, got %v", err)
+		}
+	})
+
+	t.Run("sudo preflight failed", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		stateDir := t.TempDir()
+		resolveStateDir = func() (string, error) { return stateDir, nil }
+
+		j := NewJournal("example.com", "profile", "profile-dir")
+		j.Status = "success"
+		if err := j.SaveLast(); err != nil {
+			t.Fatalf("SaveLast failed: %v", err)
+		}
+
+		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureRollbackSudo = func(_ *ssh.Client) error { return errors.New("sudo denied") }
+		err := rollbackCommand(cli.Command{
+			Profile: "last",
+			Host:    "example.com",
+			User:    "root",
+			KeyPath: "/tmp/key",
+			Debug:   true,
+		})
+		if err == nil || !strings.Contains(err.Error(), "sudo preflight failed") {
+			t.Fatalf("expected sudo preflight error, got %v", err)
+		}
+	})
+}
+
+func TestRollbackSteps(t *testing.T) {
+	t.Run("sudo preflight failed", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *ssh.Client) error { return errors.New("sudo denied") }
+
+		err := RollbackSteps(nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "sudo preflight failed") {
+			t.Fatalf("expected sudo preflight failure, got %v", err)
+		}
+	})
+
+	t.Run("step rollback failed", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+
+		err := RollbackSteps(nil, []StepRecord{
+			{
+				ID:           "bad",
+				Type:         "template",
+				RollbackMode: ModeDeterministic,
+				Objects: []ObjectRecord{
+					{Kind: ObjectFile, File: nil},
+				},
+			},
+		})
+		if err == nil || !strings.Contains(err.Error(), "rollback step") {
+			t.Fatalf("expected rollback step failure, got %v", err)
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+
+		if err := RollbackSteps(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: ModeNoop}}); err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+	})
+}
+
+func TestRollbackStepsStrict(t *testing.T) {
+	t.Run("best-effort errors are fatal in strict mode", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+
+		err := RollbackStepsStrict(nil, []StepRecord{
+			{
+				ID:           "pkg",
+				Type:         "packages",
+				RollbackMode: ModeBestEffort,
+				Objects: []ObjectRecord{
+					{Kind: ObjectPackage, Package: &PackageState{Name: " "}},
+				},
+			},
+		})
+		if err == nil || !strings.Contains(err.Error(), "rollback step") {
+			t.Fatalf("expected strict rollback failure, got %v", err)
+		}
+	})
+
+	t.Run("strict success", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+
+		if err := RollbackStepsStrict(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: ModeNoop}}); err != nil {
+			t.Fatalf("expected strict rollback success, got %v", err)
 		}
 	})
 }
@@ -582,6 +687,7 @@ func stubRollbackHooks() func() {
 	prevRunRoot := runRootCmd
 	prevWriteRoot := writeRootFile
 	prevNewSFTP := newSFTPClient
+	prevEnsureSudo := ensureRollbackSudo
 	prevRunRollbackCommand := runRollbackCommand
 	prevExit := exitProcess
 	prevStateDir := resolveStateDir
@@ -591,6 +697,7 @@ func stubRollbackHooks() func() {
 		runRootCmd = prevRunRoot
 		writeRootFile = prevWriteRoot
 		newSFTPClient = prevNewSFTP
+		ensureRollbackSudo = prevEnsureSudo
 		runRollbackCommand = prevRunRollbackCommand
 		exitProcess = prevExit
 		resolveStateDir = prevStateDir

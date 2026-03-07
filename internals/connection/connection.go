@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/karvashish/hardline/internals/remote"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -21,6 +22,7 @@ type Config struct {
 }
 
 var dialSSH = ssh.Dial
+var runRoot = remote.RunRoot
 
 func NewSSHClient(cfg Config) (*ssh.Client, error) {
 	user := strings.TrimSpace(cfg.User)
@@ -58,6 +60,10 @@ func NewSSHClient(cfg Config) (*ssh.Client, error) {
 	client, err := dialSSH("tcp", addr, config)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := EnsureNonInteractiveSudo(client); err != nil {
+		return nil, fmt.Errorf("sudo preflight failed: %w", err)
 	}
 
 	return client, nil
@@ -109,4 +115,14 @@ func loadKnownHostsCallback(cfg Config) (ssh.HostKeyCallback, error) {
 
 func NewSFTPClient(client *ssh.Client) (*sftp.Client, error) {
 	return sftp.NewClient(client)
+}
+
+func EnsureNonInteractiveSudo(client *ssh.Client) error {
+	if client == nil {
+		return nil
+	}
+	if err := runRoot(client, "true"); err != nil {
+		return fmt.Errorf("non-interactive sudo is required (configure passwordless sudo or use root): %w", err)
+	}
+	return nil
 }

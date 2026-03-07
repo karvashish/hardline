@@ -1,0 +1,22 @@
+project_id            = "your-gcp-project-id"
+expected_gcloud_account = "REPLACE_WITH_GCLOUD_ACCOUNT_EMAIL"
+region                = "us-central1"
+zone                  = "us-central1-a"
+machine_type          = "e2-micro"
+boot_disk_size_gb     = 10
+ssh_user              = "hardline"
+ssh_public_key_path   = "~/.ssh/id_ed25519.pub"
+ssh_private_key_path_hint = "~/.ssh/id_ed25519"
+
+# Restrict to your runner IP/range whenever possible.
+allowed_ssh_cidrs = ["0.0.0.0/0"]
+
+# Optional: lower cost, less reliability.
+use_spot = false
+
+# Janitor hint for automated stale-resource cleanup.
+max_lifetime_hours = 2
+
+additional_labels = {
+  env = "integration"
+}

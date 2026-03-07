@@ -21,6 +21,7 @@ var (
 	runRootCmd         = remote.RunRoot
 	writeRootFile      = remote.WriteRootFile
 	newSFTPClient      = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
+	ensureRollbackSudo = connection.EnsureNonInteractiveSudo
 	runRollbackCommand = rollbackCommand
 	exitProcess        = os.Exit
 )
@@ -66,17 +67,12 @@ func rollbackCommand(c cli.Command) error {
 		defer client.Close()
 	}
 
-	for i := len(journal.Steps) - 1; i >= 0; i-- {
-		step := journal.Steps[i]
-		if !c.Debug {
-			logger.Infof("step: %s (%s) ", step.ID, step.Type)
-		}
-		if err := rollbackStep(client, step); err != nil {
-			return fmt.Errorf("rollback step %q failed: %w", step.ID, err)
-		}
-		if !c.Debug {
-			logger.Infof("✓\n")
-		}
+	if err := ensureRollbackSudo(client); err != nil {
+		return fmt.Errorf("sudo preflight failed: %w", err)
+	}
+
+	if err := executeRollbackSteps(client, journal.Steps, !c.Debug, false); err != nil {
+		return err
 	}
 
 	if !c.Debug {
@@ -85,7 +81,41 @@ func rollbackCommand(c cli.Command) error {
 	return nil
 }
 
+func RollbackSteps(client *ssh.Client, steps []StepRecord) error {
+	if err := ensureRollbackSudo(client); err != nil {
+		return fmt.Errorf("sudo preflight failed: %w", err)
+	}
+	return executeRollbackSteps(client, steps, false, false)
+}
+
+func RollbackStepsStrict(client *ssh.Client, steps []StepRecord) error {
+	if err := ensureRollbackSudo(client); err != nil {
+		return fmt.Errorf("sudo preflight failed: %w", err)
+	}
+	return executeRollbackSteps(client, steps, false, true)
+}
+
+func executeRollbackSteps(client *ssh.Client, steps []StepRecord, showProgress bool, strictBestEffort bool) error {
+	for i := len(steps) - 1; i >= 0; i-- {
+		step := steps[i]
+		if showProgress {
+			logger.Infof("step: %s (%s) ", step.ID, step.Type)
+		}
+		if err := rollbackStepWithMode(client, step, strictBestEffort); err != nil {
+			return fmt.Errorf("rollback step %q failed: %w", step.ID, err)
+		}
+		if showProgress {
+			logger.Infof("✓\n")
+		}
+	}
+	return nil
+}
+
 func rollbackStep(client *ssh.Client, step StepRecord) error {
+	return rollbackStepWithMode(client, step, false)
+}
+
+func rollbackStepWithMode(client *ssh.Client, step StepRecord, strictBestEffort bool) error {
 	if step.RollbackMode == ModeNoop {
 		return nil
 	}
@@ -96,7 +126,7 @@ func rollbackStep(client *ssh.Client, step StepRecord) error {
 		if err == nil {
 			continue
 		}
-		if step.RollbackMode == ModeBestEffort {
+		if step.RollbackMode == ModeBestEffort && !strictBestEffort {
 			logger.Warnf("rollback warning (best-effort, step=%s): %v\n", step.ID, err)
 			continue
 		}

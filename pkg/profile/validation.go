@@ -6,9 +6,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
+
+var resolveProfileSchemaPath = profileSchemaPath
 
 func (p *Profile) Affirm() error {
 	if p.profilePath == "" {
@@ -26,7 +29,7 @@ func (p *Profile) Affirm() error {
 		return fmt.Errorf("decode profile json %q: %w", profileJSONPath, err)
 	}
 
-	abs, err := filepath.Abs("schema/profile.schema.json")
+	abs, err := filepath.Abs(resolveProfileSchemaPath())
 	if err != nil {
 		return err
 	}
@@ -59,4 +62,12 @@ func (p *Profile) Affirm() error {
 	}
 
 	return nil
+}
+
+func profileSchemaPath() string {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return filepath.Join("schema", "profile.schema.json")
+	}
+	return filepath.Join(filepath.Dir(thisFile), "..", "..", "schema", "profile.schema.json")
 }

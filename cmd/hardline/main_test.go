@@ -1,0 +1,194 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"testing"
+
+	"github.com/karvashish/hardline/internals/cli"
+)
+
+func TestRun_NoArgs_ShowsUsage(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	var usageCalls int
+	showUsage = func() { usageCalls++ }
+
+	code := run([]string{"hardline"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if usageCalls != 1 {
+		t.Fatalf("expected usage to be called once, got %d", usageCalls)
+	}
+}
+
+func TestRun_UnknownCommand_ShowsUsage(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	var usageCalls int
+	showUsage = func() { usageCalls++ }
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"hardline", "nope"}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if usageCalls != 1 {
+		t.Fatalf("expected usage to be called once, got %d", usageCalls)
+	}
+	if got := errOut.String(); got == "" || !bytes.Contains([]byte(got), []byte("unknown command: nope")) {
+		t.Fatalf("expected unknown command message, got %q", got)
+	}
+}
+
+func TestRun_PlanDispatch(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	var parseName string
+	parseCmd = func(command string, args []string) cli.Command {
+		parseName = command
+		return cli.Command{Name: command, Profile: "p", Debug: true}
+	}
+
+	var debugSet bool
+	setDebugMode = func(debug bool) { debugSet = debug }
+
+	var planCalled bool
+	runPlan = func(c cli.Command) {
+		if c.Name != "plan" {
+			t.Fatalf("unexpected command passed to plan: %+v", c)
+		}
+		planCalled = true
+	}
+	runApply = func(cli.Command) { t.Fatal("apply handler should not be called for plan command") }
+
+	code := run([]string{"hardline", "plan", "profile"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if parseName != "plan" {
+		t.Fatalf("expected parse command plan, got %q", parseName)
+	}
+	if !debugSet {
+		t.Fatal("expected debug mode to be set from parsed command")
+	}
+	if !planCalled {
+		t.Fatal("expected plan handler to be called")
+	}
+}
+
+func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p"}
+	}
+	setDebugMode = func(bool) {}
+
+	var order []string
+	runPlan = func(cli.Command) { order = append(order, "plan") }
+	runApply = func(cli.Command) { order = append(order, "apply") }
+
+	code := run([]string{"hardline", "apply", "profile"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if len(order) != 2 || order[0] != "plan" || order[1] != "apply" {
+		t.Fatalf("expected order [plan apply], got %#v", order)
+	}
+}
+
+func TestRun_VerifyDispatch(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p"}
+	}
+	setDebugMode = func(bool) {}
+
+	var verifyCalls int
+	runVerify = func(c cli.Command) {
+		verifyCalls++
+		if c.Name != "vp" {
+			t.Fatalf("expected verify alias name vp, got %q", c.Name)
+		}
+	}
+
+	code := run([]string{"hardline", "vp", "profile"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if verifyCalls != 1 {
+		t.Fatalf("expected verify call once, got %d", verifyCalls)
+	}
+}
+
+func TestRun_VersionPaths(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		restore := stubHandlers()
+		defer restore()
+
+		resolveVerCmd = func() (cli.SemVer, int, error) {
+			return cli.SemVer{Major: 1, Minor: 2, Patch: 3}, 1, nil
+		}
+
+		var out, errOut bytes.Buffer
+		code := run([]string{"hardline", "version"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d", code)
+		}
+		if got := out.String(); got != "hardline version 1.2.3\n" {
+			t.Fatalf("unexpected version output: %q", got)
+		}
+		if errOut.Len() != 0 {
+			t.Fatalf("expected empty stderr, got %q", errOut.String())
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		restore := stubHandlers()
+		defer restore()
+
+		resolveVerCmd = func() (cli.SemVer, int, error) {
+			return cli.SemVer{}, 0, fmt.Errorf("boom")
+		}
+
+		var out, errOut bytes.Buffer
+		code := run([]string{"hardline", "-v"}, &out, &errOut)
+		if code != 1 {
+			t.Fatalf("expected exit code 1, got %d", code)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("expected empty stdout, got %q", out.String())
+		}
+		if got := errOut.String(); got == "" || !bytes.Contains([]byte(got), []byte("version check failed: boom")) {
+			t.Fatalf("unexpected stderr output: %q", got)
+		}
+	})
+}
+
+func stubHandlers() func() {
+	prevParse := parseCmd
+	prevUsage := showUsage
+	prevPlan := runPlan
+	prevApply := runApply
+	prevVerify := runVerify
+	prevSetDebug := setDebugMode
+	prevVersion := resolveVerCmd
+
+	return func() {
+		parseCmd = prevParse
+		showUsage = prevUsage
+		runPlan = prevPlan
+		runApply = prevApply
+		runVerify = prevVerify
+		setDebugMode = prevSetDebug
+		resolveVerCmd = prevVersion
+	}
+}

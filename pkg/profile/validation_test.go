@@ -3,7 +3,6 @@ package profile
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -20,10 +19,8 @@ func TestAffirm_RequiresLoadedProfilePath(t *testing.T) {
 }
 
 func TestAffirm_UsesLoadedProfilePath(t *testing.T) {
-	repoRoot := mustRepoRoot(t)
-	withChdir(t, repoRoot, func() {
-		profileDir := t.TempDir()
-		writeFile(t, filepath.Join(profileDir, "profile.json"), `{
+	profileDir := t.TempDir()
+	writeFile(t, filepath.Join(profileDir, "profile.json"), `{
   "id": "broken-profile",
   "version": "1.0.0",
   "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
@@ -33,25 +30,19 @@ func TestAffirm_UsesLoadedProfilePath(t *testing.T) {
   "templates": []
 }`)
 
-		p, err := Load(profileDir)
-		if err != nil {
-			t.Fatalf("Load failed: %v", err)
-		}
-		err = p.Affirm()
-		if err == nil {
-			t.Fatal("expected Affirm to fail for invalid loaded profile")
-		}
-		if !strings.Contains(err.Error(), "profile validation failed") {
-			t.Fatalf("unexpected validation error: %v", err)
-		}
-	})
+	p := &Profile{profilePath: profileDir}
+	err := p.Affirm()
+	if err == nil {
+		t.Fatal("expected Affirm to fail for invalid loaded profile")
+	}
+	if !strings.Contains(err.Error(), "profile validation failed") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
 }
 
 func TestAffirm_SucceedsForValidLoadedProfile(t *testing.T) {
-	repoRoot := mustRepoRoot(t)
-	withChdir(t, repoRoot, func() {
-		profileDir := t.TempDir()
-		writeFile(t, filepath.Join(profileDir, "profile.json"), `{
+	profileDir := t.TempDir()
+	writeFile(t, filepath.Join(profileDir, "profile.json"), `{
   "id": "ok-profile",
   "display_name": "OK Profile",
   "version": "1.0.0",
@@ -62,40 +53,72 @@ func TestAffirm_SucceedsForValidLoadedProfile(t *testing.T) {
   "templates": []
 }`)
 
-		p, err := Load(profileDir)
-		if err != nil {
-			t.Fatalf("Load failed: %v", err)
-		}
-		if err := p.Affirm(); err != nil {
-			t.Fatalf("expected Affirm success, got %v", err)
-		}
-	})
-}
-
-func mustRepoRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-}
-
-func withChdir(t *testing.T, dir string, fn func()) {
-	t.Helper()
-	wd, err := os.Getwd()
+	p, err := Load(profileDir)
 	if err != nil {
-		t.Fatalf("Getwd failed: %v", err)
+		t.Fatalf("Load failed: %v", err)
 	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir to %q failed: %v", dir, err)
+	if err := p.Affirm(); err != nil {
+		t.Fatalf("expected Affirm success, got %v", err)
 	}
-	defer func() {
-		if err := os.Chdir(wd); err != nil {
-			t.Fatalf("restore cwd failed: %v", err)
-		}
-	}()
-	fn()
+}
+
+func TestAffirm_ProfileReadAndDecodeErrors(t *testing.T) {
+	missing := &Profile{profilePath: t.TempDir()}
+	if err := missing.Affirm(); err == nil || !strings.Contains(err.Error(), "read profile json") {
+		t.Fatalf("expected read profile json error, got %v", err)
+	}
+
+	invalidDir := t.TempDir()
+	writeFile(t, filepath.Join(invalidDir, "profile.json"), "{bad-json")
+	invalid := &Profile{profilePath: invalidDir}
+	if err := invalid.Affirm(); err == nil || !strings.Contains(err.Error(), "decode profile json") {
+		t.Fatalf("expected decode profile json error, got %v", err)
+	}
+}
+
+func TestAffirm_SchemaReadAndParseErrors(t *testing.T) {
+	profileDir := t.TempDir()
+	writeFile(t, filepath.Join(profileDir, "profile.json"), `{
+  "id": "ok-profile",
+  "display_name": "OK Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": [],
+  "templates": []
+}`)
+	p := &Profile{profilePath: profileDir}
+
+	setSchemaPathResolverForTest(t, func() string {
+		return filepath.Join(t.TempDir(), "missing.schema.json")
+	})
+	if err := p.Affirm(); err == nil {
+		t.Fatal("expected schema read failure")
+	}
+
+	invalidSchema := filepath.Join(t.TempDir(), "profile.schema.json")
+	writeFile(t, invalidSchema, "{not-json")
+	setSchemaPathResolverForTest(t, func() string { return invalidSchema })
+	if err := p.Affirm(); err == nil {
+		t.Fatal("expected invalid schema parse failure")
+	}
+}
+
+func TestProfileSchemaPath_ResolvesSchemaFile(t *testing.T) {
+	p := profileSchemaPath()
+	if !strings.HasSuffix(filepath.ToSlash(p), "schema/profile.schema.json") {
+		t.Fatalf("unexpected schema path %q", p)
+	}
+}
+
+func setSchemaPathResolverForTest(t *testing.T, fn func() string) {
+	t.Helper()
+	prev := resolveProfileSchemaPath
+	resolveProfileSchemaPath = fn
+	t.Cleanup(func() {
+		resolveProfileSchemaPath = prev
+	})
 }
 
 func writeFile(t *testing.T, path string, content string) {

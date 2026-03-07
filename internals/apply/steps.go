@@ -15,6 +15,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+var (
+	runRootCmd    = remote.RunRoot
+	newSFTPClient = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
+	writeRootFile = remote.WriteRootFile
+)
+
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
 
@@ -57,33 +63,33 @@ func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
 	)
 
 	if pk.Update {
-		if err := remote.RunRoot(client, "apt-get update -y"); err != nil {
+		if err := runRootCmd(client, "apt-get update -y"); err != nil {
 			return fmt.Errorf("apt-get update failed: %w", err)
 		}
 	}
 
 	if pk.Upgrade {
-		if err := remote.RunRoot(client, "apt-get upgrade -y"); err != nil {
+		if err := runRootCmd(client, "apt-get upgrade -y"); err != nil {
 			return fmt.Errorf("apt-get upgrade failed: %w", err)
 		}
 	}
 
 	if len(pk.Install) > 0 {
 		cmd := "apt-get install -y " + strings.Join(pk.Install, " ")
-		if err := remote.RunRoot(client, cmd); err != nil {
+		if err := runRootCmd(client, cmd); err != nil {
 			return fmt.Errorf("apt-get install failed (%s): %w", strings.Join(pk.Install, ","), err)
 		}
 	}
 
 	if len(pk.Purge) > 0 {
 		cmd := "apt-get purge -y " + strings.Join(pk.Purge, " ")
-		if err := remote.RunRoot(client, cmd); err != nil {
+		if err := runRootCmd(client, cmd); err != nil {
 			return fmt.Errorf("apt-get purge failed (%s): %w", strings.Join(pk.Purge, ","), err)
 		}
 	}
 
 	if pk.Autoremove {
-		if err := remote.RunRoot(client, "apt-get autoremove -y"); err != nil {
+		if err := runRootCmd(client, "apt-get autoremove -y"); err != nil {
 			return fmt.Errorf("apt-get autoremove failed: %w", err)
 		}
 	}
@@ -99,11 +105,13 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 		return fmt.Errorf("load template %q: %w", t.Src, err)
 	}
 
-	sftpClient, err := sftp.NewClient(client)
+	sftpClient, err := newSFTPClient(client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
 	}
-	defer sftpClient.Close()
+	if sftpClient != nil {
+		defer sftpClient.Close()
+	}
 
 	mode := os.FileMode(0600)
 	if t.Mode != "" {
@@ -115,12 +123,12 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 
 	dir := path.Dir(t.Dest)
 	if dir != "" && dir != "." {
-		if err := remote.RunRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
 
-	if err := remote.WriteRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
+	if err := writeRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", t.Dest, err)
 	}
 
@@ -146,7 +154,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 		} else {
 			cmd = fmt.Sprintf("systemctl disable %s", unit)
 		}
-		if err := remote.RunRoot(client, cmd); err != nil {
+		if err := runRootCmd(client, cmd); err != nil {
 			return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
 		}
 	}
@@ -170,7 +178,7 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
 	}
 
-	if err := remote.RunRoot(client, cmd); err != nil {
+	if err := runRootCmd(client, cmd); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
 	}
 
@@ -232,18 +240,20 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
-		if err := remote.RunRoot(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
 
-	sftpClient, err := sftp.NewClient(client)
+	sftpClient, err := newSFTPClient(client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
 	}
-	defer sftpClient.Close()
+	if sftpClient != nil {
+		defer sftpClient.Close()
+	}
 
-	if err := remote.WriteRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
+	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
 	return nil
@@ -254,12 +264,12 @@ func handleValidate(client *ssh.Client, kind string) error {
 	case "sshd":
 		logger.Debugf("handleValidate: kind=sshd\n")
 
-		ensureIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config || echo 'Include /etc/ssh/sshd_config.d/*.conf' >> /etc/ssh/sshd_config`
-		if err := remote.RunRoot(client, ensureIncludeCmd); err != nil {
-			return fmt.Errorf("ensure Include for sshd_config.d: %w", err)
+		checkIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
+		if err := runRootCmd(client, checkIncludeCmd); err != nil {
+			return fmt.Errorf("sshd_config missing Include for /etc/ssh/sshd_config.d/*.conf: %w", err)
 		}
 
-		if err := remote.RunRoot(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
+		if err := runRootCmd(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
 			return fmt.Errorf("sshd config test failed: %w", err)
 		}
 		return nil
@@ -267,12 +277,12 @@ func handleValidate(client *ssh.Client, kind string) error {
 	case "firewall":
 		logger.Debugf("handleValidate: kind=firewall\n")
 
-		ensureIncludeCmd := `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf`
-		if err := remote.RunRoot(client, ensureIncludeCmd); err != nil {
-			return fmt.Errorf("ensure include for nftables.d: %w", err)
+		checkIncludeCmd := `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+		if err := runRootCmd(client, checkIncludeCmd); err != nil {
+			return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
 		}
 
-		if err := remote.RunRoot(client, "nft -c -f /etc/nftables.conf"); err != nil {
+		if err := runRootCmd(client, "nft -c -f /etc/nftables.conf"); err != nil {
 			return fmt.Errorf("nftables config check failed: %w", err)
 		}
 		return nil

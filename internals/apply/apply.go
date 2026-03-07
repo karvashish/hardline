@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/karvashish/hardline/internals/cli"
@@ -11,7 +12,24 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+var (
+	newSSHClient    = connection.NewSSHClient
+	loadProfile     = profile.Load
+	versionCmd      = cli.VersionCmd
+	compareSemVer   = cli.CompareSemVer
+	runApplyProfile = applyProfile
+	runApplyCommand = applyCommand
+	exitProcess     = os.Exit
+	runStep         = handleStep
+)
+
 func Apply(c cli.Command) {
+	if err := runApplyCommand(c); err != nil {
+		exitProcess(1)
+	}
+}
+
+func applyCommand(c cli.Command) error {
 	if !c.Debug {
 		logger.Infof("apply %s\n", c.Profile)
 	}
@@ -24,33 +42,35 @@ func Apply(c cli.Command) {
 		Host:    c.Host,
 	}
 
-	sshClient, err := connection.NewSSHClient(*config)
+	sshClient, err := newSSHClient(*config)
 	if err != nil {
 		logger.Errorf("connect failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connect failed: %w", err)
 	}
-	defer sshClient.Close()
+	if sshClient != nil {
+		defer sshClient.Close()
+	}
 
 	logger.Debugf("ssh connection established\n")
 
-	p, err := profile.Load(c.Profile)
+	p, err := loadProfile(c.Profile)
 	if err != nil {
 		logger.Errorf("profile load failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("profile load failed: %w", err)
 	}
 
 	logger.Debugf("profile loaded, starting applyProfile\n")
 
-	ver, schemaVer, err := cli.VersionCmd()
+	ver, schemaVer, err := versionCmd()
 	if err != nil {
 		logger.Errorf("hardline version check failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("hardline version check failed: %w", err)
 	}
 
-	cmp, err := cli.CompareSemVer(ver.String(), p.MinHardline)
+	cmp, err := compareSemVer(ver.String(), p.MinHardline)
 	if err != nil {
 		logger.Errorf("invalid profile.min_hardline value %q: %v\n", p.MinHardline, err)
-		os.Exit(1)
+		return fmt.Errorf("invalid profile.min_hardline value %q: %w", p.MinHardline, err)
 	}
 
 	if cmp < 0 {
@@ -58,7 +78,10 @@ func Apply(c cli.Command) {
 			"hardline version %s is too old; minimum required is %s\n",
 			ver.String(), p.MinHardline,
 		)
-		os.Exit(1)
+		return fmt.Errorf(
+			"hardline version %s is too old; minimum required is %s\n",
+			ver.String(), p.MinHardline,
+		)
 	}
 
 	if p.ProfileSchema > schemaVer {
@@ -66,12 +89,15 @@ func Apply(c cli.Command) {
 			"profile schema %d is newer than supported %d; please upgrade hardline\n",
 			p.ProfileSchema, schemaVer,
 		)
-		os.Exit(1)
+		return fmt.Errorf(
+			"profile schema %d is newer than supported %d; please upgrade hardline\n",
+			p.ProfileSchema, schemaVer,
+		)
 	}
 
-	if err := applyProfile(sshClient, p); err != nil {
+	if err := runApplyProfile(sshClient, p); err != nil {
 		logger.Errorf("apply failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("apply failed: %w", err)
 	}
 
 	if !c.Debug {
@@ -79,6 +105,7 @@ func Apply(c cli.Command) {
 	}
 
 	logger.Debugf("apply completed\n")
+	return nil
 }
 
 func applyProfile(client *ssh.Client, p *profile.Profile) error {
@@ -96,7 +123,7 @@ func applyProfile(client *ssh.Client, p *profile.Profile) error {
 				stop = utils.Throbber()
 			}
 
-			err := handleStep(client, p, step)
+			err := runStep(client, p, step)
 
 			if stop != nil {
 				stop()

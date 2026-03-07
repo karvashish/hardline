@@ -71,10 +71,46 @@ func TestHandleStep_MissingSpecsAndUnknown(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 
+		firewallSpec := &profile.FirewallSpec{
+			Backend:     "nftables",
+			Family:      "inet",
+			Table:       "filter",
+			ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
+			Policies: []profile.FirewallPolicy{
+				{Chain: "input", Policy: "drop"},
+			},
+			Rules: []profile.FirewallRule{
+				{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+			},
+		}
+		desiredFirewall, err := normalizeDesiredFirewallSpec(firewallSpec)
+		if err != nil {
+			t.Fatalf("normalizeDesiredFirewallSpec failed: %v", err)
+		}
+		desiredFirewallRender := renderNormalizedFirewall(desiredFirewall)
+
 		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
 		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
 			if cmd == "nft -j list ruleset" {
-				return `{"nftables":[]}`, nil
+				return `{
+  "nftables": [
+    {"table":{"family":"inet","name":"filter"}},
+    {"chain":{"family":"inet","table":"filter","name":"input","type":"filter","hook":"input","policy":"drop"}},
+    {"rule":{"family":"inet","table":"filter","chain":"input","expr":[
+      {"match":{"left":{"payload":{"protocol":"tcp","field":"dport"}},"op":"==","right":22}},
+      {"accept":null}
+    ]}}
+  ]
+}`, nil
+			}
+			if strings.HasPrefix(cmd, "stat -c %a ") {
+				return "644\n", nil
+			}
+			return "", nil
+		}
+		readRootFile = func(_ *ssh.Client, remotePath string) (string, error) {
+			if remotePath == firewallSpec.ManagedDest {
+				return desiredFirewallRender, nil
 			}
 			return "", nil
 		}
@@ -85,18 +121,7 @@ func TestHandleStep_MissingSpecsAndUnknown(t *testing.T) {
 			{ID: "p-ok", Type: "packages", Packages: &profile.PackageSpec{}},
 			{ID: "t-ok", Type: "template", Template: &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/tmp/t"}},
 			{ID: "s-ok", Type: "service", Service: &profile.ServiceSpec{Name: "cron"}},
-			{ID: "f-ok", Type: "firewall", Firewall: &profile.FirewallSpec{
-				Backend:     "nftables",
-				Family:      "inet",
-				Table:       "filter",
-				ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
-				Policies: []profile.FirewallPolicy{
-					{Chain: "input", Policy: "drop"},
-				},
-				Rules: []profile.FirewallRule{
-					{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
-				},
-			}},
+			{ID: "f-ok", Type: "firewall", Firewall: firewallSpec},
 			{ID: "ft-ok", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{
 				Backend:      "nftables",
 				Policy:       "drop",
@@ -307,6 +332,73 @@ func TestHandleService(t *testing.T) {
 		}
 	})
 
+	t.Run("enabled already matches with empty state is no-op", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+
+		var cmds []string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		}
+
+		enabled := true
+		err := handleService(nil, &profile.ServiceSpec{Name: "cron", Enabled: &enabled})
+		if err != nil {
+			t.Fatalf("handleService failed: %v", err)
+		}
+
+		if len(cmds) != 1 || cmds[0] != "systemctl is-enabled cron >/dev/null 2>&1" {
+			t.Fatalf("expected only is-enabled probe, got %#v", cmds)
+		}
+	})
+
+	t.Run("reload-or-restart runs when service is dirty", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+		resetApplyStepState()
+		markServiceDirty("cron")
+
+		var cmds []string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		}
+
+		err := handleService(nil, &profile.ServiceSpec{Name: "cron", State: "reload-or-restart"})
+		if err != nil {
+			t.Fatalf("handleService failed: %v", err)
+		}
+		if !strings.Contains(strings.Join(cmds, "\n"), "systemctl reload-or-restart cron") {
+			t.Fatalf("expected reload-or-restart command, got %#v", cmds)
+		}
+		if isServiceDirty("cron") {
+			t.Fatalf("expected dirty marker to be cleared after reload-or-restart")
+		}
+	})
+
+	t.Run("stop skips command when already inactive", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+
+		var cmds []string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			if cmd == "systemctl is-active cron >/dev/null 2>&1" {
+				return errors.New("inactive")
+			}
+			return nil
+		}
+
+		err := handleService(nil, &profile.ServiceSpec{Name: "cron", State: "stop"})
+		if err != nil {
+			t.Fatalf("handleService failed: %v", err)
+		}
+		if strings.Contains(strings.Join(cmds, "\n"), "systemctl stop cron") {
+			t.Fatalf("expected stop command to be skipped, got %#v", cmds)
+		}
+	})
+
 	t.Run("unsupported state", func(t *testing.T) {
 		err := handleService(nil, &profile.ServiceSpec{Name: "cron", State: "invalid"})
 		if err == nil || !strings.Contains(err.Error(), "unsupported service state") {
@@ -354,10 +446,12 @@ func TestHandleTemplate(t *testing.T) {
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		var mkdirCmd string
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "cmp -s -") {
-				return errors.New("different")
+			if strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("missing")
 			}
-			mkdirCmd = cmd
+			if strings.HasPrefix(cmd, "mkdir -p ") {
+				mkdirCmd = cmd
+			}
 			return nil
 		}
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
@@ -393,8 +487,8 @@ func TestHandleTemplate(t *testing.T) {
 
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "cmp -s -") {
-				return errors.New("different")
+			if strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("missing")
 			}
 			return nil
 		}
@@ -461,8 +555,8 @@ func TestHandleTemplate(t *testing.T) {
 		defer restore()
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "cmp -s -") {
-				return errors.New("different")
+			if strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("missing")
 			}
 			return nil
 		}
@@ -479,12 +573,19 @@ func TestHandleTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("up-to-date skips write", func(t *testing.T) {
+	t.Run("always writes even when destination already matches", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
+			if strings.HasPrefix(cmd, "stat -c %a ") {
+				return "644\n", nil
+			}
+			return "", nil
+		}
+		readRootFile = func(_ *ssh.Client, _ string) (string, error) { return "hello", nil }
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 
 		written := false
@@ -501,8 +602,8 @@ func TestHandleTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("handleTemplate failed: %v", err)
 		}
-		if written {
-			t.Fatalf("expected up-to-date destination to skip write")
+		if !written {
+			t.Fatalf("expected template step to write destination")
 		}
 	})
 }
@@ -801,7 +902,7 @@ func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("firewall missing include is non-fatal", func(t *testing.T) {
+	t.Run("firewall missing include is fatal", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 		count := 0
@@ -813,11 +914,11 @@ func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
 			return nil
 		}
 		err := handleValidate(nil, "firewall")
-		if err != nil {
-			t.Fatalf("expected missing include to be non-fatal, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "missing include") {
+			t.Fatalf("expected missing include error, got %v", err)
 		}
-		if count != 2 {
-			t.Fatalf("expected include check and nft check, got %d calls", count)
+		if count != 1 {
+			t.Fatalf("expected validate to stop after include failure, got %d calls", count)
 		}
 	})
 
@@ -897,6 +998,11 @@ func stubStepDeps() func() {
 	prevWriteRoot := writeRootFile
 	prevServiceDirty := serviceDirty
 	resetApplyStepState()
+	runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+	runRootCmdWithOutput = func(_ *ssh.Client, _ string) (string, error) { return "", nil }
+	readRootFile = func(_ *ssh.Client, _ string) (string, error) { return "", nil }
+	newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
+	writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
 
 	return func() {
 		runRootCmd = prevRunRoot

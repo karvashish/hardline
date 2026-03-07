@@ -127,7 +127,7 @@ func planProfile(client *ssh.Client, p *profile.Profile, host string) error {
 			}
 
 			insp := inspector.NewSSHInspector(client)
-			sp, err := planStep(insp, step)
+			sp, err := planStep(insp, p, step)
 
 			if stop != nil {
 				stop()

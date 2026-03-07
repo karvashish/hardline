@@ -1,8 +1,11 @@
 package plan
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +26,8 @@ type fakeInspector struct {
 
 	statMap map[string]os.FileInfo
 	statErr map[string]error
+	readMap map[string]string
+	readErr map[string]error
 
 	serviceEnabled map[string]bool
 	serviceActive  map[string]bool
@@ -39,6 +44,8 @@ func newFakeInspector() *fakeInspector {
 		installed:      map[string]bool{},
 		statMap:        map[string]os.FileInfo{},
 		statErr:        map[string]error{},
+		readMap:        map[string]string{},
+		readErr:        map[string]error{},
 		serviceEnabled: map[string]bool{},
 		serviceActive:  map[string]bool{},
 	}
@@ -70,7 +77,13 @@ func (f *fakeInspector) Stat(path string) (os.FileInfo, error) {
 	return nil, os.ErrNotExist
 }
 
-func (f *fakeInspector) ReadRootFile(_ string) (string, error) {
+func (f *fakeInspector) ReadRootFile(path string) (string, error) {
+	if err, ok := f.readErr[path]; ok {
+		return "", err
+	}
+	if content, ok := f.readMap[path]; ok {
+		return content, nil
+	}
 	return "", nil
 }
 
@@ -156,14 +169,14 @@ func TestPlanStep_DispatchAndSeverity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := planStep(insp, tc.step)
+			_, err := planStep(insp, nil, tc.step)
 			if err == nil || !strings.Contains(err.Error(), tc.wantSub) {
 				t.Fatalf("expected %q, got %v", tc.wantSub, err)
 			}
 		})
 	}
 
-	noopPlan, err := planStep(insp, profile.Step{
+	noopPlan, err := planStep(insp, nil, profile.Step{
 		ID:       "noop",
 		Type:     "packages",
 		Severity: "critical",
@@ -176,7 +189,7 @@ func TestPlanStep_DispatchAndSeverity(t *testing.T) {
 		t.Fatalf("expected noop package severity override to low, got %q", noopPlan.Severity)
 	}
 
-	updatePlan, err := planStep(insp, profile.Step{
+	updatePlan, err := planStep(insp, nil, profile.Step{
 		ID:       "upd",
 		Type:     "packages",
 		Severity: "critical",
@@ -189,7 +202,7 @@ func TestPlanStep_DispatchAndSeverity(t *testing.T) {
 		t.Fatalf("expected update-only package severity override to medium, got %q", updatePlan.Severity)
 	}
 
-	unknownPlan, err := planStep(insp, profile.Step{ID: "u", Type: "unknown"})
+	unknownPlan, err := planStep(insp, nil, profile.Step{ID: "u", Type: "unknown"})
 	if err != nil {
 		t.Fatalf("unknown step should not error: %v", err)
 	}
@@ -202,6 +215,10 @@ func TestPlanStep_DispatchAndSeverity(t *testing.T) {
 	insp.statMap["/etc/nftables.d/99-hardline-firewall.nft"] = fakeFileInfo{name: "99-hardline-firewall.nft", size: 64, mode: 0o644}
 	insp.firewallInclude = true
 	insp.sshInclude = true
+	templateProfile := mustLoadTemplateTestProfile(t, map[string]string{
+		"templates/x.tmpl":  "x",
+		"templates/fw.tmpl": "fw",
+	})
 	on := true
 
 	successCases := []profile.Step{
@@ -243,7 +260,7 @@ func TestPlanStep_DispatchAndSeverity(t *testing.T) {
 		},
 	}
 	for _, step := range successCases {
-		got, err := planStep(insp, step)
+		got, err := planStep(insp, templateProfile, step)
 		if err != nil {
 			t.Fatalf("planStep success case %q failed: %v", step.ID, err)
 		}
@@ -308,8 +325,13 @@ func TestPlanPackages(t *testing.T) {
 
 func TestPlanTemplate(t *testing.T) {
 	insp := newFakeInspector()
+	p := mustLoadTemplateTestProfile(t, map[string]string{
+		"templates/ssh.tmpl": "Port 22\n",
+		"templates/fw.tmpl":  "table inet filter {}\n",
+	})
+
 	dest := "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"
-	summary, details, err := planTemplate(insp, &profile.TemplateSpec{
+	summary, details, err := planTemplate(insp, p, &profile.TemplateSpec{
 		Src:  "templates/ssh.tmpl",
 		Dest: dest,
 		Mode: "",
@@ -320,10 +342,12 @@ func TestPlanTemplate(t *testing.T) {
 	assertContains(t, summary, "render")
 	assertContains(t, strings.Join(details, "\n"), "does not exist")
 	assertContains(t, strings.Join(details, "\n"), "0600 (default in executor)")
+	assertContains(t, strings.Join(details, "\n"), "rewrite decision: rewrite required")
 	assertContains(t, strings.Join(details, "\n"), "affects SSH daemon configuration")
 
 	insp.statMap["/etc/nftables.d/99-hardline-firewall.nft"] = fakeFileInfo{name: "99-hardline-firewall.nft", size: 42, mode: 0o644}
-	_, details, err = planTemplate(insp, &profile.TemplateSpec{
+	insp.readMap["/etc/nftables.d/99-hardline-firewall.nft"] = "table inet filter {}\n"
+	summary, details, err = planTemplate(insp, p, &profile.TemplateSpec{
 		Src:  "templates/fw.tmpl",
 		Dest: "/etc/nftables.d/99-hardline-firewall.nft",
 		Mode: "0644",
@@ -331,7 +355,9 @@ func TestPlanTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("planTemplate failed: %v", err)
 	}
+	assertContains(t, summary, "no rewrite required")
 	assertContains(t, strings.Join(details, "\n"), "exists")
+	assertContains(t, strings.Join(details, "\n"), "rewrite decision: no rewrite required")
 	assertContains(t, strings.Join(details, "\n"), "affects nftables firewall configuration")
 }
 
@@ -496,7 +522,7 @@ func TestPlanValidate(t *testing.T) {
 		t.Fatalf("planValidate firewall failed: %v", err)
 	}
 	assertContains(t, summary, "validate firewall")
-	assertContains(t, strings.Join(details, "\n"), "missing (apply will append it)")
+	assertContains(t, strings.Join(details, "\n"), "missing (validate would fail)")
 
 	insp.sshInclude = false
 	insp.sshTestErr = nil
@@ -505,7 +531,7 @@ func TestPlanValidate(t *testing.T) {
 		t.Fatalf("planValidate sshd second run failed: %v", err)
 	}
 	assertContains(t, summary, "validate sshd")
-	assertContains(t, strings.Join(details, "\n"), "missing (apply will append it)")
+	assertContains(t, strings.Join(details, "\n"), "missing (validate would fail)")
 	assertContains(t, strings.Join(details, "\n"), "passes sshd -t")
 
 	insp.firewallInclude = true
@@ -525,6 +551,49 @@ func TestPlanValidate(t *testing.T) {
 	if len(details) != 1 {
 		t.Fatalf("expected one detail for unsupported validate, got %d", len(details))
 	}
+}
+
+func mustLoadTemplateTestProfile(t *testing.T, templates map[string]string) *profile.Profile {
+	t.Helper()
+
+	dir := t.TempDir()
+	templatePaths := make([]string, 0, len(templates))
+	for rel, content := range templates {
+		templatePaths = append(templatePaths, rel)
+
+		fullPath := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir template dir %q: %v", fullPath, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("write template %q: %v", fullPath, err)
+		}
+	}
+	sort.Strings(templatePaths)
+
+	profileBody := map[string]any{
+		"id":             "plan-template-test",
+		"display_name":   "Plan Template Test",
+		"version":        "1.0.0",
+		"os":             map[string]string{"family": "ubuntu", "version": "24.04", "variant": "lts"},
+		"profile_schema": 1,
+		"min_hardline":   "0.1.0",
+		"actions":        []string{},
+		"templates":      templatePaths,
+	}
+	encoded, err := json.Marshal(profileBody)
+	if err != nil {
+		t.Fatalf("marshal profile body: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "profile.json"), encoded, 0o644); err != nil {
+		t.Fatalf("write profile.json: %v", err)
+	}
+
+	p, err := profile.Load(dir)
+	if err != nil {
+		t.Fatalf("load profile: %v", err)
+	}
+	return p
 }
 
 func assertContains(t *testing.T, s, needle string) {

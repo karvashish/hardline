@@ -2,7 +2,6 @@ package apply
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path"
@@ -82,16 +81,6 @@ func serviceForManagedPath(dest string) string {
 	}
 }
 
-func managedFileUpToDate(client *ssh.Client, dest string, data []byte, mode os.FileMode) bool {
-	wantMode := fmt.Sprintf("%03o", mode.Perm())
-	wantB64 := base64.StdEncoding.EncodeToString(data)
-	checkCmd := fmt.Sprintf(
-		"test -e %q && [ \"$(stat -c %%a %q)\" = %q ] && printf '%%s' %q | base64 -d | cmp -s - %q",
-		dest, dest, wantMode, wantB64, dest,
-	)
-	return runRootCmd(client, checkCmd) == nil
-}
-
 func serviceIsEnabled(client *ssh.Client, unit string) bool {
 	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)
 	return runRootCmd(client, cmd) == nil
@@ -105,41 +94,20 @@ func serviceIsActive(client *ssh.Client, unit string) bool {
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
 
-	switch stepType {
-	case "packages":
-		if s.Packages == nil {
-			return fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
-		}
-		return handlePackages(client, s.Packages)
-	case "template":
-		if s.Template == nil {
-			return fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
-		}
-		return handleTemplate(client, p, s.Template)
-	case "service":
-		if s.Service == nil {
-			return fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
-		}
-		return handleService(client, s.Service)
-	case "firewall":
-		if s.Firewall == nil {
-			return fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
-		}
-		return handleFirewall(client, s.Firewall)
-	case "firewall_template":
-		if s.FirewallTemplate == nil {
-			return fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
-		}
-		return handleFirewallTemplate(client, p, s.FirewallTemplate)
-	case "validate":
+	if stepType == "validate" {
 		if strings.TrimSpace(s.Validate) == "" {
 			return fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
 		}
 		return handleValidate(client, s.Validate)
-	default:
+	}
+
+	handler, ok := applyActionRegistry.LookupType(stepType)
+	if !ok {
 		logger.Warnf("warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
 		return nil
 	}
+
+	return handler.Apply(applyActionContext(client, p), s)
 }
 
 func handlePackages(client *ssh.Client, pk *profile.PackageSpec) error {
@@ -205,11 +173,6 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 		if _, err := fmt.Sscanf(t.Mode, "%o", &parsed); err == nil {
 			mode = os.FileMode(parsed)
 		}
-	}
-
-	if managedFileUpToDate(client, t.Dest, data, mode) {
-		logger.Debugf("handleTemplate: destination %q already up to date, skipping write\n", t.Dest)
-		return nil
 	}
 
 	dir := path.Dir(t.Dest)
@@ -407,33 +370,29 @@ func ensureNftablesInclude(client *ssh.Client) error {
 }
 
 func handleValidate(client *ssh.Client, kind string) error {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "sshd":
-		logger.Debugf("handleValidate: kind=sshd\n")
+	logger.Debugf("handleValidate: kind=%s\n", strings.ToLower(strings.TrimSpace(kind)))
+	return applyValidateByKind(client, nil, kind)
+}
 
-		checkIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
-		if err := runRootCmd(client, checkIncludeCmd); err != nil {
-			return fmt.Errorf("sshd_config missing Include for /etc/ssh/sshd_config.d/*.conf: %w", err)
-		}
-
-		if err := runRootCmd(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
-			return fmt.Errorf("sshd config test failed: %w", err)
-		}
-		return nil
-
-	case "firewall":
-		logger.Debugf("handleValidate: kind=firewall\n")
-
-		if err := runRootCmd(client, firewallIncludeCheckCmd); err != nil {
-			logger.Warnf("nftables.conf missing include for /etc/nftables.d/*.nft (apply will enforce it)\n")
-		}
-
-		if err := runRootCmd(client, "nft -c -f /etc/nftables.conf"); err != nil {
-			return fmt.Errorf("nftables config check failed: %w", err)
-		}
-		return nil
-
-	default:
-		return fmt.Errorf("unsupported validate kind %q", kind)
+func validateSSHD(client *ssh.Client) error {
+	checkIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
+	if err := runRootCmd(client, checkIncludeCmd); err != nil {
+		return fmt.Errorf("sshd_config missing Include for /etc/ssh/sshd_config.d/*.conf: %w", err)
 	}
+
+	if err := runRootCmd(client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
+		return fmt.Errorf("sshd config test failed: %w", err)
+	}
+	return nil
+}
+
+func validateFirewall(client *ssh.Client) error {
+	if err := runRootCmd(client, firewallIncludeCheckCmd); err != nil {
+		return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
+	}
+
+	if err := runRootCmd(client, "nft -c -f /etc/nftables.conf"); err != nil {
+		return fmt.Errorf("nftables config check failed: %w", err)
+	}
+	return nil
 }

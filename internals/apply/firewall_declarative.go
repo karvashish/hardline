@@ -39,10 +39,6 @@ type normalizedFirewallDiff struct {
 	RulesToRemove []normalizedFirewallRule
 }
 
-func (d normalizedFirewallDiff) isEmpty() bool {
-	return len(d.PolicyChanges) == 0 && len(d.RulesToAdd) == 0 && len(d.RulesToRemove) == 0
-}
-
 func handleFirewall(client *ssh.Client, fw *profile.FirewallSpec) error {
 	logger.Debugf("handleFirewall: backend=%q policies=%d rules=%d\n", fw.Backend, len(fw.Policies), len(fw.Rules))
 
@@ -59,42 +55,14 @@ func handleFirewall(client *ssh.Client, fw *profile.FirewallSpec) error {
 		return fmt.Errorf("firewall managed_dest is required")
 	}
 
-	nftJSON, err := runRootCmdWithOutput(client, "nft -j list ruleset")
-	if err != nil {
-		return fmt.Errorf("read current nftables json state: %w", err)
-	}
-
-	current, err := normalizeCurrentFirewallState(nftJSON, desired.Family, desired.Table)
-	if err != nil {
-		return err
-	}
-
-	diff := diffNormalizedFirewall(current, desired)
-	logFirewallDiff(diff)
-
-	rendered := renderNormalizedFirewall(desired)
-
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
 		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dir, err)
+			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
-
 	if err := ensureNftablesInclude(client); err != nil {
 		return err
-	}
-
-	upToDate := managedFileUpToDate(client, destPath, []byte(rendered), os.FileMode(0644))
-	if diff.isEmpty() && upToDate {
-		logger.Debugf("handleFirewall: nftables state and managed file are already in sync, skipping write\n")
-		return nil
-	}
-
-	if !diff.isEmpty() && upToDate {
-		logger.Debugf("handleFirewall: managed file already matches desired state; marking nftables dirty for reload/restart\n")
-		markServiceDirty("nftables")
-		return nil
 	}
 
 	sftpClient, err := newSFTPClient(client)
@@ -105,10 +73,13 @@ func handleFirewall(client *ssh.Client, fw *profile.FirewallSpec) error {
 		defer sftpClient.Close()
 	}
 
-	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
+	desiredRendered := renderNormalizedFirewall(desired)
+	if err := writeRootFile(client, sftpClient, destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
 	markServiceDirty("nftables")
+
+	logger.Debugf("handleFirewall: rendered deterministic firewall rules to %q\n", destPath)
 	return nil
 }
 
@@ -765,22 +736,6 @@ func diffNormalizedFirewall(current, desired normalizedFirewallSpec) normalizedF
 	})
 
 	return diff
-}
-
-func logFirewallDiff(diff normalizedFirewallDiff) {
-	if diff.isEmpty() {
-		logger.Debugf("firewall diff: no changes required\n")
-		return
-	}
-	for _, p := range diff.PolicyChanges {
-		logger.Debugf("firewall diff policy: %s\n", p)
-	}
-	for _, add := range diff.RulesToAdd {
-		logger.Debugf("firewall diff add: %s\n", add.key())
-	}
-	for _, del := range diff.RulesToRemove {
-		logger.Debugf("firewall diff remove: %s\n", del.key())
-	}
 }
 
 func renderNormalizedFirewall(spec normalizedFirewallSpec) string {

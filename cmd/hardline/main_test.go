@@ -59,6 +59,7 @@ func TestRun_PlanDispatch(t *testing.T) {
 
 	var debugSet bool
 	setDebugMode = func(debug bool) { debugSet = debug }
+	loadPlugins = func() error { return nil }
 
 	var planCalled bool
 	runPlan = func(c cli.Command) {
@@ -93,6 +94,7 @@ func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
 		return cli.Command{Name: command, Profile: "p"}
 	}
 	setDebugMode = func(bool) {}
+	loadPlugins = func() error { return nil }
 
 	var order []string
 	runPlan = func(cli.Command) { order = append(order, "plan") }
@@ -215,6 +217,65 @@ func TestRun_VersionPaths(t *testing.T) {
 	})
 }
 
+func TestRun_PlanPluginLoadFailure(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p"}
+	}
+	setDebugMode = func(bool) {}
+	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
+
+	var planCalled bool
+	runPlan = func(cli.Command) { planCalled = true }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+
+	code := run([]string{"hardline", "plan", "profile"})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if planCalled {
+		t.Fatalf("plan handler should not run when plugin loading fails")
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("plugin load failed: bad plugin")) {
+		t.Fatalf("expected plugin load error output, got %q", got)
+	}
+}
+
+func TestRun_ApplyPluginLoadFailure(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p"}
+	}
+	setDebugMode = func(bool) {}
+	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
+
+	var planCalled, applyCalled bool
+	runPlan = func(cli.Command) { planCalled = true }
+	runApply = func(cli.Command) { applyCalled = true }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+
+	code := run([]string{"hardline", "apply", "profile"})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if planCalled || applyCalled {
+		t.Fatalf("plan/apply handlers should not run when plugin loading fails: plan=%v apply=%v", planCalled, applyCalled)
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("plugin load failed: bad plugin")) {
+		t.Fatalf("expected plugin load error output, got %q", got)
+	}
+}
+
 func stubHandlers() func() {
 	prevParse := parseCmd
 	prevUsage := showUsage
@@ -224,6 +285,7 @@ func stubHandlers() func() {
 	prevVerify := runVerify
 	prevSetDebug := setDebugMode
 	prevVersion := resolveVerCmd
+	prevLoadPlugins := loadPlugins
 	prevInfo := logInfof
 	prevError := logErrorf
 
@@ -236,6 +298,7 @@ func stubHandlers() func() {
 		runVerify = prevVerify
 		setDebugMode = prevSetDebug
 		resolveVerCmd = prevVersion
+		loadPlugins = prevLoadPlugins
 		logInfof = prevInfo
 		logErrorf = prevError
 	}

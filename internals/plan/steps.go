@@ -2,10 +2,12 @@ package plan
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/pkg/logger"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
@@ -19,7 +21,7 @@ type StepPlan struct {
 	Details []string
 }
 
-func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
+func planStep(insp inspector.Inspector, p *profile.Profile, s profile.Step) (StepPlan, error) {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
 
 	plan := StepPlan{
@@ -29,74 +31,7 @@ func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 		RiskClass: s.RiskClass,
 	}
 
-	switch stepType {
-	case "packages":
-		if s.Packages == nil {
-			return plan, fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
-		}
-		summary, details, noop, err := planPackages(insp, s.Packages)
-		if err != nil {
-			return plan, err
-		}
-		plan.Summary = summary
-		plan.Details = details
-		switch noop {
-		case 1:
-			plan.Severity = "medium"
-		case 0:
-			plan.Severity = "low"
-		}
-		return plan, nil
-
-	case "template":
-		if s.Template == nil {
-			return plan, fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
-		}
-		summary, details, err := planTemplate(insp, s.Template)
-		if err != nil {
-			return plan, err
-		}
-		plan.Summary = summary
-		plan.Details = details
-		return plan, nil
-
-	case "service":
-		if s.Service == nil {
-			return plan, fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
-		}
-		summary, details, err := planService(insp, s.Service)
-		if err != nil {
-			return plan, err
-		}
-		plan.Summary = summary
-		plan.Details = details
-		return plan, nil
-
-	case "firewall":
-		if s.Firewall == nil {
-			return plan, fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
-		}
-		summary, details, err := planFirewall(insp, s.Firewall)
-		if err != nil {
-			return plan, err
-		}
-		plan.Summary = summary
-		plan.Details = details
-		return plan, nil
-
-	case "firewall_template":
-		if s.FirewallTemplate == nil {
-			return plan, fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
-		}
-		summary, details, err := planFirewallTemplate(insp, s.FirewallTemplate)
-		if err != nil {
-			return plan, err
-		}
-		plan.Summary = summary
-		plan.Details = details
-		return plan, nil
-
-	case "validate":
+	if stepType == "validate" {
 		kind := strings.TrimSpace(s.Validate)
 		if kind == "" {
 			return plan, fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
@@ -108,11 +43,30 @@ func planStep(insp inspector.Inspector, s profile.Step) (StepPlan, error) {
 		plan.Summary = summary
 		plan.Details = details
 		return plan, nil
+	}
 
-	default:
+	handler, ok := planActionRegistry.LookupType(stepType)
+	if !ok {
 		plan.Summary = fmt.Sprintf("unknown or empty step type %q (no-op in planning)", s.Type)
 		return plan, nil
 	}
+
+	result, err := handler.Plan(planActionContext(insp, p), s)
+	if err != nil {
+		return plan, err
+	}
+	plan.Summary = result.Summary
+	plan.Details = result.Details
+	if stepType == "packages" {
+		switch result.Noop {
+		case 1:
+			plan.Severity = "medium"
+		case 0:
+			plan.Severity = "low"
+		}
+	}
+
+	return plan, nil
 }
 
 func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []string, int, error) {
@@ -306,10 +260,35 @@ func planPackages(insp inspector.Inspector, pk *profile.PackageSpec) (string, []
 	return summary, details, noop, nil
 }
 
-func planTemplate(insp inspector.Inspector, t *profile.TemplateSpec) (string, []string, error) {
+func planTemplate(insp inspector.Inspector, p *profile.Profile, t *profile.TemplateSpec) (string, []string, error) {
 	logger.Debugf("planTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
+	if p == nil {
+		return "", nil, fmt.Errorf("template step: profile context is required")
+	}
+
+	rendered, err := p.LoadTemplate(t.Src)
+	if err != nil {
+		return "", nil, fmt.Errorf("load template %q: %w", t.Src, err)
+	}
+
 	var details []string
+
+	mode := os.FileMode(0600)
+	modeText := strings.TrimSpace(t.Mode)
+	if modeText == "" {
+		modeText = "0600 (default in executor)"
+	} else {
+		var parsed uint64
+		if _, err := fmt.Sscanf(modeText, "%o", &parsed); err == nil {
+			mode = os.FileMode(parsed)
+		}
+	}
+
+	exists := false
+	modeMatches := false
+	contentMatches := false
+	compareReady := false
 
 	info, err := insp.Stat(t.Dest)
 	if err != nil {
@@ -320,20 +299,46 @@ func planTemplate(insp inspector.Inspector, t *profile.TemplateSpec) (string, []
 		)
 		details = append(details, line)
 	} else {
+		exists = true
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sexists (size=%d bytes, mode=%#o)%s",
 			logger.ColorBlue, t.Dest, logger.ColorReset,
 			logger.ColorYellow, info.Size(), info.Mode().Perm(), logger.ColorReset,
 		)
 		details = append(details, line)
+		modeMatches = info.Mode().Perm() == mode.Perm()
+		if modeMatches {
+			details = append(details,
+				logger.ColorGreen+fmt.Sprintf("destination mode matches desired mode %#o", mode.Perm())+logger.ColorReset,
+			)
+		} else {
+			details = append(details,
+				logger.ColorYellow+fmt.Sprintf("destination mode differs (current=%#o desired=%#o)", info.Mode().Perm(), mode.Perm())+logger.ColorReset,
+			)
+		}
+
+		current, readErr := insp.ReadRootFile(t.Dest)
+		if readErr != nil {
+			details = append(details,
+				logger.ColorRed+fmt.Sprintf("cannot compare content for %q (%v)", t.Dest, readErr)+logger.ColorReset,
+			)
+		} else {
+			compareReady = true
+			contentMatches = current == string(rendered)
+			if contentMatches {
+				details = append(details,
+					logger.ColorGreen+"destination content matches rendered template"+logger.ColorReset,
+				)
+			} else {
+				details = append(details,
+					logger.ColorYellow+"destination content differs from rendered template (rewrite needed)"+logger.ColorReset,
+				)
+			}
+		}
 	}
 
-	mode := strings.TrimSpace(t.Mode)
-	if mode == "" {
-		mode = "0600 (default in executor)"
-	}
 	details = append(details,
-		logger.ColorGreen+fmt.Sprintf("desired: template %q rendered to %q with mode %s", t.Src, t.Dest, mode)+logger.ColorReset,
+		logger.ColorGreen+fmt.Sprintf("desired: template %q rendered to %q with mode %s", t.Src, t.Dest, modeText)+logger.ColorReset,
 	)
 
 	if strings.HasPrefix(t.Dest, "/etc/ssh/") {
@@ -343,7 +348,17 @@ func planTemplate(insp inspector.Inspector, t *profile.TemplateSpec) (string, []
 		details = append(details, logger.ColorDim+"note: this template affects nftables firewall configuration"+logger.ColorReset)
 	}
 
-	summary := fmt.Sprintf("template step: render %q to %q (mode %s)", t.Src, t.Dest, mode)
+	summary := fmt.Sprintf("template step: render %q to %q (mode %s)", t.Src, t.Dest, modeText)
+	if exists && compareReady && modeMatches && contentMatches {
+		summary = fmt.Sprintf("template step: no rewrite required for %q (content and mode already match)", t.Dest)
+		details = append(details,
+			logger.ColorGreen+"rewrite decision: no rewrite required"+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorYellow+"rewrite decision: rewrite required"+logger.ColorReset,
+		)
+	}
 	return summary, details, nil
 }
 
@@ -481,7 +496,7 @@ func planFirewall(insp inspector.Inspector, fw *profile.FirewallSpec) (string, [
 	if insp.FirewallIncludePresent() {
 		details = append(details, logger.ColorGreen+`nftables.conf include "/etc/nftables.d/*.nft" is present`+logger.ColorReset)
 	} else {
-		details = append(details, logger.ColorYellow+`nftables.conf include "/etc/nftables.d/*.nft" is missing (apply will enforce it)`+logger.ColorReset)
+		details = append(details, logger.ColorRed+`nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset)
 	}
 
 	summary := fmt.Sprintf(
@@ -531,67 +546,81 @@ func planFirewallTemplate(insp inspector.Inspector, fw *profile.FirewallTemplate
 }
 
 func planValidate(insp inspector.Inspector, kind string) (string, []string, error) {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "sshd":
-		logger.Debugf("planValidate: kind=sshd\n")
-
-		var details []string
-
-		if insp.SSHIncludePresent() {
-			details = append(details,
-				logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+logger.ColorReset,
-			)
-		} else {
-			details = append(details,
-				logger.ColorYellow+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is missing (apply will append it)"+logger.ColorReset,
-			)
-		}
-
-		testErr := insp.SSHConfigTest()
-		if testErr == nil {
-			details = append(details,
-				logger.ColorGreen+"current sshd configuration: passes sshd -t"+logger.ColorReset,
-			)
-		} else {
-			details = append(details,
-				logger.ColorRed+fmt.Sprintf("current sshd configuration: sshd -t reports errors (%v)", testErr)+logger.ColorReset,
-			)
-		}
-
-		summary := "validate sshd: check Include hook and sshd -t on /etc/ssh/sshd_config"
-		return summary, details, nil
-
-	case "firewall":
-		logger.Debugf("planValidate: kind=firewall\n")
-
-		var details []string
-
-		if insp.FirewallIncludePresent() {
-			details = append(details,
-				logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
-			)
-		} else {
-			details = append(details,
-				logger.ColorYellow+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (apply will append it)`+logger.ColorReset,
-			)
-		}
-
-		testErr := insp.FirewallConfigTest()
-		if testErr == nil {
-			details = append(details,
-				logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
-			)
-		} else {
-			details = append(details,
-				logger.ColorRed+fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr)+logger.ColorReset,
-			)
-		}
-
-		summary := "validate firewall: check include for /etc/nftables.d/*.nft and nft -c on /etc/nftables.conf"
-		return summary, details, nil
-
-	default:
+	validateFn, ok := planActionRegistry.LookupValidate(kind)
+	if !ok {
 		summary := fmt.Sprintf("validate step: unsupported kind %q", kind)
 		return summary, []string{"no validation logic implemented for this kind"}, nil
 	}
+
+	result, err := validateFn(pluginapi.PlanContext{Inspector: insp})
+	if err != nil {
+		return "", nil, err
+	}
+	return result.Summary, result.Details, nil
+}
+
+func planValidateSSHD(insp inspector.Inspector) (pluginapi.PlanResult, error) {
+	logger.Debugf("planValidate: kind=sshd\n")
+
+	var details []string
+
+	if insp.SSHIncludePresent() {
+		details = append(details,
+			logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorRed+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is missing (validate would fail)"+logger.ColorReset,
+		)
+	}
+
+	testErr := insp.SSHConfigTest()
+	if testErr == nil {
+		details = append(details,
+			logger.ColorGreen+"current sshd configuration: passes sshd -t"+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorRed+fmt.Sprintf("current sshd configuration: sshd -t reports errors (%v)", testErr)+logger.ColorReset,
+		)
+	}
+
+	return pluginapi.PlanResult{
+		Summary: "validate sshd: check Include hook and sshd -t on /etc/ssh/sshd_config",
+		Details: details,
+		Noop:    2,
+	}, nil
+}
+
+func planValidateFirewall(insp inspector.Inspector) (pluginapi.PlanResult, error) {
+	logger.Debugf("planValidate: kind=firewall\n")
+
+	var details []string
+
+	if insp.FirewallIncludePresent() {
+		details = append(details,
+			logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorRed+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset,
+		)
+	}
+
+	testErr := insp.FirewallConfigTest()
+	if testErr == nil {
+		details = append(details,
+			logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorRed+fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr)+logger.ColorReset,
+		)
+	}
+
+	return pluginapi.PlanResult{
+		Summary: "validate firewall: check include for /etc/nftables.d/*.nft and nft -c on /etc/nftables.conf",
+		Details: details,
+		Noop:    2,
+	}, nil
 }

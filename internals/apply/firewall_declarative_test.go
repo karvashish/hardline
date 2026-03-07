@@ -122,221 +122,154 @@ func TestHandleFirewallDeclarative(t *testing.T) {
 		}
 	})
 
-	t.Run("nft json read error", func(t *testing.T) {
-		restore := stubStepDeps()
-		defer restore()
-		runRootCmdWithOutput = func(_ *ssh.Client, _ string) (string, error) {
-			return "", errors.New("nft json failed")
-		}
-		err := handleFirewall(nil, validDeterministicFirewallSpec())
-		if err == nil || !strings.Contains(err.Error(), "read current nftables json state") {
-			t.Fatalf("expected nft json read error, got %v", err)
-		}
-	})
-
-	t.Run("invalid nft json", func(t *testing.T) {
-		restore := stubStepDeps()
-		defer restore()
-		runRootCmdWithOutput = func(_ *ssh.Client, _ string) (string, error) {
-			return "not-json", nil
-		}
-		err := handleFirewall(nil, validDeterministicFirewallSpec())
-		if err == nil || !strings.Contains(err.Error(), "decode nftables json state") {
-			t.Fatalf("expected decode error, got %v", err)
-		}
-	})
-
-	t.Run("no-op when state and managed file are in sync", func(t *testing.T) {
-		restore := stubStepDeps()
-		defer restore()
-		resetApplyStepState()
-
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return nftJSONPolicyDropWithSSH22, nil
-			}
-			return "", nil
-		}
-		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
-		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
-
-		written := false
-		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
-			written = true
-			return nil
-		}
-
-		err := handleFirewall(nil, validDeterministicFirewallSpec())
-		if err != nil {
-			t.Fatalf("handleFirewall failed: %v", err)
-		}
-		if written {
-			t.Fatalf("expected no managed-file write for converged state")
-		}
-		if isServiceDirty("nftables") {
-			t.Fatalf("expected nftables to remain clean for true no-op")
-		}
-	})
-
-	t.Run("runtime drift marks nftables dirty without rewriting file", func(t *testing.T) {
-		restore := stubStepDeps()
-		defer restore()
-		resetApplyStepState()
-
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return `{"nftables":[]}`, nil
-			}
-			return "", nil
-		}
-		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
-		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
-
-		written := false
-		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
-			written = true
-			return nil
-		}
-
-		err := handleFirewall(nil, validDeterministicFirewallSpec())
-		if err != nil {
-			t.Fatalf("handleFirewall failed: %v", err)
-		}
-		if written {
-			t.Fatalf("expected no write when managed file is already up-to-date")
-		}
-		if !isServiceDirty("nftables") {
-			t.Fatalf("expected nftables service to be marked dirty when runtime drift exists")
+	t.Run("missing managed destination", func(t *testing.T) {
+		spec := validDeterministicFirewallSpec()
+		spec.ManagedDest = ""
+		err := handleFirewall(nil, spec)
+		if err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
+			t.Fatalf("expected managed_dest required error, got %v", err)
 		}
 	})
 
 	t.Run("mkdir error", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return nftJSONPolicyDropWithSSH22, nil
-			}
-			return "", nil
-		}
-		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.HasPrefix(cmd, "mkdir -p") {
-				return errors.New("mkdir failed")
-			}
-			return nil
+		runRootCmd = func(_ *ssh.Client, _ string) error {
+			return errors.New("mkdir failed")
 		}
 		err := handleFirewall(nil, validDeterministicFirewallSpec())
-		if err == nil || !strings.Contains(err.Error(), "mkdir") {
+		if err == nil || !strings.Contains(err.Error(), "mkdir -p") {
 			t.Fatalf("expected mkdir error, got %v", err)
 		}
 	})
 
-	t.Run("include ensure failure", func(t *testing.T) {
+	t.Run("missing include is enabled during apply", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return nftJSONPolicyDropWithSSH22, nil
-			}
-			return "", nil
-		}
+		spec := validDeterministicFirewallSpec()
+
+		var cmds []string
+		checkCount := 0
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, ">> /etc/nftables.conf") {
-				return errors.New("append failed")
-			}
+			cmds = append(cmds, cmd)
 			if cmd == firewallIncludeCheckCmd {
-				return errors.New("missing include")
+				checkCount++
+				if checkCount == 1 {
+					return errors.New("missing include")
+				}
 			}
 			return nil
 		}
-		err := handleFirewall(nil, validDeterministicFirewallSpec())
+		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
+		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
+
+		err := handleFirewall(nil, spec)
+		if err != nil {
+			t.Fatalf("handleFirewall failed: %v", err)
+		}
+
+		joined := strings.Join(cmds, "\n")
+		if !strings.Contains(joined, `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`) {
+			t.Fatalf("expected include append command, got %#v", cmds)
+		}
+		if checkCount != 2 {
+			t.Fatalf("expected include check before and after append, got %d", checkCount)
+		}
+	})
+
+	t.Run("include enable failure is fatal", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+		spec := validDeterministicFirewallSpec()
+
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if cmd == firewallIncludeCheckCmd {
+				return errors.New("missing include")
+			}
+			if strings.Contains(cmd, ">> /etc/nftables.conf") {
+				return errors.New("append failed")
+			}
+			return nil
+		}
+		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
+		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
+			t.Fatal("writeRootFile should not run when include setup fails")
+			return nil
+		}
+
+		err := handleFirewall(nil, spec)
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure include error, got %v", err)
 		}
 	})
 
-	t.Run("new sftp error", func(t *testing.T) {
+	t.Run("new sftp client error", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return nftJSONPolicyDropWithSSH22, nil
-			}
-			return "", nil
+		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) {
+			return nil, errors.New("sftp failed")
 		}
-		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "cmp -s -") {
-				return errors.New("managed file drift")
-			}
-			return nil
-		}
-		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, errors.New("sftp failed") }
 		err := handleFirewall(nil, validDeterministicFirewallSpec())
 		if err == nil || !strings.Contains(err.Error(), "new sftp client") {
 			t.Fatalf("expected sftp error, got %v", err)
 		}
 	})
 
-	t.Run("writes managed file when desired file drifts", func(t *testing.T) {
+	t.Run("write error", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
-		resetApplyStepState()
-
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return nftJSONPolicyDropWithSSH22, nil
-			}
-			return "", nil
-		}
-		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "cmp -s -") {
-				return errors.New("managed file drift")
-			}
-			return nil
-		}
-		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
-
-		written := false
-		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
-			written = true
-			return nil
-		}
-
-		err := handleFirewall(nil, validDeterministicFirewallSpec())
-		if err != nil {
-			t.Fatalf("handleFirewall failed: %v", err)
-		}
-		if !written {
-			t.Fatalf("expected managed-file write when file drift is detected")
-		}
-		if !isServiceDirty("nftables") {
-			t.Fatalf("expected nftables service to be marked dirty after write")
-		}
-	})
-
-	t.Run("write managed file error", func(t *testing.T) {
-		restore := stubStepDeps()
-		defer restore()
-		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
-			if cmd == "nft -j list ruleset" {
-				return nftJSONPolicyDropWithSSH22, nil
-			}
-			return "", nil
-		}
-		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "cmp -s -") {
-				return errors.New("managed file drift")
-			}
-			return nil
-		}
+		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
 			return errors.New("write failed")
 		}
-
 		err := handleFirewall(nil, validDeterministicFirewallSpec())
 		if err == nil || !strings.Contains(err.Error(), "remote.WriteRootFile") {
 			t.Fatalf("expected write error, got %v", err)
+		}
+	})
+
+	t.Run("success writes desired render and marks nftables dirty", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+		var mkdirCmd string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if strings.HasPrefix(cmd, "mkdir -p ") {
+				mkdirCmd = cmd
+			}
+			return nil
+		}
+		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
+
+		spec := validDeterministicFirewallSpec()
+		desired, err := normalizeDesiredFirewallSpec(spec)
+		if err != nil {
+			t.Fatalf("normalizeDesiredFirewallSpec failed: %v", err)
+		}
+		wantRender := renderNormalizedFirewall(desired)
+		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
+			if dest != spec.ManagedDest {
+				t.Fatalf("unexpected destination: %q", dest)
+			}
+			if string(data) != wantRender {
+				t.Fatalf("unexpected rendered firewall data")
+			}
+			if mode != 0o644 {
+				t.Fatalf("unexpected mode: %#o", mode)
+			}
+			return nil
+		}
+
+		err = handleFirewall(nil, spec)
+		if err != nil {
+			t.Fatalf("handleFirewall failed: %v", err)
+		}
+		if mkdirCmd == "" {
+			t.Fatalf("expected mkdir command")
+		}
+		if !isServiceDirty("nftables") {
+			t.Fatalf("expected nftables to be marked dirty")
 		}
 	})
 }

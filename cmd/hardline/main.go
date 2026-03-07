@@ -6,6 +6,7 @@ import (
 	"github.com/karvashish/hardline/internals/apply"
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/plan"
+	"github.com/karvashish/hardline/internals/plugins"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
@@ -20,6 +21,7 @@ var (
 	runVerify     = verify.Verify
 	setDebugMode  = logger.SetDebug
 	resolveVerCmd = cli.VersionCmd
+	loadPlugins   = plugins.LoadFromBinaryDir
 	logInfof      = logger.Infof
 	logErrorf     = logger.Errorf
 )
@@ -40,11 +42,19 @@ func run(args []string) int {
 	case "plan":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		if err := loadPlugins(); err != nil {
+			logErrorf("plugin load failed: %v\n", err)
+			return 1
+		}
 		runPlan(c)
 		return 0
 	case "apply":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		if err := loadPlugins(); err != nil {
+			logErrorf("plugin load failed: %v\n", err)
+			return 1
+		}
 		// Apply must always execute preflight planning/validation first.
 		runPlan(c)
 		runApply(c)

@@ -141,6 +141,12 @@ main() {
   echo "== e2e: apply =="
   "${BINARY_PATH}" apply "${PROFILE_DIR}" "${remote_args[@]}"
 
+  echo "== e2e: plan (idempotency pass) =="
+  "${BINARY_PATH}" plan "${PROFILE_DIR}" "${remote_args[@]}"
+
+  echo "== e2e: apply (idempotency pass) =="
+  "${BINARY_PATH}" apply "${PROFILE_DIR}" "${remote_args[@]}"
+
   echo "== e2e: rollback =="
   "${BINARY_PATH}" rollback last "${remote_args[@]}"
 

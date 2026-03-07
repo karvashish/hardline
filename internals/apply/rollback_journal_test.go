@@ -91,7 +91,7 @@ func TestCaptureStepRecord_TemplateAndFirewall(t *testing.T) {
 		}
 	})
 
-	t.Run("firewall default path absent", func(t *testing.T) {
+	t.Run("firewall managed path absent", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 
@@ -114,7 +114,8 @@ func TestCaptureStepRecord_TemplateAndFirewall(t *testing.T) {
 			ID:   "f1",
 			Type: "firewall",
 			Firewall: &profile.FirewallSpec{
-				Backend: "nftables",
+				Backend:     "nftables",
+				ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
 			},
 		}
 		record, err := captureStepRecord(nil, step)
@@ -125,8 +126,48 @@ func TestCaptureStepRecord_TemplateAndFirewall(t *testing.T) {
 			t.Fatalf("expected one file object, got %+v", record.Objects)
 		}
 		fileSnap := record.Objects[0].File
-		if fileSnap.Path != defaultManagedFirewallDest || fileSnap.Existed {
+		if fileSnap.Path != "/etc/nftables.d/99-hardline-firewall.nft" || fileSnap.Existed {
 			t.Fatalf("unexpected firewall snapshot: %+v", fileSnap)
+		}
+	})
+
+	t.Run("firewall_template managed path absent", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("not found")
+			}
+			return nil
+		}
+		runRootCmdWithOutput = func(_ *ssh.Client, _ string) (string, error) {
+			t.Fatal("did not expect stat for absent file")
+			return "", nil
+		}
+		readRootFile = func(_ *ssh.Client, _ string) (string, error) {
+			t.Fatal("did not expect file read for absent file")
+			return "", nil
+		}
+
+		step := profile.Step{
+			ID:   "ft1",
+			Type: "firewall_template",
+			FirewallTemplate: &profile.FirewallTemplateSpec{
+				Backend:      "nftables",
+				TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft",
+			},
+		}
+		record, err := captureStepRecord(nil, step)
+		if err != nil {
+			t.Fatalf("captureStepRecord failed: %v", err)
+		}
+		if len(record.Objects) != 1 || record.Objects[0].File == nil {
+			t.Fatalf("expected one file object, got %+v", record.Objects)
+		}
+		fileSnap := record.Objects[0].File
+		if fileSnap.Path != "/etc/nftables.d/99-hardline-firewall.nft" || fileSnap.Existed {
+			t.Fatalf("unexpected firewall_template snapshot: %+v", fileSnap)
 		}
 	})
 
@@ -191,7 +232,7 @@ func TestCaptureStepRecord_TemplateAndFirewall(t *testing.T) {
 			ID:   "f2",
 			Type: "firewall",
 			Firewall: &profile.FirewallSpec{
-				TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft",
+				ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
 			},
 		}
 		_, err := captureStepRecord(nil, step)

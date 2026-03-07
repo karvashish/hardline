@@ -43,10 +43,25 @@ func captureStepRecord(client *ssh.Client, s profile.Step) (rollback.StepRecord,
 		if s.Firewall == nil {
 			return record, fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
 		}
-		dest := strings.TrimSpace(s.Firewall.TemplateDest)
-		if dest == "" {
-			dest = defaultManagedFirewallDest
+		dest := managedFirewallDestination(s.Firewall)
+		if err := enforceManagedPath(dest); err != nil {
+			return record, fmt.Errorf("step %q (type=%s): %w", s.ID, s.Type, err)
 		}
+		snap, err := snapshotRemoteFile(client, dest)
+		if err != nil {
+			return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
+		}
+		record.RollbackMode = rollback.ModeDeterministic
+		record.Objects = []rollback.ObjectRecord{
+			{Kind: rollback.ObjectFile, File: &snap},
+		}
+		return record, nil
+
+	case "firewall_template":
+		if s.FirewallTemplate == nil {
+			return record, fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
+		}
+		dest := managedFirewallTemplateDestination(s.FirewallTemplate)
 		if err := enforceManagedPath(dest); err != nil {
 			return record, fmt.Errorf("step %q (type=%s): %w", s.ID, s.Type, err)
 		}

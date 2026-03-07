@@ -43,6 +43,11 @@ func TestHandleStep_MissingSpecsAndUnknown(t *testing.T) {
 			wantSub: "firewall spec missing",
 		},
 		{
+			name:    "firewall_template missing",
+			step:    profile.Step{ID: "ft", Type: "firewall_template"},
+			wantSub: "firewall_template spec missing",
+		},
+		{
 			name:    "validate missing",
 			step:    profile.Step{ID: "v", Type: "validate"},
 			wantSub: "validate spec missing",
@@ -67,6 +72,12 @@ func TestHandleStep_MissingSpecsAndUnknown(t *testing.T) {
 		defer restore()
 
 		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+		runRootCmdWithOutput = func(_ *ssh.Client, cmd string) (string, error) {
+			if cmd == "nft -j list ruleset" {
+				return `{"nftables":[]}`, nil
+			}
+			return "", nil
+		}
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
 
@@ -74,7 +85,27 @@ func TestHandleStep_MissingSpecsAndUnknown(t *testing.T) {
 			{ID: "p-ok", Type: "packages", Packages: &profile.PackageSpec{}},
 			{ID: "t-ok", Type: "template", Template: &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/tmp/t"}},
 			{ID: "s-ok", Type: "service", Service: &profile.ServiceSpec{Name: "cron"}},
-			{ID: "f-ok", Type: "firewall", Firewall: &profile.FirewallSpec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"}},
+			{ID: "f-ok", Type: "firewall", Firewall: &profile.FirewallSpec{
+				Backend:     "nftables",
+				Family:      "inet",
+				Table:       "filter",
+				ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
+				Policies: []profile.FirewallPolicy{
+					{Chain: "input", Policy: "drop"},
+				},
+				Rules: []profile.FirewallRule{
+					{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+				},
+			}},
+			{ID: "ft-ok", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{
+				Backend:      "nftables",
+				Policy:       "drop",
+				TemplateSrc:  "templates/nftables_base.tmpl",
+				TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft",
+				Allow: []profile.FirewallTemplateRule{
+					{Port: 22, Proto: "tcp"},
+				},
+			}},
 			{ID: "v-ok", Type: "validate", Validate: "sshd"},
 		}
 
@@ -194,10 +225,15 @@ func TestHandleService(t *testing.T) {
 	t.Run("success with enable and restart", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
+		resetApplyStepState()
+		markServiceDirty("ssh")
 
 		var cmds []string
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
 			cmds = append(cmds, cmd)
+			if cmd == "systemctl is-enabled ssh >/dev/null 2>&1" {
+				return errors.New("disabled")
+			}
 			return nil
 		}
 
@@ -206,9 +242,16 @@ func TestHandleService(t *testing.T) {
 		if err != nil {
 			t.Fatalf("handleService failed: %v", err)
 		}
-		want := []string{"systemctl enable ssh", "systemctl restart ssh"}
-		if strings.Join(cmds, "|") != strings.Join(want, "|") {
-			t.Fatalf("unexpected command sequence: got %#v want %#v", cmds, want)
+		wantContains := []string{
+			"systemctl is-enabled ssh >/dev/null 2>&1",
+			"systemctl enable ssh",
+			"systemctl restart ssh",
+		}
+		joined := strings.Join(cmds, "\n")
+		for _, want := range wantContains {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("expected command %q in sequence: %#v", want, cmds)
+			}
 		}
 	})
 
@@ -226,9 +269,41 @@ func TestHandleService(t *testing.T) {
 		if err != nil {
 			t.Fatalf("handleService failed: %v", err)
 		}
-		want := []string{"systemctl disable cron", "systemctl stop cron"}
-		if strings.Join(cmds, "|") != strings.Join(want, "|") {
-			t.Fatalf("unexpected command sequence: got %#v want %#v", cmds, want)
+		wantContains := []string{
+			"systemctl is-enabled cron >/dev/null 2>&1",
+			"systemctl disable cron",
+			"systemctl is-active cron >/dev/null 2>&1",
+			"systemctl stop cron",
+		}
+		joined := strings.Join(cmds, "\n")
+		for _, want := range wantContains {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("expected command %q in sequence: %#v", want, cmds)
+			}
+		}
+	})
+
+	t.Run("restart clean active skips command", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+
+		var cmds []string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		}
+
+		err := handleService(nil, &profile.ServiceSpec{Name: "cron", State: "restart"})
+		if err != nil {
+			t.Fatalf("handleService failed: %v", err)
+		}
+
+		joined := strings.Join(cmds, "\n")
+		if strings.Contains(joined, "systemctl restart cron") {
+			t.Fatalf("expected restart to be skipped for clean active service, got %#v", cmds)
+		}
+		if !strings.Contains(joined, "systemctl is-active cron >/dev/null 2>&1") {
+			t.Fatalf("expected active-state check, got %#v", cmds)
 		}
 	})
 
@@ -243,7 +318,12 @@ func TestHandleService(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 		enabled := true
-		runRootCmd = func(_ *ssh.Client, _ string) error { return errors.New("boom") }
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if cmd == "systemctl is-enabled cron >/dev/null 2>&1" {
+				return errors.New("disabled")
+			}
+			return errors.New("boom")
+		}
 		err := handleService(nil, &profile.ServiceSpec{Name: "cron", Enabled: &enabled})
 		if err == nil || !strings.Contains(err.Error(), "systemctl enable/disable") {
 			t.Fatalf("expected enable/disable error, got %v", err)
@@ -253,7 +333,12 @@ func TestHandleService(t *testing.T) {
 	t.Run("state command error", func(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
-		runRootCmd = func(_ *ssh.Client, _ string) error { return errors.New("boom") }
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if cmd == "systemctl is-active cron >/dev/null 2>&1" {
+				return errors.New("inactive")
+			}
+			return errors.New("boom")
+		}
 		err := handleService(nil, &profile.ServiceSpec{Name: "cron", State: "start"})
 		if err == nil || !strings.Contains(err.Error(), "systemctl start") {
 			t.Fatalf("expected state command error, got %v", err)
@@ -269,6 +354,9 @@ func TestHandleTemplate(t *testing.T) {
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		var mkdirCmd string
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if strings.Contains(cmd, "cmp -s -") {
+				return errors.New("different")
+			}
 			mkdirCmd = cmd
 			return nil
 		}
@@ -304,7 +392,12 @@ func TestHandleTemplate(t *testing.T) {
 		defer restore()
 
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if strings.Contains(cmd, "cmp -s -") {
+				return errors.New("different")
+			}
+			return nil
+		}
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, mode os.FileMode) error {
 			if mode != 0o600 {
@@ -367,7 +460,12 @@ func TestHandleTemplate(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			if strings.Contains(cmd, "cmp -s -") {
+				return errors.New("different")
+			}
+			return nil
+		}
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
 			return errors.New("boom")
@@ -380,12 +478,39 @@ func TestHandleTemplate(t *testing.T) {
 			t.Fatalf("expected write root file error, got %v", err)
 		}
 	})
+
+	t.Run("up-to-date skips write", func(t *testing.T) {
+		restore := stubStepDeps()
+		defer restore()
+
+		p := mustLoadProfileForTests(t, map[string]string{"templates/t.tmpl": "hello"})
+		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
+		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
+
+		written := false
+		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
+			written = true
+			return nil
+		}
+
+		err := handleTemplate(nil, p, &profile.TemplateSpec{
+			Src:  "templates/t.tmpl",
+			Dest: "/etc/example.conf",
+			Mode: "0644",
+		})
+		if err != nil {
+			t.Fatalf("handleTemplate failed: %v", err)
+		}
+		if written {
+			t.Fatalf("expected up-to-date destination to skip write")
+		}
+	})
 }
 
-func TestHandleFirewall(t *testing.T) {
+func TestHandleFirewallTemplate(t *testing.T) {
 	t.Run("unsupported backend", func(t *testing.T) {
 		p := mustLoadProfileForTests(t, map[string]string{"templates/nftables_base.tmpl": "ok"})
-		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "ufw"})
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{Backend: "ufw"})
 		if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
 			t.Fatalf("expected unsupported backend error, got %v", err)
 		}
@@ -393,7 +518,7 @@ func TestHandleFirewall(t *testing.T) {
 
 	t.Run("template load error", func(t *testing.T) {
 		p := mustLoadProfileForTests(t, map[string]string{"templates/other.tmpl": "ok"})
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend:     "nftables",
 			TemplateSrc: "templates/nftables_base.tmpl",
 		})
@@ -406,7 +531,7 @@ func TestHandleFirewall(t *testing.T) {
 		restore := stubStepDeps()
 		defer restore()
 		p := mustLoadProfileForTests(t, map[string]string{"templates/bad.tmpl": "{{"})
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend:     "nftables",
 			TemplateSrc: "templates/bad.tmpl",
 		})
@@ -422,7 +547,7 @@ func TestHandleFirewall(t *testing.T) {
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
 		p := mustLoadProfileForTests(t, map[string]string{"templates/bad.tmpl": "{{index .Missing 0}}"})
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend:     "nftables",
 			TemplateSrc: "templates/bad.tmpl",
 		})
@@ -436,7 +561,7 @@ func TestHandleFirewall(t *testing.T) {
 		defer restore()
 		p := mustLoadProfileForTests(t, map[string]string{"templates/nftables_base.tmpl": "{{allow_rules}}"})
 		runRootCmd = func(_ *ssh.Client, _ string) error { return errors.New("boom") }
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend: "nftables",
 		})
 		if err == nil || !strings.Contains(err.Error(), "mkdir") {
@@ -450,7 +575,7 @@ func TestHandleFirewall(t *testing.T) {
 		p := mustLoadProfileForTests(t, map[string]string{"templates/nftables_base.tmpl": "{{allow_rules}}"})
 		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, errors.New("boom") }
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend: "nftables",
 		})
 		if err == nil || !strings.Contains(err.Error(), "new sftp client") {
@@ -467,7 +592,7 @@ func TestHandleFirewall(t *testing.T) {
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error {
 			return errors.New("boom")
 		}
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend: "nftables",
 		})
 		if err == nil || !strings.Contains(err.Error(), "remote.WriteRootFile") {
@@ -484,7 +609,7 @@ func TestHandleFirewall(t *testing.T) {
 		runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
-			if dest != defaultManagedFirewallDest {
+			if dest != defaultManagedFirewallTemplateDest {
 				t.Fatalf("unexpected destination: %q", dest)
 			}
 			if mode != 0o644 {
@@ -496,14 +621,14 @@ func TestHandleFirewall(t *testing.T) {
 			}
 			return nil
 		}
-		err := handleFirewall(nil, p, &profile.FirewallSpec{
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{
 			Backend: "nftables",
-			Allow: []profile.FirewallRule{
+			Allow: []profile.FirewallTemplateRule{
 				{Port: 22, Proto: "tcp"},
 			},
 		})
 		if err != nil {
-			t.Fatalf("handleFirewall failed: %v", err)
+			t.Fatalf("handleFirewallTemplate failed: %v", err)
 		}
 	})
 
@@ -529,9 +654,9 @@ func TestHandleFirewall(t *testing.T) {
 		newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 		writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
 
-		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "nftables"})
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{Backend: "nftables"})
 		if err != nil {
-			t.Fatalf("handleFirewall failed: %v", err)
+			t.Fatalf("handleFirewallTemplate failed: %v", err)
 		}
 
 		joined := strings.Join(cmds, "\n")
@@ -562,7 +687,7 @@ func TestHandleFirewall(t *testing.T) {
 			return nil
 		}
 
-		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "nftables"})
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure include error, got %v", err)
 		}
@@ -587,7 +712,7 @@ func TestHandleFirewall(t *testing.T) {
 			return nil
 		}
 
-		err := handleFirewall(nil, p, &profile.FirewallSpec{Backend: "nftables"})
+		err := handleFirewallTemplate(nil, p, &profile.FirewallTemplateSpec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "verify") {
 			t.Fatalf("expected verify include error, got %v", err)
 		}
@@ -721,12 +846,57 @@ func TestHandleValidate_NoMutationAndErrors(t *testing.T) {
 	})
 }
 
+func TestStepHelperMappings(t *testing.T) {
+	t.Run("normalizeServiceUnit", func(t *testing.T) {
+		if got := normalizeServiceUnit("sshd"); got != "ssh" {
+			t.Fatalf("expected sshd to normalize to ssh, got %q", got)
+		}
+		if got := normalizeServiceUnit(" cron "); got != "cron" {
+			t.Fatalf("expected trimming for service unit, got %q", got)
+		}
+		if got := normalizeServiceUnit(""); got != "" {
+			t.Fatalf("expected empty unit to stay empty, got %q", got)
+		}
+	})
+
+	t.Run("serviceForManagedPath", func(t *testing.T) {
+		cases := map[string]string{
+			"/etc/ssh/sshd_config.d/99-hardline.conf":       "ssh",
+			"/etc/sysctl.d/99-hardline.conf":                "systemd-sysctl",
+			"/etc/fail2ban/jail.d/99-hardline.conf":         "fail2ban",
+			"/etc/audit/rules.d/99-hardline.rules":          "auditd",
+			"/etc/systemd/journald.conf.d/99-hardline.conf": "systemd-journald",
+			"/etc/nftables.d/99-hardline-firewall.nft":      "nftables",
+			"/etc/custom/other.conf":                        "",
+		}
+		for in, want := range cases {
+			if got := serviceForManagedPath(in); got != want {
+				t.Fatalf("unexpected service mapping for %q: got %q want %q", in, got, want)
+			}
+		}
+	})
+
+	t.Run("managedFirewallTemplateDestination", func(t *testing.T) {
+		if got := managedFirewallTemplateDestination(nil); got != defaultManagedFirewallTemplateDest {
+			t.Fatalf("expected default destination for nil spec, got %q", got)
+		}
+		if got := managedFirewallTemplateDestination(&profile.FirewallTemplateSpec{}); got != defaultManagedFirewallTemplateDest {
+			t.Fatalf("expected default destination for empty spec, got %q", got)
+		}
+		if got := managedFirewallTemplateDestination(&profile.FirewallTemplateSpec{TemplateDest: "/etc/nftables.d/99-hardline-custom.nft"}); got != "/etc/nftables.d/99-hardline-custom.nft" {
+			t.Fatalf("unexpected custom destination: %q", got)
+		}
+	})
+}
+
 func stubStepDeps() func() {
 	prevRunRoot := runRootCmd
 	prevRunRootOut := runRootCmdWithOutput
 	prevReadRoot := readRootFile
 	prevNewSFTP := newSFTPClient
 	prevWriteRoot := writeRootFile
+	prevServiceDirty := serviceDirty
+	resetApplyStepState()
 
 	return func() {
 		runRootCmd = prevRunRoot
@@ -734,6 +904,7 @@ func stubStepDeps() func() {
 		readRootFile = prevReadRoot
 		newSFTPClient = prevNewSFTP
 		writeRootFile = prevWriteRoot
+		serviceDirty = prevServiceDirty
 	}
 }
 

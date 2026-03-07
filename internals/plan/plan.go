@@ -13,6 +13,15 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+var (
+	loadPlanProfile   = profile.Load
+	planVersionCmd    = cli.VersionCmd
+	planCompareSemVer = cli.CompareSemVer
+	newPlanSSHClient  = connection.NewSSHClient
+	runPlanForProfile = planProfile
+	exitPlan          = os.Exit
+)
+
 func Plan(c cli.Command) {
 	/*
 		1. Load and validate a profile (and its actions/templates).
@@ -28,41 +37,41 @@ func Plan(c cli.Command) {
 
 	logger.Debugf("plan: profile=%q host=%q user=%q key=%q\n", c.Profile, c.Host, c.User, c.KeyPath)
 
-	p, err := profile.Load(c.Profile)
+	p, err := loadPlanProfile(c.Profile)
 	if err != nil {
 		logger.Errorf("profile load failed: %v\n", err)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
 	logger.Debugf("profile loaded, starting validation\n")
 
-	ver, schemaVer, err := cli.VersionCmd()
+	ver, schemaVer, err := planVersionCmd()
 	if err != nil {
 		logger.Errorf("hardline version check failed: %v\n", err)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
-	cmp, err := cli.CompareSemVer(ver.String(), p.MinHardline)
+	cmp, err := planCompareSemVer(ver.String(), p.MinHardline)
 	if err != nil {
 		logger.Errorf("invalid profile.min_hardline value %q: %v\n", p.MinHardline, err)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
 	if cmp < 0 {
 		logger.Errorf("hardline version %s is too old; minimum required is %s\n",
 			ver.String(), p.MinHardline)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
 	if p.ProfileSchema > schemaVer {
 		logger.Errorf("profile schema %d is newer than supported %d; please upgrade hardline\n",
 			p.ProfileSchema, schemaVer)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
 	if err := p.Affirm(); err != nil {
 		logger.Errorf("profile validation failed: %v\n", err)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
 	config := &connection.Config{
@@ -71,18 +80,20 @@ func Plan(c cli.Command) {
 		Host:    c.Host,
 	}
 
-	sshClient, err := connection.NewSSHClient(*config)
+	sshClient, err := newPlanSSHClient(*config)
 	if err != nil {
 		logger.Errorf("connect failed: %v\n", err)
-		os.Exit(1)
+		exitPlan(1)
 	}
-	defer sshClient.Close()
+	if sshClient != nil {
+		defer sshClient.Close()
+	}
 
 	logger.Debugf("ssh connection established\n")
 
-	if err := planProfile(sshClient, p, c.Host); err != nil {
+	if err := runPlanForProfile(sshClient, p, c.Host); err != nil {
 		logger.Errorf("plan failed: %v\n", err)
-		os.Exit(1)
+		exitPlan(1)
 	}
 
 	if !c.Debug {

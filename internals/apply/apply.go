@@ -126,6 +126,7 @@ func applyCommand(c cli.Command) error {
 
 func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error {
 	logger.Debugf("applyProfile: %d action files\n", len(p.ActionFiles))
+	resetApplyStepState()
 
 	for _, af := range p.ActionFiles {
 		for _, step := range af.Steps {

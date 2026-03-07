@@ -18,7 +18,143 @@
         "steps"
       ]
     },
+    "FirewallPolicy": {
+      "properties": {
+        "chain": {
+          "type": "string",
+          "enum": [
+            "input",
+            "output",
+            "forward"
+          ]
+        },
+        "policy": {
+          "type": "string",
+          "enum": [
+            "accept",
+            "drop",
+            "reject"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chain",
+        "policy"
+      ]
+    },
     "FirewallRule": {
+      "properties": {
+        "chain": {
+          "type": "string",
+          "enum": [
+            "input",
+            "output",
+            "forward"
+          ]
+        },
+        "proto": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "ports": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "source": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "in_interface": {
+          "type": "string"
+        },
+        "out_interface": {
+          "type": "string"
+        },
+        "ct_states": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "accept",
+            "drop",
+            "reject"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "chain",
+        "proto",
+        "port",
+        "ports",
+        "source",
+        "destination",
+        "in_interface",
+        "out_interface",
+        "ct_states",
+        "action"
+      ]
+    },
+    "FirewallSpec": {
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "nftables"
+          ]
+        },
+        "family": {
+          "type": "string",
+          "enum": [
+            "inet",
+            "ip",
+            "ip6"
+          ]
+        },
+        "table": {
+          "type": "string"
+        },
+        "managed_dest": {
+          "type": "string"
+        },
+        "policies": {
+          "items": {
+            "$ref": "#/$defs/FirewallPolicy"
+          },
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/FirewallRule"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "backend",
+        "family",
+        "table",
+        "managed_dest",
+        "policies",
+        "rules"
+      ]
+    },
+    "FirewallTemplateRule": {
       "properties": {
         "port": {
           "type": "integer"
@@ -38,15 +174,12 @@
         "proto"
       ]
     },
-    "FirewallSpec": {
+    "FirewallTemplateSpec": {
       "properties": {
         "backend": {
           "type": "string",
           "enum": [
-            "ufw",
-            "iptables",
-            "nftables",
-            "firewalld"
+            "nftables"
           ]
         },
         "policy": {
@@ -66,7 +199,7 @@
         },
         "allow": {
           "items": {
-            "$ref": "#/$defs/FirewallRule"
+            "$ref": "#/$defs/FirewallTemplateRule"
           },
           "type": "array"
         }
@@ -75,7 +208,10 @@
       "type": "object",
       "required": [
         "backend",
-        "policy"
+        "policy",
+        "template_src",
+        "template_dest",
+        "allow"
       ]
     },
     "PackageSpec": {
@@ -150,6 +286,7 @@
             "template",
             "service",
             "firewall",
+            "firewall_template",
             "validate"
           ]
         },
@@ -194,6 +331,9 @@
         },
         "firewall": {
           "$ref": "#/$defs/FirewallSpec"
+        },
+        "firewall_template": {
+          "$ref": "#/$defs/FirewallTemplateSpec"
         },
         "validate": {
           "type": "string"

@@ -65,8 +65,8 @@ func TestLoad_ActionsErrors(t *testing.T) {
   "steps": [
     {
       "id": "fw",
-      "type": "firewall",
-      "firewall": {"backend": "nftables", "policy": "deny", "template_src": "templates/not-declared.tmpl", "template_dest": "/etc/nftables.conf"}
+      "type": "firewall_template",
+      "firewall_template": {"backend": "nftables", "policy": "deny", "template_src": "templates/not-declared.tmpl", "template_dest": "/etc/nftables.conf", "allow": []}
     }
   ]
 }`)

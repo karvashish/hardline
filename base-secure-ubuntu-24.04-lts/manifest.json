@@ -24,7 +24,7 @@
     },
     {
       "path": "actions/30-firewall.json",
-      "sha256": "19bbd3a57c26f0628ea7988e5c5d24817acbaee7fade9b9b559768b62f7eb1a0"
+      "sha256": "0fc6debfccc003daa027202ec229e45baff0b1ba354b632a3a6d2173ecc21a74"
     },
     {
       "path": "actions/35-fail2ban.json",

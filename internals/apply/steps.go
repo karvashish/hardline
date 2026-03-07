@@ -2,6 +2,7 @@ package apply
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path"
@@ -21,14 +22,85 @@ var (
 	readRootFile         = remote.ReadRootFile
 	newSFTPClient        = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
 	writeRootFile        = remote.WriteRootFile
+	serviceDirty         = make(map[string]bool)
 )
 
 const (
-	defaultManagedFirewallDest = "/etc/nftables.d/99-hardline-firewall.nft"
-	nftablesMainConfigPath     = "/etc/nftables.conf"
-	nftablesIncludeLine        = `include "/etc/nftables.d/*.nft"`
-	firewallIncludeCheckCmd    = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+	defaultManagedFirewallTemplateDest = "/etc/nftables.d/99-hardline-firewall.nft"
+	nftablesMainConfigPath             = "/etc/nftables.conf"
+	nftablesIncludeLine                = `include "/etc/nftables.d/*.nft"`
+	firewallIncludeCheckCmd            = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
 )
+
+func resetApplyStepState() {
+	serviceDirty = make(map[string]bool)
+}
+
+func normalizeServiceUnit(unit string) string {
+	name := strings.TrimSpace(unit)
+	if name == "sshd" {
+		return "ssh"
+	}
+	return name
+}
+
+func markServiceDirty(unit string) {
+	u := normalizeServiceUnit(unit)
+	if u == "" {
+		return
+	}
+	serviceDirty[u] = true
+}
+
+func clearServiceDirty(unit string) {
+	u := normalizeServiceUnit(unit)
+	delete(serviceDirty, u)
+}
+
+func isServiceDirty(unit string) bool {
+	u := normalizeServiceUnit(unit)
+	return serviceDirty[u]
+}
+
+func serviceForManagedPath(dest string) string {
+	p := strings.TrimSpace(dest)
+	switch {
+	case strings.HasPrefix(p, "/etc/ssh/"):
+		return "ssh"
+	case strings.HasPrefix(p, "/etc/sysctl.d/"):
+		return "systemd-sysctl"
+	case strings.HasPrefix(p, "/etc/fail2ban/"):
+		return "fail2ban"
+	case strings.HasPrefix(p, "/etc/audit/"):
+		return "auditd"
+	case strings.HasPrefix(p, "/etc/systemd/journald.conf.d/"):
+		return "systemd-journald"
+	case strings.Contains(p, "nftables"):
+		return "nftables"
+	default:
+		return ""
+	}
+}
+
+func managedFileUpToDate(client *ssh.Client, dest string, data []byte, mode os.FileMode) bool {
+	wantMode := fmt.Sprintf("%03o", mode.Perm())
+	wantB64 := base64.StdEncoding.EncodeToString(data)
+	checkCmd := fmt.Sprintf(
+		"test -e %q && [ \"$(stat -c %%a %q)\" = %q ] && printf '%%s' %q | base64 -d | cmp -s - %q",
+		dest, dest, wantMode, wantB64, dest,
+	)
+	return runRootCmd(client, checkCmd) == nil
+}
+
+func serviceIsEnabled(client *ssh.Client, unit string) bool {
+	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)
+	return runRootCmd(client, cmd) == nil
+}
+
+func serviceIsActive(client *ssh.Client, unit string) bool {
+	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
+	return runRootCmd(client, cmd) == nil
+}
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	stepType := strings.ToLower(strings.TrimSpace(s.Type))
@@ -53,7 +125,12 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 		if s.Firewall == nil {
 			return fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
 		}
-		return handleFirewall(client, p, s.Firewall)
+		return handleFirewall(client, s.Firewall)
+	case "firewall_template":
+		if s.FirewallTemplate == nil {
+			return fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
+		}
+		return handleFirewallTemplate(client, p, s.FirewallTemplate)
 	case "validate":
 		if strings.TrimSpace(s.Validate) == "" {
 			return fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
@@ -130,6 +207,11 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 		}
 	}
 
+	if managedFileUpToDate(client, t.Dest, data, mode) {
+		logger.Debugf("handleTemplate: destination %q already up to date, skipping write\n", t.Dest)
+		return nil
+	}
+
 	dir := path.Dir(t.Dest)
 	if dir != "" && dir != "." {
 		if err := runRootCmd(client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
@@ -140,6 +222,7 @@ func handleTemplate(client *ssh.Client, p *profile.Profile, t *profile.TemplateS
 	if err := writeRootFile(client, sftpClient, t.Dest, data, mode); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", t.Dest, err)
 	}
+	markServiceDirty(serviceForManagedPath(t.Dest))
 
 	return nil
 }
@@ -154,17 +237,23 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	if unit == "sshd" {
 		unit = "ssh"
 	}
+	unit = normalizeServiceUnit(unit)
 	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	if s.Enabled != nil {
-		var cmd string
-		if *s.Enabled {
-			cmd = fmt.Sprintf("systemctl enable %s", unit)
+		enabledNow := serviceIsEnabled(client, unit)
+		if *s.Enabled != enabledNow {
+			var cmd string
+			if *s.Enabled {
+				cmd = fmt.Sprintf("systemctl enable %s", unit)
+			} else {
+				cmd = fmt.Sprintf("systemctl disable %s", unit)
+			}
+			if err := runRootCmd(client, cmd); err != nil {
+				return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
+			}
 		} else {
-			cmd = fmt.Sprintf("systemctl disable %s", unit)
-		}
-		if err := runRootCmd(client, cmd); err != nil {
-			return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
+			logger.Debugf("handleService: enablement already matches for %s, skipping toggle\n", unit)
 		}
 	}
 
@@ -176,12 +265,30 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	var cmd string
 	switch state {
 	case "started", "start":
+		if serviceIsActive(client, unit) {
+			logger.Debugf("handleService: %s already active, skipping start\n", unit)
+			clearServiceDirty(unit)
+			return nil
+		}
 		cmd = fmt.Sprintf("systemctl start %s", unit)
 	case "stopped", "stop":
+		if !serviceIsActive(client, unit) {
+			logger.Debugf("handleService: %s already inactive, skipping stop\n", unit)
+			clearServiceDirty(unit)
+			return nil
+		}
 		cmd = fmt.Sprintf("systemctl stop %s", unit)
 	case "restarted", "restart":
+		if !isServiceDirty(unit) && serviceIsActive(client, unit) {
+			logger.Debugf("handleService: %s clean and active, skipping restart\n", unit)
+			return nil
+		}
 		cmd = fmt.Sprintf("systemctl restart %s", unit)
 	case "reloaded", "reload", "reload-or-restart":
+		if !isServiceDirty(unit) && serviceIsActive(client, unit) {
+			logger.Debugf("handleService: %s clean and active, skipping reload-or-restart\n", unit)
+			return nil
+		}
 		cmd = fmt.Sprintf("systemctl reload-or-restart %s", unit)
 	default:
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
@@ -190,12 +297,13 @@ func handleService(client *ssh.Client, s *profile.ServiceSpec) error {
 	if err := runRootCmd(client, cmd); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
 	}
+	clearServiceDirty(unit)
 
 	return nil
 }
 
-func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.FirewallSpec) error {
-	logger.Debugf("handleFirewall: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
+func handleFirewallTemplate(client *ssh.Client, p *profile.Profile, fw *profile.FirewallTemplateSpec) error {
+	logger.Debugf("handleFirewallTemplate: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
 
 	if fw.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
@@ -242,10 +350,7 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	rendered := buf.String()
 
 	// allow firewall spec to override destination; fallback keeps old behavior
-	destPath := strings.TrimSpace(fw.TemplateDest)
-	if destPath == "" {
-		destPath = defaultManagedFirewallDest
-	}
+	destPath := managedFirewallTemplateDestination(fw)
 
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
@@ -269,7 +374,19 @@ func handleFirewall(client *ssh.Client, p *profile.Profile, fw *profile.Firewall
 	if err := writeRootFile(client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
+	markServiceDirty("nftables")
 	return nil
+}
+
+func managedFirewallTemplateDestination(fw *profile.FirewallTemplateSpec) string {
+	if fw == nil {
+		return defaultManagedFirewallTemplateDest
+	}
+	dest := strings.TrimSpace(fw.TemplateDest)
+	if dest == "" {
+		return defaultManagedFirewallTemplateDest
+	}
+	return dest
 }
 
 func ensureNftablesInclude(client *ssh.Client) error {

@@ -2,21 +2,20 @@ package plan
 
 import (
 	"errors"
-	"os"
-	"strings"
-	"testing"
-
 	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"os"
+	"strings"
+	"testing"
 )
 
 func TestRegisterPlanActionAndPlanStep(t *testing.T) {
-	prev := planActionRegistry
+	prev := planPluginRegistry
 	defer func() {
-		planActionRegistry = prev
+		planPluginRegistry = prev
 	}()
-	planActionRegistry = pluginapi.NewPlanRegistry()
+	planPluginRegistry = pluginapi.NewRegistry()
 
 	calledPlan := false
 	calledValidate := false
@@ -133,7 +132,7 @@ func TestNewDefaultPlanRegistry(t *testing.T) {
 	r := newDefaultPlanRegistry()
 
 	for _, typ := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
-		if _, ok := r.LookupType(typ); !ok {
+		if _, ok := r.LookupPlanType(typ); !ok {
 			t.Fatalf("missing default plan handler %q", typ)
 		}
 	}
@@ -152,20 +151,20 @@ func TestNewDefaultPlanRegistry(t *testing.T) {
 		{ID: "ft", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{Backend: "ufw"}},
 	}
 	for _, step := range cases {
-		h, _ := r.LookupType(step.Type)
+		h, _ := r.LookupPlanType(step.Type)
 		_, _ = h.Plan(ctx, step)
 	}
 
-	if validateSSHD, ok := r.LookupValidate("sshd"); ok {
-		if _, err := validateSSHD(pluginapi.PlanContext{Inspector: insp}); err != nil {
+	if validateSSHD, ok := r.LookupPlanValidate("sshd"); ok {
+		if _, err := validateSSHD(planActionContext(insp, nil)); err != nil {
 			t.Fatalf("default sshd validate failed: %v", err)
 		}
 	} else {
 		t.Fatal("missing default sshd validate handler")
 	}
 
-	if validateFW, ok := r.LookupValidate("firewall"); ok {
-		if _, err := validateFW(pluginapi.PlanContext{Inspector: insp}); err != nil {
+	if validateFW, ok := r.LookupPlanValidate("firewall"); ok {
+		if _, err := validateFW(planActionContext(insp, nil)); err != nil {
 			t.Fatalf("default firewall validate failed: %v", err)
 		}
 	} else {

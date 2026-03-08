@@ -15,8 +15,18 @@ func captureStepRecord(client *ssh.Client, p *profile.Profile, s profile.Step) (
 		ID:   s.ID,
 		Type: stepType,
 	}
+	if stepType == "validate" {
+		record.RollbackMode = rollback.ModeNoop
+		record.Objects = []rollback.ObjectRecord{
+			{
+				Kind:    rollback.ObjectValidate,
+				Message: "validate step has no rollback action",
+			},
+		}
+		return record, nil
+	}
 
-	handler, ok := applyRollbackRegistry.LookupType(stepType)
+	handler, ok := pluginRegistry.LookupRollbackType(stepType)
 	if !ok {
 		record.RollbackMode = rollback.ModeNoop
 		record.Objects = []rollback.ObjectRecord{

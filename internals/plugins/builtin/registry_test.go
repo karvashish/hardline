@@ -2,16 +2,13 @@ package builtin
 
 import (
 	"errors"
-	"os"
-	"strings"
-	"testing"
-
-	"github.com/karvashish/hardline/internals/inspector"
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"os"
+	"strings"
+	"testing"
 )
 
 func TestDefaultApplyHandlers(t *testing.T) {
@@ -108,6 +105,16 @@ func TestDefaultApplyHandlers(t *testing.T) {
 		t.Fatalf("firewall validate failed: %v", err)
 	}
 
+	if _, ok := byType["packages"].ValidateKinds["packages"]; !ok {
+		t.Fatal("expected packages validate kind packages")
+	}
+	if _, ok := byType["service"].ValidateKinds["service"]; !ok {
+		t.Fatal("expected service validate kind service")
+	}
+	if _, ok := byType["firewall_template"].ValidateKinds["firewall_template"]; !ok {
+		t.Fatal("expected firewall_template validate kind firewall_template")
+	}
+
 	if runRootCalls == 0 {
 		t.Fatal("expected runRoot to be used")
 	}
@@ -196,6 +203,16 @@ func TestDefaultPlanHandlers(t *testing.T) {
 	if _, err := firewallValidate(ctx); err != nil {
 		t.Fatalf("firewall validate plan failed: %v", err)
 	}
+
+	if _, ok := byType["packages"].ValidateKinds["packages"]; !ok {
+		t.Fatal("expected packages validate kind packages")
+	}
+	if _, ok := byType["service"].ValidateKinds["service"]; !ok {
+		t.Fatal("expected service validate kind service")
+	}
+	if _, ok := byType["firewall_template"].ValidateKinds["firewall_template"]; !ok {
+		t.Fatal("expected firewall_template validate kind firewall_template")
+	}
 }
 
 func TestDefaultRollbackHandlers(t *testing.T) {
@@ -205,29 +222,21 @@ func TestDefaultRollbackHandlers(t *testing.T) {
 		ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
 	})
 
-	if len(handlers) != 6 {
-		t.Fatalf("expected 6 rollback handlers, got %d", len(handlers))
+	if len(handlers) != 5 {
+		t.Fatalf("expected 5 rollback handlers, got %d", len(handlers))
 	}
 
 	byType := map[string]pluginapi.RollbackHandler{}
 	for _, h := range handlers {
 		byType[h.Type] = h
 	}
-	for _, typ := range []string{"validate", "packages", "template", "service", "firewall", "firewall_template"} {
+	for _, typ := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
 		if _, ok := byType[typ]; !ok {
 			t.Fatalf("missing rollback handler for type %q", typ)
 		}
 	}
 
-	record, err := byType["validate"].Capture(pluginapi.RollbackContext{}, profile.Step{ID: "v", Type: "validate"})
-	if err != nil {
-		t.Fatalf("validate rollback capture failed: %v", err)
-	}
-	if record.RollbackMode != rollback.ModeNoop {
-		t.Fatalf("expected validate noop rollback, got %+v", record)
-	}
-
-	_, err = byType["packages"].Capture(pluginapi.RollbackContext{}, profile.Step{ID: "p", Type: "packages"})
+	_, err := byType["packages"].Capture(pluginapi.RollbackContext{}, profile.Step{ID: "p", Type: "packages"})
 	if err == nil || !strings.Contains(err.Error(), "packages spec missing") {
 		t.Fatalf("expected packages missing spec error, got %v", err)
 	}
@@ -250,6 +259,29 @@ func TestDefaultRollbackHandlers(t *testing.T) {
 	_, err = byType["firewall_template"].Capture(pluginapi.RollbackContext{}, profile.Step{ID: "ft", Type: "firewall_template"})
 	if err == nil || !strings.Contains(err.Error(), "firewall_template spec missing") {
 		t.Fatalf("expected firewall_template missing spec error, got %v", err)
+	}
+}
+
+func TestDefaultBundle(t *testing.T) {
+	bundle := DefaultBundle(
+		ApplyDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty:  func(string) {},
+			IsServiceDirty:    func(string) bool { return false },
+			ClearServiceDirty: func(string) {},
+		},
+		RollbackDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
+		},
+	)
+
+	reg := pluginapi.NewRegistry()
+	if err := reg.RegisterBundle(bundle); err != nil {
+		t.Fatalf("register default bundle failed: %v", err)
 	}
 }
 
@@ -291,6 +323,6 @@ func (stubInspector) FirewallHasStatefulBaseline() (bool, error) { return true, 
 
 func (stubInspector) FirewallHasDefaultDropInput() (bool, error) { return true, nil }
 
-func (stubInspector) FirewallAllowedPortsDetailed() ([]inspector.FirewallRuleInfo, error) {
+func (stubInspector) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
 	return nil, nil
 }

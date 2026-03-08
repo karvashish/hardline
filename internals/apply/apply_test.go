@@ -378,13 +378,13 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
-		prevRollbackRegistry := applyRollbackRegistry
+		prevRollbackRegistry := pluginRegistry
 		defer func() {
-			applyRollbackRegistry = prevRollbackRegistry
+			pluginRegistry = prevRollbackRegistry
 		}()
 
-		registry := pluginapi.NewRollbackRegistry()
-		if err := registry.Register(pluginapi.RollbackHandler{
+		registry := pluginapi.NewRegistry()
+		if err := registry.RegisterRollback(pluginapi.RollbackHandler{
 			Type: "failing",
 			Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
 				return rollback.StepRecord{}, errors.New("capture failed")
@@ -392,7 +392,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("register rollback handler failed: %v", err)
 		}
-		applyRollbackRegistry = registry
+		pluginRegistry = registry
 
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
@@ -425,8 +425,7 @@ func stubApplyDeps() func() {
 	prevRunApplyCommand := runApplyCommand
 	prevExit := exitProcess
 	prevRunStep := runStep
-	prevApplyRegistry := applyActionRegistry
-	prevRollbackRegistry := applyRollbackRegistry
+	prevRegistry := pluginRegistry
 
 	return func() {
 		newSSHClient = prevNewSSH
@@ -439,7 +438,6 @@ func stubApplyDeps() func() {
 		runApplyCommand = prevRunApplyCommand
 		exitProcess = prevExit
 		runStep = prevRunStep
-		applyActionRegistry = prevApplyRegistry
-		applyRollbackRegistry = prevRollbackRegistry
+		pluginRegistry = prevRegistry
 	}
 }

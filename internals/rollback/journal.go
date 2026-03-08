@@ -7,19 +7,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 const (
 	journalVersion = 1
 
-	ModeDeterministic = "deterministic"
-	ModeBestEffort    = "best_effort"
-	ModeNoop          = "noop"
+	ModeDeterministic = pluginapi.ModeDeterministic
+	ModeBestEffort    = pluginapi.ModeBestEffort
+	ModeNoop          = pluginapi.ModeNoop
 
-	ObjectFile     = "file"
-	ObjectService  = "service"
-	ObjectPackage  = "package"
-	ObjectValidate = "validate"
+	ObjectFile     = pluginapi.ObjectFile
+	ObjectService  = pluginapi.ObjectService
+	ObjectPackage  = pluginapi.ObjectPackage
+	ObjectValidate = pluginapi.ObjectValidate
 )
 
 type Journal struct {
@@ -33,43 +35,11 @@ type Journal struct {
 	Steps       []StepRecord `json:"steps"`
 }
 
-type StepRecord struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"`
-	RollbackMode string         `json:"rollback_mode"`
-	Objects      []ObjectRecord `json:"objects"`
-	Notes        []string       `json:"notes,omitempty"`
-}
-
-type ObjectRecord struct {
-	Kind    string        `json:"kind"`
-	File    *FileSnapshot `json:"file,omitempty"`
-	Service *ServiceState `json:"service,omitempty"`
-	Package *PackageState `json:"package,omitempty"`
-	Message string        `json:"message,omitempty"`
-}
-
-type FileSnapshot struct {
-	Path       string `json:"path"`
-	Existed    bool   `json:"existed"`
-	Mode       string `json:"mode,omitempty"`
-	ContentB64 string `json:"content_b64,omitempty"`
-}
-
-type ServiceState struct {
-	Unit    string `json:"unit"`
-	Enabled bool   `json:"enabled"`
-	Active  bool   `json:"active"`
-	Known   bool   `json:"known"`
-}
-
-type PackageState struct {
-	Name             string `json:"name"`
-	WasInstalled     bool   `json:"was_installed"`
-	Version          string `json:"version,omitempty"`
-	RequestedInstall bool   `json:"requested_install,omitempty"`
-	RequestedPurge   bool   `json:"requested_purge,omitempty"`
-}
+type StepRecord = pluginapi.StepRecord
+type ObjectRecord = pluginapi.ObjectRecord
+type FileSnapshot = pluginapi.FileSnapshot
+type ServiceState = pluginapi.ServiceState
+type PackageState = pluginapi.PackageState
 
 var (
 	nowUTC          = time.Now

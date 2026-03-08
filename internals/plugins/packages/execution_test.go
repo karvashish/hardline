@@ -2,15 +2,13 @@ package packages
 
 import (
 	"errors"
-	"os"
-	"strings"
-	"testing"
-
-	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
+	"os"
+	"strings"
+	"testing"
 )
 
 func TestApply(t *testing.T) {
@@ -266,6 +264,6 @@ func (s packagesInspectorStub) FirewallHasStatefulBaseline() (bool, error) { ret
 
 func (s packagesInspectorStub) FirewallHasDefaultDropInput() (bool, error) { return false, nil }
 
-func (s packagesInspectorStub) FirewallAllowedPortsDetailed() ([]inspector.FirewallRuleInfo, error) {
+func (s packagesInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
 	return nil, nil
 }

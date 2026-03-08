@@ -33,13 +33,23 @@ func PlanHandler(planFn func(pluginapi.PlanContext, *profile.PackageSpec) (plugi
 }
 
 func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
-	return ApplyHandler(func(ctx pluginapi.ApplyContext, spec *profile.PackageSpec) error {
+	h := ApplyHandler(func(ctx pluginapi.ApplyContext, spec *profile.PackageSpec) error {
 		return Apply(ctx, spec, deps)
 	})
+	h.ValidateKinds = map[string]func(pluginapi.ApplyContext) error{
+		"packages": func(pluginapi.ApplyContext) error { return nil },
+	}
+	return h
 }
 
 func DefaultPlanHandler() pluginapi.PlanHandler {
-	return PlanHandler(Plan)
+	h := PlanHandler(Plan)
+	h.ValidateKinds = map[string]func(pluginapi.PlanContext) (pluginapi.PlanResult, error){
+		"packages": func(pluginapi.PlanContext) (pluginapi.PlanResult, error) {
+			return pluginapi.PlanResult{Summary: "package validation: no additional checks"}, nil
+		},
+	}
+	return h
 }
 
 func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {

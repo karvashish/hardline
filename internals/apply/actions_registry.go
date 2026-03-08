@@ -10,47 +10,48 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-var applyActionRegistry = newDefaultApplyRegistry()
-var applyRollbackRegistry = newDefaultRollbackRegistry()
+var pluginRegistry = newDefaultPluginRegistry()
+
+func PluginRegistry() *pluginapi.Registry {
+	return pluginRegistry
+}
 
 func RegisterApplyAction(h pluginapi.ApplyHandler) error {
-	return applyActionRegistry.Register(h)
+	return pluginRegistry.RegisterApply(h)
+}
+
+func RegisterPlanAction(h pluginapi.PlanHandler) error {
+	return pluginRegistry.RegisterPlan(h)
 }
 
 func RegisterRollbackAction(h pluginapi.RollbackHandler) error {
-	return applyRollbackRegistry.Register(h)
+	return pluginRegistry.RegisterRollback(h)
 }
 
-func newDefaultApplyRegistry() *pluginapi.ApplyRegistry {
-	r := pluginapi.NewApplyRegistry()
-
-	for _, h := range builtin.DefaultApplyHandlers(builtin.ApplyDeps{
-		RunRoot:           runRootCmd,
-		NewSFTPClient:     newSFTPClient,
-		WriteRootFile:     writeRootFile,
-		MarkServiceDirty:  markServiceDirty,
-		IsServiceDirty:    isServiceDirty,
-		ClearServiceDirty: clearServiceDirty,
-	}) {
-		if err := r.Register(h); err != nil {
-			panic(fmt.Sprintf("register default apply action %q: %v", h.Type, err))
-		}
-	}
-
-	return r
+func RegisterPluginBundle(bundle pluginapi.PluginBundle) error {
+	return pluginRegistry.RegisterBundle(bundle)
 }
 
-func newDefaultRollbackRegistry() *pluginapi.RollbackRegistry {
-	r := pluginapi.NewRollbackRegistry()
+func newDefaultPluginRegistry() *pluginapi.Registry {
+	r := pluginapi.NewRegistry()
 
-	for _, h := range builtin.DefaultRollbackHandlers(builtin.RollbackDeps{
-		RunRoot:           runRootCmd,
-		RunRootWithOutput: runRootCmdWithOutput,
-		ReadRootFile:      readRootFile,
-	}) {
-		if err := r.Register(h); err != nil {
-			panic(fmt.Sprintf("register default rollback action %q: %v", h.Type, err))
-		}
+	bundle := builtin.DefaultBundle(
+		builtin.ApplyDeps{
+			RunRoot:           runRootCmd,
+			NewSFTPClient:     newSFTPClient,
+			WriteRootFile:     writeRootFile,
+			MarkServiceDirty:  markServiceDirty,
+			IsServiceDirty:    isServiceDirty,
+			ClearServiceDirty: clearServiceDirty,
+		},
+		builtin.RollbackDeps{
+			RunRoot:           runRootCmd,
+			RunRootWithOutput: runRootCmdWithOutput,
+			ReadRootFile:      readRootFile,
+		},
+	)
+	if err := r.RegisterBundle(bundle); err != nil {
+		panic(fmt.Sprintf("register default plugin bundle %q: %v", bundle.Name, err))
 	}
 
 	return r
@@ -71,7 +72,7 @@ func applyRollbackContext(client *ssh.Client, p *profile.Profile) pluginapi.Roll
 }
 
 func applyValidateByKind(client *ssh.Client, p *profile.Profile, kind string) error {
-	validateFn, ok := applyActionRegistry.LookupValidate(kind)
+	validateFn, ok := pluginRegistry.LookupApplyValidate(kind)
 	if !ok {
 		return fmt.Errorf("unsupported validate kind %q", strings.TrimSpace(kind))
 	}

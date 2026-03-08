@@ -35,12 +35,12 @@ func TestServiceDirtyHelpers(t *testing.T) {
 }
 
 func TestHandleStepAndValidateDispatch(t *testing.T) {
-	prev := applyActionRegistry
+	prev := pluginRegistry
 	defer func() {
-		applyActionRegistry = prev
+		pluginRegistry = prev
 	}()
 
-	applyActionRegistry = pluginapi.NewApplyRegistry()
+	pluginRegistry = pluginapi.NewRegistry()
 
 	calledApply := false
 	calledValidate := false
@@ -113,12 +113,12 @@ func TestRegistryContextHelpers(t *testing.T) {
 }
 
 func TestRegisterRollbackAction(t *testing.T) {
-	prev := applyRollbackRegistry
+	prev := pluginRegistry
 	defer func() {
-		applyRollbackRegistry = prev
+		pluginRegistry = prev
 	}()
 
-	applyRollbackRegistry = pluginapi.NewRollbackRegistry()
+	pluginRegistry = pluginapi.NewRegistry()
 	called := false
 	err := RegisterRollbackAction(pluginapi.RollbackHandler{
 		Type: "rb",
@@ -131,7 +131,7 @@ func TestRegisterRollbackAction(t *testing.T) {
 		t.Fatalf("register rollback handler failed: %v", err)
 	}
 
-	h, ok := applyRollbackRegistry.LookupType("rb")
+	h, ok := pluginRegistry.LookupRollbackType("rb")
 	if !ok {
 		t.Fatal("expected rollback handler lookup to succeed")
 	}
@@ -176,7 +176,7 @@ func TestNewDefaultRegistries(t *testing.T) {
 	newSFTPClient = func(_ *ssh.Client) (*sftp.Client, error) { return nil, nil }
 	writeRootFile = func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, _ os.FileMode) error { return nil }
 
-	ar := newDefaultApplyRegistry()
+	reg := newDefaultPluginRegistry()
 
 	applyCases := []profile.Step{
 		{ID: "p", Type: "packages", Packages: &profile.PackageSpec{Update: true}},
@@ -187,32 +187,27 @@ func TestNewDefaultRegistries(t *testing.T) {
 	}
 
 	for _, step := range applyCases {
-		h, ok := ar.LookupType(step.Type)
+		h, ok := reg.LookupApplyType(step.Type)
 		if !ok {
 			t.Fatalf("missing apply handler for %q", step.Type)
 		}
 		_ = h.Apply(pluginapi.ApplyContext{}, step)
 	}
 
-	if fn, ok := ar.LookupValidate("sshd"); ok {
+	if fn, ok := reg.LookupApplyValidate("sshd"); ok {
 		_ = fn(pluginapi.ApplyContext{})
 	}
-	if fn, ok := ar.LookupValidate("firewall"); ok {
+	if fn, ok := reg.LookupApplyValidate("firewall"); ok {
 		_ = fn(pluginapi.ApplyContext{})
 	}
-
-	rr := newDefaultRollbackRegistry()
-
-	validate, ok := rr.LookupType("validate")
-	if !ok {
-		t.Fatal("missing validate rollback handler")
-	}
-	rec, err := validate.Capture(pluginapi.RollbackContext{}, profile.Step{ID: "v", Type: "validate"})
-	if err != nil {
-		t.Fatalf("validate rollback capture failed: %v", err)
-	}
-	if rec.RollbackMode != rollback.ModeNoop {
-		t.Fatalf("unexpected validate rollback mode: %q", rec.RollbackMode)
+	for _, kind := range []string{"packages", "service", "firewall_template"} {
+		fn, ok := reg.LookupApplyValidate(kind)
+		if !ok {
+			t.Fatalf("missing apply validate handler for %q", kind)
+		}
+		if err := fn(pluginapi.ApplyContext{}); err != nil {
+			t.Fatalf("apply validate failed for %q: %v", kind, err)
+		}
 	}
 
 	rollbackCases := []profile.Step{
@@ -224,7 +219,7 @@ func TestNewDefaultRegistries(t *testing.T) {
 	}
 
 	for _, step := range rollbackCases {
-		h, ok := rr.LookupType(step.Type)
+		h, ok := reg.LookupRollbackType(step.Type)
 		if !ok {
 			t.Fatalf("missing rollback handler for %q", step.Type)
 		}
@@ -245,6 +240,5 @@ func TestNewDefaultRegistries_RegisterPanics(t *testing.T) {
 	}()
 	runRootCmd = func(_ *ssh.Client, _ string) error { return errors.New("x") }
 
-	_ = newDefaultApplyRegistry()
-	_ = newDefaultRollbackRegistry()
+	_ = newDefaultPluginRegistry()
 }

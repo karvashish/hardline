@@ -3,16 +3,14 @@ package firewall
 import (
 	"encoding/json"
 	"errors"
-	"os"
-	"strings"
-	"testing"
-	"time"
-
-	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"os"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestNormalizeDesiredSpec(t *testing.T) {
@@ -638,6 +636,6 @@ func (s firewallInspectorStub) FirewallOtherManagers() ([]string, error)        
 func (s firewallInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
 func (s firewallInspectorStub) FirewallHasStatefulBaseline() (bool, error)           { return false, nil }
 func (s firewallInspectorStub) FirewallHasDefaultDropInput() (bool, error)           { return false, nil }
-func (s firewallInspectorStub) FirewallAllowedPortsDetailed() ([]inspector.FirewallRuleInfo, error) {
+func (s firewallInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
 	return nil, nil
 }

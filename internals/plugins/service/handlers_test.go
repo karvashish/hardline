@@ -39,3 +39,27 @@ func TestPlanHandler(t *testing.T) {
 		t.Fatalf("unexpected plan summary: %q", res.Summary)
 	}
 }
+
+func TestDefaultHandlers_ValidateKinds(t *testing.T) {
+	applyHandler := DefaultApplyHandler(ApplyDeps{})
+	applyValidate, ok := applyHandler.ValidateKinds["service"]
+	if !ok {
+		t.Fatal("expected apply validate kind service")
+	}
+	if err := applyValidate(pluginapi.ApplyContext{}); err != nil {
+		t.Fatalf("unexpected apply validate error: %v", err)
+	}
+
+	planHandler := DefaultPlanHandler()
+	planValidate, ok := planHandler.ValidateKinds["service"]
+	if !ok {
+		t.Fatal("expected plan validate kind service")
+	}
+	result, err := planValidate(pluginapi.PlanContext{})
+	if err != nil {
+		t.Fatalf("unexpected plan validate error: %v", err)
+	}
+	if !strings.Contains(result.Summary, "no additional checks") {
+		t.Fatalf("unexpected plan validate summary: %q", result.Summary)
+	}
+}

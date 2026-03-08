@@ -2,17 +2,15 @@ package template
 
 import (
 	"errors"
+	"github.com/karvashish/hardline/pkg/pluginapi"
+	"github.com/karvashish/hardline/pkg/profile"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/karvashish/hardline/internals/inspector"
-	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestApply(t *testing.T) {
@@ -345,6 +343,6 @@ func (s templateInspectorStub) FirewallOtherManagers() ([]string, error)        
 func (s templateInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
 func (s templateInspectorStub) FirewallHasStatefulBaseline() (bool, error)           { return false, nil }
 func (s templateInspectorStub) FirewallHasDefaultDropInput() (bool, error)           { return false, nil }
-func (s templateInspectorStub) FirewallAllowedPortsDetailed() ([]inspector.FirewallRuleInfo, error) {
+func (s templateInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
 	return nil, nil
 }

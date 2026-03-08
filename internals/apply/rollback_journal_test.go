@@ -37,14 +37,14 @@ func TestCaptureStepRecord_UnknownNoop(t *testing.T) {
 }
 
 func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
-	prev := applyRollbackRegistry
+	prev := pluginRegistry
 	defer func() {
-		applyRollbackRegistry = prev
+		pluginRegistry = prev
 	}()
 
-	registry := pluginapi.NewRollbackRegistry()
+	registry := pluginapi.NewRegistry()
 	called := false
-	err := registry.Register(pluginapi.RollbackHandler{
+	err := registry.RegisterRollback(pluginapi.RollbackHandler{
 		Type: "fake",
 		Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
 			called = true
@@ -58,7 +58,7 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register rollback handler failed: %v", err)
 	}
-	applyRollbackRegistry = registry
+	pluginRegistry = registry
 
 	record, err := captureStepRecord(nil, nil, profile.Step{ID: "f1", Type: "fake"})
 	if err != nil {
@@ -73,13 +73,13 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 }
 
 func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
-	prev := applyRollbackRegistry
+	prev := pluginRegistry
 	defer func() {
-		applyRollbackRegistry = prev
+		pluginRegistry = prev
 	}()
 
-	registry := pluginapi.NewRollbackRegistry()
-	err := registry.Register(pluginapi.RollbackHandler{
+	registry := pluginapi.NewRegistry()
+	err := registry.RegisterRollback(pluginapi.RollbackHandler{
 		Type: "fake",
 		Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
 			return rollback.StepRecord{}, errors.New("capture boom")
@@ -88,7 +88,7 @@ func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register rollback handler failed: %v", err)
 	}
-	applyRollbackRegistry = registry
+	pluginRegistry = registry
 
 	_, gotErr := captureStepRecord(nil, nil, profile.Step{ID: "f1", Type: "fake"})
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "capture boom") {

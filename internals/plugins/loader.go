@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/karvashish/hardline/internals/apply"
-	"github.com/karvashish/hardline/internals/plan"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -30,9 +29,7 @@ var (
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return plugin.Open(path)
 	}
-	registerApplyAction    = apply.RegisterApplyAction
-	registerPlanAction     = plan.RegisterPlanAction
-	registerRollbackAction = apply.RegisterRollbackAction
+	registerPluginBundleAction = apply.RegisterPluginBundle
 )
 
 func LoadFromBinaryDir() error {
@@ -99,29 +96,16 @@ func loadPluginFile(path string) error {
 
 func resolvePluginBundle(sym plugin.Symbol, path string) (pluginapi.PluginBundle, error) {
 	switch v := sym.(type) {
-	case pluginapi.PluginBundle:
-		return v, nil
 	case *pluginapi.PluginBundle:
 		if v == nil {
 			return pluginapi.PluginBundle{}, fmt.Errorf("plugin %q symbol %q is nil", path, pluginSymbolV1)
 		}
 		return *v, nil
-	case func() pluginapi.PluginBundle:
-		return v(), nil
-	case *func() pluginapi.PluginBundle:
-		if v == nil {
-			return pluginapi.PluginBundle{}, fmt.Errorf("plugin %q symbol %q is nil", path, pluginSymbolV1)
-		}
-		return (*v)(), nil
-	case func() (pluginapi.PluginBundle, error):
-		return v()
-	case *func() (pluginapi.PluginBundle, error):
-		if v == nil {
-			return pluginapi.PluginBundle{}, fmt.Errorf("plugin %q symbol %q is nil", path, pluginSymbolV1)
-		}
-		return (*v)()
 	default:
-		return pluginapi.PluginBundle{}, fmt.Errorf("plugin %q symbol %q has unsupported type %T", path, pluginSymbolV1, sym)
+		return pluginapi.PluginBundle{}, fmt.Errorf(
+			"plugin %q symbol %q has unsupported type %T (expected *pluginapi.PluginBundle)",
+			path, pluginSymbolV1, sym,
+		)
 	}
 }
 
@@ -130,20 +114,8 @@ func registerPluginBundle(bundle pluginapi.PluginBundle, path string) error {
 	if name == "" {
 		name = filepath.Base(path)
 	}
-	for _, h := range bundle.ApplyHandlers {
-		if err := registerApplyAction(h); err != nil {
-			return fmt.Errorf("register plugin %q (%s) apply action %q: %w", path, name, h.Type, err)
-		}
-	}
-	for _, h := range bundle.PlanHandlers {
-		if err := registerPlanAction(h); err != nil {
-			return fmt.Errorf("register plugin %q (%s) plan action %q: %w", path, name, h.Type, err)
-		}
-	}
-	for _, h := range bundle.RollbackHandlers {
-		if err := registerRollbackAction(h); err != nil {
-			return fmt.Errorf("register plugin %q (%s) rollback action %q: %w", path, name, h.Type, err)
-		}
+	if err := registerPluginBundleAction(bundle); err != nil {
+		return fmt.Errorf("register plugin %q (%s): %w", path, name, err)
 	}
 	return nil
 }

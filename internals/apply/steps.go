@@ -56,7 +56,7 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 		return handleValidate(client, p, s.Validate)
 	}
 
-	handler, ok := applyActionRegistry.LookupType(stepType)
+	handler, ok := pluginRegistry.LookupApplyType(stepType)
 	if !ok {
 		logger.Warnf("warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
 		return nil

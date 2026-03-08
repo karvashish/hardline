@@ -45,13 +45,13 @@ func TestPlanProfile(t *testing.T) {
 	})
 
 	t.Run("step error bubbles up", func(t *testing.T) {
-		prevRegistry := planActionRegistry
+		prevRegistry := planPluginRegistry
 		defer func() {
-			planActionRegistry = prevRegistry
+			planPluginRegistry = prevRegistry
 		}()
 
-		registry := pluginapi.NewPlanRegistry()
-		if err := registry.Register(pluginapi.PlanHandler{
+		registry := pluginapi.NewRegistry()
+		if err := registry.RegisterPlan(pluginapi.PlanHandler{
 			Type: "boom",
 			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, errors.New("plan boom")
@@ -59,7 +59,7 @@ func TestPlanProfile(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("register plan handler: %v", err)
 		}
-		planActionRegistry = registry
+		planPluginRegistry = registry
 
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{

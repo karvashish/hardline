@@ -101,8 +101,9 @@ func TestLoadFromDir(t *testing.T) {
 		var opened []string
 		openSharedObject = func(path string) (pluginLookup, error) {
 			opened = append(opened, filepath.Base(path))
+			bundle := pluginapi.PluginBundle{Name: filepath.Base(path)}
 			return fakePlugin{symbols: map[string]any{
-				pluginSymbolV1: pluginapi.PluginBundle{Name: filepath.Base(path)},
+				pluginSymbolV1: &bundle,
 			}}, nil
 		}
 
@@ -157,14 +158,10 @@ func TestResolvePluginBundle(t *testing.T) {
 		symbol  any
 		wantErr string
 	}{
-		{name: "value", symbol: base},
 		{name: "pointer", symbol: &base},
-		{name: "func value", symbol: func() pluginapi.PluginBundle { return base }},
-		{name: "func pointer", symbol: ptrFuncBundle(func() pluginapi.PluginBundle { return base })},
-		{name: "func value with error", symbol: func() (pluginapi.PluginBundle, error) { return base, nil }},
-		{name: "func pointer with error", symbol: ptrFuncBundleErr(func() (pluginapi.PluginBundle, error) { return base, nil })},
 		{name: "nil pointer", symbol: (*pluginapi.PluginBundle)(nil), wantErr: "is nil"},
-		{name: "func returns error", symbol: func() (pluginapi.PluginBundle, error) { return pluginapi.PluginBundle{}, errors.New("boom") }, wantErr: "boom"},
+		{name: "value unsupported", symbol: base, wantErr: "unsupported type"},
+		{name: "func unsupported", symbol: func() pluginapi.PluginBundle { return base }, wantErr: "unsupported type"},
 		{name: "unsupported", symbol: 123, wantErr: "unsupported type"},
 	}
 
@@ -188,31 +185,17 @@ func TestResolvePluginBundle(t *testing.T) {
 }
 
 func TestRegisterPluginBundle(t *testing.T) {
-	t.Run("apply registration error", func(t *testing.T) {
+	t.Run("bundle registration error", func(t *testing.T) {
 		restore := stubLoaderDeps()
 		defer restore()
 
-		registerApplyAction = func(pluginapi.ApplyHandler) error { return errors.New("apply fail") }
+		registerPluginBundleAction = func(pluginapi.PluginBundle) error { return errors.New("register fail") }
 		err := registerPluginBundle(pluginapi.PluginBundle{
 			Name:          "p",
 			ApplyHandlers: []pluginapi.ApplyHandler{{Type: "x"}},
 		}, "/tmp/p.so")
-		if err == nil || !strings.Contains(err.Error(), "apply action") {
-			t.Fatalf("expected apply registration error, got %v", err)
-		}
-	})
-
-	t.Run("plan registration error", func(t *testing.T) {
-		restore := stubLoaderDeps()
-		defer restore()
-
-		registerPlanAction = func(pluginapi.PlanHandler) error { return errors.New("plan fail") }
-		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name:         "p",
-			PlanHandlers: []pluginapi.PlanHandler{{Type: "y"}},
-		}, "/tmp/p.so")
-		if err == nil || !strings.Contains(err.Error(), "plan action") {
-			t.Fatalf("expected plan registration error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "register fail") {
+			t.Fatalf("expected bundle registration error, got %v", err)
 		}
 	})
 
@@ -220,17 +203,9 @@ func TestRegisterPluginBundle(t *testing.T) {
 		restore := stubLoaderDeps()
 		defer restore()
 
-		var applyCount, planCount, rollbackCount int
-		registerApplyAction = func(pluginapi.ApplyHandler) error {
-			applyCount++
-			return nil
-		}
-		registerPlanAction = func(pluginapi.PlanHandler) error {
-			planCount++
-			return nil
-		}
-		registerRollbackAction = func(pluginapi.RollbackHandler) error {
-			rollbackCount++
+		var got pluginapi.PluginBundle
+		registerPluginBundleAction = func(bundle pluginapi.PluginBundle) error {
+			got = bundle
 			return nil
 		}
 
@@ -243,22 +218,8 @@ func TestRegisterPluginBundle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("registerPluginBundle failed: %v", err)
 		}
-		if applyCount != 2 || planCount != 1 || rollbackCount != 1 {
-			t.Fatalf("unexpected registration counts: apply=%d plan=%d rollback=%d", applyCount, planCount, rollbackCount)
-		}
-	})
-
-	t.Run("rollback registration error", func(t *testing.T) {
-		restore := stubLoaderDeps()
-		defer restore()
-
-		registerRollbackAction = func(pluginapi.RollbackHandler) error { return errors.New("rollback fail") }
-		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name:             "p",
-			RollbackHandlers: []pluginapi.RollbackHandler{{Type: "z"}},
-		}, "/tmp/p.so")
-		if err == nil || !strings.Contains(err.Error(), "rollback action") {
-			t.Fatalf("expected rollback registration error, got %v", err)
+		if len(got.ApplyHandlers) != 2 || len(got.PlanHandlers) != 1 || len(got.RollbackHandlers) != 1 {
+			t.Fatalf("unexpected bundle passed to registrar: %+v", got)
 		}
 	})
 }
@@ -267,18 +228,15 @@ func stubLoaderDeps() func() {
 	prevExec := executablePath
 	prevReadDir := readDirEntries
 	prevOpen := openSharedObject
-	prevRegApply := registerApplyAction
-	prevRegPlan := registerPlanAction
-	prevRegRollback := registerRollbackAction
+	prevRegisterBundle := registerPluginBundleAction
 
 	executablePath = os.Executable
 	readDirEntries = os.ReadDir
-	registerApplyAction = func(pluginapi.ApplyHandler) error { return nil }
-	registerPlanAction = func(pluginapi.PlanHandler) error { return nil }
-	registerRollbackAction = func(pluginapi.RollbackHandler) error { return nil }
+	registerPluginBundleAction = func(pluginapi.PluginBundle) error { return nil }
 	openSharedObject = func(path string) (pluginLookup, error) {
+		bundle := pluginapi.PluginBundle{Name: filepath.Base(path)}
 		return fakePlugin{symbols: map[string]any{
-			pluginSymbolV1: pluginapi.PluginBundle{Name: filepath.Base(path)},
+			pluginSymbolV1: &bundle,
 		}}, nil
 	}
 
@@ -286,9 +244,7 @@ func stubLoaderDeps() func() {
 		executablePath = prevExec
 		readDirEntries = prevReadDir
 		openSharedObject = prevOpen
-		registerApplyAction = prevRegApply
-		registerPlanAction = prevRegPlan
-		registerRollbackAction = prevRegRollback
+		registerPluginBundleAction = prevRegisterBundle
 	}
 }
 
@@ -297,12 +253,4 @@ func mustWrite(t *testing.T, path string) {
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write %q: %v", path, err)
 	}
-}
-
-func ptrFuncBundle(fn func() pluginapi.PluginBundle) *func() pluginapi.PluginBundle {
-	return &fn
-}
-
-func ptrFuncBundleErr(fn func() (pluginapi.PluginBundle, error)) *func() (pluginapi.PluginBundle, error) {
-	return &fn
 }

@@ -2,16 +2,13 @@ package builtin
 
 import (
 	"os"
-	"strings"
 
 	"github.com/karvashish/hardline/internals/plugins/firewall"
 	"github.com/karvashish/hardline/internals/plugins/firewalltemplate"
 	"github.com/karvashish/hardline/internals/plugins/packages"
 	"github.com/karvashish/hardline/internals/plugins/service"
 	"github.com/karvashish/hardline/internals/plugins/template"
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -74,22 +71,6 @@ func DefaultPlanHandlers() []pluginapi.PlanHandler {
 
 func DefaultRollbackHandlers(deps RollbackDeps) []pluginapi.RollbackHandler {
 	return []pluginapi.RollbackHandler{
-		{
-			Type: "validate",
-			Capture: func(_ pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
-				return rollback.StepRecord{
-					ID:           s.ID,
-					Type:         strings.ToLower(strings.TrimSpace(s.Type)),
-					RollbackMode: rollback.ModeNoop,
-					Objects: []rollback.ObjectRecord{
-						{
-							Kind:    rollback.ObjectValidate,
-							Message: "validate step has no rollback action",
-						},
-					},
-				}, nil
-			},
-		},
 		packages.DefaultRollbackHandler(packages.RollbackDeps{
 			RunRootWithOutput: deps.RunRootWithOutput,
 		}),
@@ -111,5 +92,14 @@ func DefaultRollbackHandlers(deps RollbackDeps) []pluginapi.RollbackHandler {
 			RunRootWithOutput: deps.RunRootWithOutput,
 			ReadRootFile:      deps.ReadRootFile,
 		}),
+	}
+}
+
+func DefaultBundle(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.PluginBundle {
+	return pluginapi.PluginBundle{
+		Name:             "builtin",
+		ApplyHandlers:    DefaultApplyHandlers(applyDeps),
+		PlanHandlers:     DefaultPlanHandlers(),
+		RollbackHandlers: DefaultRollbackHandlers(rollbackDeps),
 	}
 }

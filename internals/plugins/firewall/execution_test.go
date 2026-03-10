@@ -411,7 +411,6 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		var gotDest string
 		var gotData string
 		var gotMode os.FileMode
-		marked := ""
 		want, err := NormalizeDesiredSpec(validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("NormalizeDesiredSpec failed: %v", err)
@@ -424,7 +423,6 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				gotDest, gotData, gotMode = dest, string(data), mode
 				return nil
 			},
-			MarkServiceDirty: func(unit string) { marked = unit },
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -432,35 +430,32 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if gotDest != validDeterministicFirewallSpec().ManagedDest || gotData != wantRender || gotMode != 0o644 {
 			t.Fatalf("unexpected write payload: dest=%q mode=%#o", gotDest, gotMode)
 		}
-		if marked != "nftables" {
-			t.Fatalf("expected nftables dirty marker, got %q", marked)
-		}
 	})
 
 	t.Run("plan validate capture", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "ufw"})
+		res, err := Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "ufw"})
 		if err != nil || !strings.Contains(res.Summary, "unsupported backend") {
 			t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 		}
 
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables"})
+		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "family is required") {
 			t.Fatalf("expected family required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables", Family: "inet"})
+		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet"})
 		if err == nil || !strings.Contains(err.Error(), "table is required") {
 			t.Fatalf("expected table required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter"})
+		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter"})
 		if err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
 			t.Fatalf("expected managed_dest required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err == nil || !strings.Contains(err.Error(), "policies are required") {
 			t.Fatalf("expected policies required error, got %v", err)
 		}
 
-		res, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 12}, include: true}}, validDeterministicFirewallSpec())
+		res, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 12}, include: true}}, validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -490,7 +485,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected config check error, got %v", err)
 		}
 
-		vres, err := ValidatePlan(pluginapi.PlanContext{Inspector: firewallInspectorStub{include: false, configErr: errors.New("bad")}})
+		vres, err := ValidatePlan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{include: false, configErr: errors.New("bad")}})
 		if err != nil {
 			t.Fatalf("ValidatePlan failed: %v", err)
 		}
@@ -498,7 +493,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if !strings.Contains(joined, "missing") || !strings.Contains(joined, "reports errors") {
 			t.Fatalf("unexpected validate plan details: %s", joined)
 		}
-		vres, err = ValidatePlan(pluginapi.PlanContext{Inspector: firewallInspectorStub{include: true}})
+		vres, err = ValidatePlan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{include: true}})
 		if err != nil {
 			t.Fatalf("ValidatePlan success path failed: %v", err)
 		}
@@ -606,35 +601,32 @@ func (f fakeFileInfo) ModTime() time.Time { return time.Unix(0, 0) }
 func (f fakeFileInfo) IsDir() bool        { return false }
 func (f fakeFileInfo) Sys() any           { return nil }
 
-type firewallInspectorStub struct {
+type firewallRuntimeStub struct {
 	statInfo  os.FileInfo
 	include   bool
 	configErr error
 }
 
-func (s firewallInspectorStub) PackageInstalled(string) bool                 { return false }
-func (s firewallInspectorStub) AptAutoremovePreview() ([]string, error)      { return nil, nil }
-func (s firewallInspectorStub) AptUpgradePreview() ([]string, error)         { return nil, nil }
-func (s firewallInspectorStub) AptInstallPreview([]string) ([]string, error) { return nil, nil }
-func (s firewallInspectorStub) Stat(string) (os.FileInfo, error) {
+func (s firewallRuntimeStub) RunRoot(cmd string) error {
+	switch cmd {
+	case IncludeCheckCmd:
+		if s.include {
+			return nil
+		}
+		return errors.New("missing")
+	case "nft -c -f /etc/nftables.conf":
+		return s.configErr
+	default:
+		return nil
+	}
+}
+
+func (firewallRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+
+func (s firewallRuntimeStub) Stat(string) (os.FileInfo, error) {
 	if s.statInfo == nil {
 		return nil, errors.New("missing")
 	}
 	return s.statInfo, nil
 }
-func (s firewallInspectorStub) ReadRootFile(string) (string, error)                  { return "", nil }
-func (s firewallInspectorStub) IsServiceEnabled(string) bool                         { return false }
-func (s firewallInspectorStub) IsServiceActive(string) bool                          { return false }
-func (s firewallInspectorStub) SSHIncludePresent() bool                              { return false }
-func (s firewallInspectorStub) SSHConfigTest() error                                 { return nil }
-func (s firewallInspectorStub) FirewallIncludePresent() bool                         { return s.include }
-func (s firewallInspectorStub) FirewallConfigTest() error                            { return s.configErr }
-func (s firewallInspectorStub) FirewallAllowedPorts() (map[string][]int, error)      { return nil, nil }
-func (s firewallInspectorStub) FirewallPolicySummary() ([]string, error)             { return nil, nil }
-func (s firewallInspectorStub) FirewallOtherManagers() ([]string, error)             { return nil, nil }
-func (s firewallInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
-func (s firewallInspectorStub) FirewallHasStatefulBaseline() (bool, error)           { return false, nil }
-func (s firewallInspectorStub) FirewallHasDefaultDropInput() (bool, error)           { return false, nil }
-func (s firewallInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
-	return nil, nil
-}
+func (firewallRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }

@@ -63,12 +63,11 @@ func TestApply(t *testing.T) {
 		}
 	})
 
-	t.Run("success explicit mode and dirty marker", func(t *testing.T) {
+	t.Run("success explicit mode", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		var gotDest string
 		var gotData string
 		var gotMode os.FileMode
-		var marked string
 		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Mode: "0644"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
@@ -76,16 +75,12 @@ func TestApply(t *testing.T) {
 				gotDest, gotData, gotMode = dest, string(data), mode
 				return nil
 			},
-			MarkServiceDirty: func(unit string) { marked = unit },
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
 		if gotDest != "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" || gotData != "hello" || gotMode != 0o644 {
 			t.Fatalf("unexpected write payload: dest=%q data=%q mode=%#o", gotDest, gotData, gotMode)
-		}
-		if marked != "ssh" {
-			t.Fatalf("expected ssh dirty marker, got %q", marked)
 		}
 	})
 
@@ -111,7 +106,7 @@ func TestApply(t *testing.T) {
 
 func TestPlan(t *testing.T) {
 	t.Run("profile required", func(t *testing.T) {
-		_, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{}}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
+		_, err := Plan(pluginapi.PlanContext{Runtime: templateRuntimeStub{}}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -119,7 +114,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("load error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		_, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{}, Profile: p}, &Spec{Src: "templates/missing.tmpl", Dest: "/etc/example.conf"})
+		_, err := Plan(pluginapi.PlanContext{Runtime: templateRuntimeStub{}, Profile: p}, &Spec{Src: "templates/missing.tmpl", Dest: "/etc/example.conf"})
 		if err == nil || !strings.Contains(err.Error(), "load template") {
 			t.Fatalf("expected load error, got %v", err)
 		}
@@ -127,7 +122,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("exists and matches", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello", sshInclude: true, sshTestErr: nil}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf", Mode: "0644"})
+		res, err := Plan(pluginapi.PlanContext{Runtime: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello"}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf", Mode: "0644"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -138,7 +133,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("missing and mismatched", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statErr: errors.New("missing")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/nftables.d/99-hardline-firewall.nft"})
+		res, err := Plan(pluginapi.PlanContext{Runtime: templateRuntimeStub{statErr: errors.New("missing")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -149,7 +144,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("read compare error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statInfo: fakeFileInfo{mode: 0o600, size: 4}, readErr: errors.New("boom")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
+		res, err := Plan(pluginapi.PlanContext{Runtime: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o600, size: 4}, readErr: errors.New("boom")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -159,50 +154,7 @@ func TestPlan(t *testing.T) {
 	})
 }
 
-func TestValidateAndCapture(t *testing.T) {
-	t.Run("validate apply success and errors", func(t *testing.T) {
-		if err := ValidateApply(pluginapi.ApplyContext{}, func(*ssh.Client, string) error { return nil }); err != nil {
-			t.Fatalf("ValidateApply failed: %v", err)
-		}
-		err := ValidateApply(pluginapi.ApplyContext{}, func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "grep -q") {
-				return errors.New("missing")
-			}
-			return nil
-		})
-		if err == nil || !strings.Contains(err.Error(), "missing Include") {
-			t.Fatalf("expected include error, got %v", err)
-		}
-		err = ValidateApply(pluginapi.ApplyContext{}, func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "sshd -t") {
-				return errors.New("bad")
-			}
-			return nil
-		})
-		if err == nil || !strings.Contains(err.Error(), "config test failed") {
-			t.Fatalf("expected config test error, got %v", err)
-		}
-	})
-
-	t.Run("validate plan", func(t *testing.T) {
-		res, err := ValidatePlan(pluginapi.PlanContext{Inspector: templateInspectorStub{sshInclude: true}})
-		if err != nil {
-			t.Fatalf("ValidatePlan failed: %v", err)
-		}
-		if !strings.Contains(res.Summary, "validate sshd") || len(res.Details) == 0 {
-			t.Fatalf("unexpected validate plan result: %+v", res)
-		}
-
-		res, err = ValidatePlan(pluginapi.PlanContext{Inspector: templateInspectorStub{sshInclude: false, sshTestErr: errors.New("bad")}})
-		if err != nil {
-			t.Fatalf("ValidatePlan failed: %v", err)
-		}
-		joined := strings.Join(res.Details, "\n")
-		if !strings.Contains(joined, "missing") || !strings.Contains(joined, "reports errors") {
-			t.Fatalf("unexpected validate plan details: %s", joined)
-		}
-	})
-
+func TestCaptureRollback(t *testing.T) {
 	t.Run("capture rollback", func(t *testing.T) {
 		_, err := CaptureRollback(pluginapi.RollbackContext{}, "t", nil, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "template spec missing") {
@@ -235,23 +187,6 @@ func TestValidateAndCapture(t *testing.T) {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
 	})
-}
-
-func TestServiceForManagedPath(t *testing.T) {
-	cases := map[string]string{
-		"/etc/ssh/sshd_config.d/99-hardline.conf":       "ssh",
-		"/etc/sysctl.d/99-hardline.conf":                "systemd-sysctl",
-		"/etc/fail2ban/jail.d/99-hardline.conf":         "fail2ban",
-		"/etc/audit/rules.d/99-hardline.rules":          "auditd",
-		"/etc/systemd/journald.conf.d/99-hardline.conf": "systemd-journald",
-		"/etc/nftables.d/99-hardline-firewall.nft":      "nftables",
-		"/etc/custom/other.conf":                        "",
-	}
-	for in, want := range cases {
-		if got := serviceForManagedPath(in); got != want {
-			t.Fatalf("unexpected service mapping for %q: got %q want %q", in, got, want)
-		}
-	}
 }
 
 func mustLoadProfileForTemplateTests(t *testing.T, templates map[string]string) *profile.Profile {
@@ -303,20 +238,18 @@ func (f fakeFileInfo) ModTime() time.Time { return time.Unix(0, 0) }
 func (f fakeFileInfo) IsDir() bool        { return false }
 func (f fakeFileInfo) Sys() any           { return nil }
 
-type templateInspectorStub struct {
+type templateRuntimeStub struct {
 	statInfo    os.FileInfo
 	statErr     error
 	readContent string
 	readErr     error
-	sshInclude  bool
-	sshTestErr  error
 }
 
-func (s templateInspectorStub) PackageInstalled(string) bool                 { return false }
-func (s templateInspectorStub) AptAutoremovePreview() ([]string, error)      { return nil, nil }
-func (s templateInspectorStub) AptUpgradePreview() ([]string, error)         { return nil, nil }
-func (s templateInspectorStub) AptInstallPreview([]string) ([]string, error) { return nil, nil }
-func (s templateInspectorStub) Stat(string) (os.FileInfo, error) {
+func (templateRuntimeStub) RunRoot(string) error { return nil }
+
+func (templateRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+
+func (s templateRuntimeStub) Stat(string) (os.FileInfo, error) {
 	if s.statErr != nil {
 		return nil, s.statErr
 	}
@@ -325,24 +258,9 @@ func (s templateInspectorStub) Stat(string) (os.FileInfo, error) {
 	}
 	return nil, errors.New("missing")
 }
-func (s templateInspectorStub) ReadRootFile(string) (string, error) {
+func (s templateRuntimeStub) ReadRootFile(string) (string, error) {
 	if s.readErr != nil {
 		return "", s.readErr
 	}
 	return s.readContent, nil
-}
-func (s templateInspectorStub) IsServiceEnabled(string) bool                         { return false }
-func (s templateInspectorStub) IsServiceActive(string) bool                          { return false }
-func (s templateInspectorStub) SSHIncludePresent() bool                              { return s.sshInclude }
-func (s templateInspectorStub) SSHConfigTest() error                                 { return s.sshTestErr }
-func (s templateInspectorStub) FirewallIncludePresent() bool                         { return false }
-func (s templateInspectorStub) FirewallConfigTest() error                            { return nil }
-func (s templateInspectorStub) FirewallAllowedPorts() (map[string][]int, error)      { return nil, nil }
-func (s templateInspectorStub) FirewallPolicySummary() ([]string, error)             { return nil, nil }
-func (s templateInspectorStub) FirewallOtherManagers() ([]string, error)             { return nil, nil }
-func (s templateInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
-func (s templateInspectorStub) FirewallHasStatefulBaseline() (bool, error)           { return false, nil }
-func (s templateInspectorStub) FirewallHasDefaultDropInput() (bool, error)           { return false, nil }
-func (s templateInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
-	return nil, nil
 }

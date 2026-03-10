@@ -1,12 +1,9 @@
 package plan
 
 import (
-	"errors"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
@@ -41,9 +38,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 	}
 
 	p := &profile.Profile{ID: "p1"}
-	insp := stubInspector{}
-
-	sp, err := planStep(insp, p, profile.Step{ID: "s1", Plugin: "fake", Severity: "high", RiskClass: "r"})
+	sp, err := planStep(nil, p, profile.Step{ID: "s1", Plugin: "fake", Severity: "high", RiskClass: "r"})
 	if err != nil {
 		t.Fatalf("planStep fake failed: %v", err)
 	}
@@ -56,7 +51,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 }
 
 func TestPlanStep_UnknownPlugin(t *testing.T) {
-	sp, err := planStep(stubInspector{}, &profile.Profile{}, profile.Step{ID: "u", Plugin: "unknown"})
+	sp, err := planStep(nil, &profile.Profile{}, profile.Step{ID: "u", Plugin: "unknown"})
 	if err != nil {
 		t.Fatalf("planStep unknown failed: %v", err)
 	}
@@ -85,12 +80,12 @@ func TestPlanStep_ValidationPolicy(t *testing.T) {
 		t.Fatalf("register external plugin failed: %v", err)
 	}
 
-	_, err = planStep(stubInspector{}, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"})
+	_, err = planStep(nil, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"})
 	if err == nil || !strings.Contains(err.Error(), "allow_unvalidated=true") {
 		t.Fatalf("expected validation policy error, got %v", err)
 	}
 
-	sp, err := planStep(stubInspector{}, &profile.Profile{}, profile.Step{
+	sp, err := planStep(nil, &profile.Profile{}, profile.Step{
 		ID:               "x",
 		Plugin:           "external",
 		AllowUnvalidated: true,
@@ -115,28 +110,4 @@ func TestNewDefaultPlanRegistry(t *testing.T) {
 			t.Fatalf("expected builtin plugin %q to validate internally", name)
 		}
 	}
-}
-
-type stubInspector struct{}
-
-func (stubInspector) PackageInstalled(string) bool                         { return false }
-func (stubInspector) AptAutoremovePreview() ([]string, error)              { return nil, nil }
-func (stubInspector) AptUpgradePreview() ([]string, error)                 { return nil, nil }
-func (stubInspector) AptInstallPreview([]string) ([]string, error)         { return nil, nil }
-func (stubInspector) Stat(string) (os.FileInfo, error)                     { return nil, errors.New("not found") }
-func (stubInspector) ReadRootFile(string) (string, error)                  { return "", nil }
-func (stubInspector) IsServiceEnabled(string) bool                         { return false }
-func (stubInspector) IsServiceActive(string) bool                          { return false }
-func (stubInspector) SSHIncludePresent() bool                              { return true }
-func (stubInspector) SSHConfigTest() error                                 { return nil }
-func (stubInspector) FirewallIncludePresent() bool                         { return true }
-func (stubInspector) FirewallConfigTest() error                            { return nil }
-func (stubInspector) FirewallAllowedPorts() (map[string][]int, error)      { return map[string][]int{}, nil }
-func (stubInspector) FirewallPolicySummary() ([]string, error)             { return nil, nil }
-func (stubInspector) FirewallOtherManagers() ([]string, error)             { return nil, nil }
-func (stubInspector) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
-func (stubInspector) FirewallHasStatefulBaseline() (bool, error)           { return true, nil }
-func (stubInspector) FirewallHasDefaultDropInput() (bool, error)           { return true, nil }
-func (stubInspector) FirewallAllowedPortsDetailed() ([]inspector.FirewallRuleInfo, error) {
-	return nil, nil
 }

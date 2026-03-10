@@ -1,8 +1,6 @@
 package apply
 
 import (
-	"strings"
-
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
@@ -17,34 +15,9 @@ var (
 	readRootFile         = remote.ReadRootFile
 	newSFTPClient        = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
 	writeRootFile        = remote.WriteRootFile
-	serviceDirty         = make(map[string]bool)
 )
 
-func resetApplyStepState() {
-	serviceDirty = make(map[string]bool)
-}
-
-func normalizeServiceUnit(unit string) string {
-	return strings.TrimSpace(unit)
-}
-
-func markServiceDirty(unit string) {
-	u := normalizeServiceUnit(unit)
-	if u == "" {
-		return
-	}
-	serviceDirty[u] = true
-}
-
-func clearServiceDirty(unit string) {
-	u := normalizeServiceUnit(unit)
-	delete(serviceDirty, u)
-}
-
-func isServiceDirty(unit string) bool {
-	u := normalizeServiceUnit(unit)
-	return serviceDirty[u]
-}
+func resetApplyStepState() {}
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	pluginName := s.PluginName()

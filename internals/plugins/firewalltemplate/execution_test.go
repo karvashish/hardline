@@ -103,9 +103,9 @@ func TestApply(t *testing.T) {
 		}
 	})
 
-	t.Run("success renders rules and marks dirty", func(t *testing.T) {
+	t.Run("success renders rules", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}"})
-		var gotDest, gotText, marked string
+		var gotDest, gotText string
 		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{
 			Backend: "nftables",
 			Allow: []AllowRule{
@@ -121,16 +121,12 @@ func TestApply(t *testing.T) {
 				}
 				return nil
 			},
-			MarkServiceDirty: func(unit string) { marked = unit },
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
 		if gotDest != DefaultManagedDestination || !strings.Contains(gotText, "tcp dport 22 accept") {
 			t.Fatalf("unexpected render: dest=%q text=%q", gotDest, gotText)
-		}
-		if marked != "nftables" {
-			t.Fatalf("expected nftables dirty marker, got %q", marked)
 		}
 	})
 }
@@ -146,12 +142,12 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("unexpected custom destination: %q", got)
 	}
 
-	res, err := Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &Spec{Backend: "ufw"})
+	res, err := Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{}}, &Spec{Backend: "ufw"})
 	if err != nil || !strings.Contains(res.Summary, "unsupported backend") {
 		t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 	}
 
-	res, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &Spec{Backend: "nftables"})
+	res, err = Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{}}, &Spec{Backend: "nftables"})
 	if err != nil {
 		t.Fatalf("expected defaulted template plan success, got %v", err)
 	}
@@ -159,7 +155,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("expected plan summary to use defaults, got %+v", res)
 	}
 
-	res, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+	res, err = Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -239,35 +235,18 @@ func (f fakeFileInfo) ModTime() time.Time { return time.Unix(0, 0) }
 func (f fakeFileInfo) IsDir() bool        { return false }
 func (f fakeFileInfo) Sys() any           { return nil }
 
-type fwTemplateInspectorStub struct {
+type fwTemplateRuntimeStub struct {
 	statInfo os.FileInfo
 }
 
-func (s fwTemplateInspectorStub) PackageInstalled(string) bool                 { return false }
-func (s fwTemplateInspectorStub) AptAutoremovePreview() ([]string, error)      { return nil, nil }
-func (s fwTemplateInspectorStub) AptUpgradePreview() ([]string, error)         { return nil, nil }
-func (s fwTemplateInspectorStub) AptInstallPreview([]string) ([]string, error) { return nil, nil }
-func (s fwTemplateInspectorStub) Stat(string) (os.FileInfo, error) {
+func (fwTemplateRuntimeStub) RunRoot(string) error { return nil }
+
+func (fwTemplateRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+
+func (s fwTemplateRuntimeStub) Stat(string) (os.FileInfo, error) {
 	if s.statInfo == nil {
 		return nil, errors.New("missing")
 	}
 	return s.statInfo, nil
 }
-func (s fwTemplateInspectorStub) ReadRootFile(string) (string, error)             { return "", nil }
-func (s fwTemplateInspectorStub) IsServiceEnabled(string) bool                    { return false }
-func (s fwTemplateInspectorStub) IsServiceActive(string) bool                     { return false }
-func (s fwTemplateInspectorStub) SSHIncludePresent() bool                         { return false }
-func (s fwTemplateInspectorStub) SSHConfigTest() error                            { return nil }
-func (s fwTemplateInspectorStub) FirewallIncludePresent() bool                    { return false }
-func (s fwTemplateInspectorStub) FirewallConfigTest() error                       { return nil }
-func (s fwTemplateInspectorStub) FirewallAllowedPorts() (map[string][]int, error) { return nil, nil }
-func (s fwTemplateInspectorStub) FirewallPolicySummary() ([]string, error)        { return nil, nil }
-func (s fwTemplateInspectorStub) FirewallOtherManagers() ([]string, error)        { return nil, nil }
-func (s fwTemplateInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) {
-	return nil, nil
-}
-func (s fwTemplateInspectorStub) FirewallHasStatefulBaseline() (bool, error) { return false, nil }
-func (s fwTemplateInspectorStub) FirewallHasDefaultDropInput() (bool, error) { return false, nil }
-func (s fwTemplateInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
-	return nil, nil
-}
+func (fwTemplateRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }

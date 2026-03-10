@@ -13,7 +13,6 @@ func stubStepDeps() func() {
 	prevReadRoot := readRootFile
 	prevNewSFTP := newSFTPClient
 	prevWriteRoot := writeRootFile
-	prevServiceDirty := serviceDirty
 	resetApplyStepState()
 	runRootCmd = func(_ *ssh.Client, _ string) error { return nil }
 	runRootCmdWithOutput = func(_ *ssh.Client, _ string) (string, error) { return "", nil }
@@ -27,6 +26,5 @@ func stubStepDeps() func() {
 		readRootFile = prevReadRoot
 		newSFTPClient = prevNewSFTP
 		writeRootFile = prevWriteRoot
-		serviceDirty = prevServiceDirty
 	}
 }

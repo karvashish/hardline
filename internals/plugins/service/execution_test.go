@@ -18,7 +18,6 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("enable and restart when dirty", func(t *testing.T) {
-		dirty := map[string]bool{"ssh": true}
 		var cmds []string
 		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "sshd", State: "restart", Enabled: boolPtr(true)}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
@@ -31,10 +30,6 @@ func TestApply(t *testing.T) {
 				}
 				return nil
 			},
-			IsServiceDirty: func(unit string) bool { return dirty[unit] },
-			ClearServiceDirty: func(unit string) {
-				delete(dirty, unit)
-			},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -45,9 +40,6 @@ func TestApply(t *testing.T) {
 				t.Fatalf("expected command %q, got %v", want, cmds)
 			}
 		}
-		if dirty["ssh"] {
-			t.Fatal("expected dirty flag cleared")
-		}
 	})
 
 	t.Run("disable and stop", func(t *testing.T) {
@@ -57,8 +49,6 @@ func TestApply(t *testing.T) {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-			IsServiceDirty:    func(string) bool { return false },
-			ClearServiceDirty: func(string) {},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -71,63 +61,35 @@ func TestApply(t *testing.T) {
 		}
 	})
 
-	t.Run("clean restart skips", func(t *testing.T) {
+	t.Run("restart always runs", func(t *testing.T) {
 		var cmds []string
 		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "restart"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-			IsServiceDirty:    func(string) bool { return false },
-			ClearServiceDirty: func(string) {},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if strings.Contains(strings.Join(cmds, "\n"), "systemctl restart cron") {
-			t.Fatalf("restart should have been skipped: %v", cmds)
+		if !strings.Contains(strings.Join(cmds, "\n"), "systemctl restart cron") {
+			t.Fatalf("restart should have run: %v", cmds)
 		}
 	})
 
-	t.Run("clean reload skips", func(t *testing.T) {
+	t.Run("reload always runs", func(t *testing.T) {
 		var cmds []string
 		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "reload"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
-			},
-			IsServiceDirty:    func(string) bool { return false },
-			ClearServiceDirty: func(string) {},
-		})
-		if err != nil {
-			t.Fatalf("Apply failed: %v", err)
-		}
-		if strings.Contains(strings.Join(cmds, "\n"), "systemctl reload-or-restart cron") {
-			t.Fatalf("reload-or-restart should have been skipped: %v", cmds)
-		}
-	})
-
-	t.Run("dirty reload runs and clears", func(t *testing.T) {
-		dirty := map[string]bool{"cron": true}
-		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "reload"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
-				cmds = append(cmds, cmd)
-				return nil
-			},
-			IsServiceDirty: func(unit string) bool { return dirty[unit] },
-			ClearServiceDirty: func(unit string) {
-				delete(dirty, unit)
 			},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
 		if !strings.Contains(strings.Join(cmds, "\n"), "systemctl reload-or-restart cron") {
-			t.Fatalf("expected reload-or-restart command, got %v", cmds)
-		}
-		if dirty["cron"] {
-			t.Fatal("expected dirty flag cleared")
+			t.Fatalf("reload-or-restart should have run: %v", cmds)
 		}
 	})
 
@@ -138,7 +100,6 @@ func TestApply(t *testing.T) {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-			ClearServiceDirty: func(string) {},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -158,7 +119,6 @@ func TestApply(t *testing.T) {
 				}
 				return nil
 			},
-			ClearServiceDirty: func(string) {},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -205,12 +165,12 @@ func TestApply(t *testing.T) {
 }
 
 func TestPlan(t *testing.T) {
-	_, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{}}, &Spec{})
+	_, err := Plan(pluginapi.PlanContext{Runtime: serviceRuntimeStub{}}, &Spec{})
 	if err == nil || !strings.Contains(err.Error(), "service name is required") {
 		t.Fatalf("expected missing name error, got %v", err)
 	}
 
-	res, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
+	res, err := Plan(pluginapi.PlanContext{Runtime: serviceRuntimeStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -234,7 +194,7 @@ func TestPlan(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{}}, &tc.spec)
+			out, err := Plan(pluginapi.PlanContext{Runtime: serviceRuntimeStub{}}, &tc.spec)
 			if err != nil {
 				t.Fatalf("Plan failed: %v", err)
 			}
@@ -309,29 +269,32 @@ func TestUnitAndStateHelpers(t *testing.T) {
 
 func boolPtr(v bool) *bool { return &v }
 
-type serviceInspectorStub struct {
+type serviceRuntimeStub struct {
 	enabled map[string]bool
 	active  map[string]bool
 }
 
-func (s serviceInspectorStub) PackageInstalled(string) bool                         { return false }
-func (s serviceInspectorStub) AptAutoremovePreview() ([]string, error)              { return nil, nil }
-func (s serviceInspectorStub) AptUpgradePreview() ([]string, error)                 { return nil, nil }
-func (s serviceInspectorStub) AptInstallPreview([]string) ([]string, error)         { return nil, nil }
-func (s serviceInspectorStub) Stat(string) (os.FileInfo, error)                     { return nil, errors.New("not found") }
-func (s serviceInspectorStub) ReadRootFile(string) (string, error)                  { return "", nil }
-func (s serviceInspectorStub) IsServiceEnabled(unit string) bool                    { return s.enabled[unit] }
-func (s serviceInspectorStub) IsServiceActive(unit string) bool                     { return s.active[unit] }
-func (s serviceInspectorStub) SSHIncludePresent() bool                              { return false }
-func (s serviceInspectorStub) SSHConfigTest() error                                 { return nil }
-func (s serviceInspectorStub) FirewallIncludePresent() bool                         { return false }
-func (s serviceInspectorStub) FirewallConfigTest() error                            { return nil }
-func (s serviceInspectorStub) FirewallAllowedPorts() (map[string][]int, error)      { return nil, nil }
-func (s serviceInspectorStub) FirewallPolicySummary() ([]string, error)             { return nil, nil }
-func (s serviceInspectorStub) FirewallOtherManagers() ([]string, error)             { return nil, nil }
-func (s serviceInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
-func (s serviceInspectorStub) FirewallHasStatefulBaseline() (bool, error)           { return false, nil }
-func (s serviceInspectorStub) FirewallHasDefaultDropInput() (bool, error)           { return false, nil }
-func (s serviceInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
-	return nil, nil
+func (s serviceRuntimeStub) RunRoot(cmd string) error {
+	switch {
+	case strings.HasPrefix(cmd, "systemctl is-enabled "):
+		unit := strings.TrimSuffix(strings.TrimPrefix(cmd, "systemctl is-enabled "), " >/dev/null 2>&1")
+		if s.enabled[unit] {
+			return nil
+		}
+		return errors.New("disabled")
+	case strings.HasPrefix(cmd, "systemctl is-active "):
+		unit := strings.TrimSuffix(strings.TrimPrefix(cmd, "systemctl is-active "), " >/dev/null 2>&1")
+		if s.active[unit] {
+			return nil
+		}
+		return errors.New("inactive")
+	default:
+		return nil
+	}
 }
+
+func (serviceRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+
+func (serviceRuntimeStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not found") }
+
+func (serviceRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }

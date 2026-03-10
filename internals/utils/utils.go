@@ -7,6 +7,9 @@ import (
 	"github.com/karvashish/hardline/pkg/logger"
 )
 
+var sleepFn = time.Sleep
+var infof = logger.Infof
+
 func Throbber() func() {
 	const total = 100
 	progress := 0
@@ -26,9 +29,9 @@ func Throbber() func() {
 				if progress >= total {
 					progress = 0
 				}
-				logger.Infof(".")
+				infof(".")
 				progress++
-				time.Sleep(expDelay(progress))
+				sleepFn(expDelay(progress))
 			}
 		}
 	}()

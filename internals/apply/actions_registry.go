@@ -28,12 +28,9 @@ func newDefaultPluginRegistry() *pluginapi.Registry {
 
 	bundle := builtin.DefaultBundle(
 		builtin.ApplyDeps{
-			RunRoot:           runRootCmd,
-			NewSFTPClient:     newSFTPClient,
-			WriteRootFile:     writeRootFile,
-			MarkServiceDirty:  markServiceDirty,
-			IsServiceDirty:    isServiceDirty,
-			ClearServiceDirty: clearServiceDirty,
+			RunRoot:       runRootCmd,
+			NewSFTPClient: newSFTPClient,
+			WriteRootFile: writeRootFile,
 		},
 		builtin.RollbackDeps{
 			RunRoot:           runRootCmd,

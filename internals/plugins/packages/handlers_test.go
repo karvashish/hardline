@@ -31,7 +31,7 @@ func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
 		t.Fatalf("apply failed: %v", err)
 	}
 	if _, err := plugin.Plan(pluginapi.PlanContext{
-		Inspector: packagesInspectorStub{},
+		Runtime: packagesRuntimeStub{},
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}

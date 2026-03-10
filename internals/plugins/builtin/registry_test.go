@@ -18,11 +18,8 @@ func TestDefaultPlugins(t *testing.T) {
 				runRootCalls++
 				return nil
 			},
-			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile:     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-			MarkServiceDirty:  func(string) {},
-			IsServiceDirty:    func(string) bool { return false },
-			ClearServiceDirty: func(string) {},
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
 		},
 		RollbackDeps{
 			RunRoot:           func(*ssh.Client, string) error { return nil },

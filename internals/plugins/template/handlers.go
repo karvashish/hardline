@@ -23,7 +23,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 			if err := Apply(ctx, spec, applyDeps); err != nil {
 				return err
 			}
-			return ValidateApply(ctx, applyDeps.RunRoot)
+			return nil
 		},
 		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
 			spec, err := decodeTemplateSpec(step)
@@ -39,11 +39,6 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 				return pluginapi.PlanResult{}, err
 			}
 
-			validateResult, err := ValidatePlan(ctx)
-			if err != nil {
-				return pluginapi.PlanResult{}, err
-			}
-			result.Details = append(result.Details, validateResult.Details...)
 			return result, nil
 		},
 		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {

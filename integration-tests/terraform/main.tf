@@ -1,31 +1,16 @@
 locals {
-  run_id      = random_id.run_id.hex
-  instance_id = lower(substr("${var.instance_name_prefix}-${local.run_id}", 0, 63))
-  network_tag = lower(substr("hardline-itest-${local.run_id}", 0, 63))
-  expires_at  = formatdate("YYYYMMDDhhmm", time_offset.expires.rfc3339)
+  instance_id = lower(substr(var.instance_name_prefix, 0, 63))
+  network_tag = lower(substr("${var.instance_name_prefix}-ssh", 0, 63))
 
   labels = merge(
     {
       owner      = "hardline-itest"
       managed_by = "terraform"
-      run_id     = local.run_id
-      expires_at = local.expires_at
     },
     var.additional_labels,
   )
 
   ssh_pub_key = trimspace(file(var.ssh_public_key_path))
-}
-
-resource "random_id" "run_id" {
-  byte_length = 4
-}
-
-resource "time_static" "created_at" {}
-
-resource "time_offset" "expires" {
-  base_rfc3339 = time_static.created_at.rfc3339
-  offset_hours = var.max_lifetime_hours
 }
 
 data "google_compute_image" "ubuntu_2404" {

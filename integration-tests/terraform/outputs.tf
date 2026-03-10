@@ -23,19 +23,9 @@ output "ssh_user" {
   value       = var.ssh_user
 }
 
-output "expires_at" {
-  description = "Label value used for janitor cleanup."
-  value       = local.expires_at
-}
-
 output "labels" {
   description = "Applied labels."
   value       = google_compute_instance.itest_vm.labels
-}
-
-output "run_id" {
-  description = "Randomized run identifier."
-  value       = local.run_id
 }
 
 output "ssh_command" {

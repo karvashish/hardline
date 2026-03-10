@@ -12,9 +12,7 @@ import (
 )
 
 type ApplyDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	IsServiceDirty    func(string) bool
-	ClearServiceDirty func(string)
+	RunRoot func(*ssh.Client, string) error
 }
 
 type RollbackDeps struct {
@@ -56,32 +54,18 @@ func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
 	case "started", "start":
 		if serviceIsActive(ctx.Client, unit, deps.RunRoot) {
 			logger.Debugf("handleService: %s already active, skipping start\n", unit)
-			if deps.ClearServiceDirty != nil {
-				deps.ClearServiceDirty(unit)
-			}
 			return nil
 		}
 		cmd = fmt.Sprintf("systemctl start %s", unit)
 	case "stopped", "stop":
 		if !serviceIsActive(ctx.Client, unit, deps.RunRoot) {
 			logger.Debugf("handleService: %s already inactive, skipping stop\n", unit)
-			if deps.ClearServiceDirty != nil {
-				deps.ClearServiceDirty(unit)
-			}
 			return nil
 		}
 		cmd = fmt.Sprintf("systemctl stop %s", unit)
 	case "restarted", "restart":
-		if deps.IsServiceDirty != nil && !deps.IsServiceDirty(unit) && serviceIsActive(ctx.Client, unit, deps.RunRoot) {
-			logger.Debugf("handleService: %s clean and active, skipping restart\n", unit)
-			return nil
-		}
 		cmd = fmt.Sprintf("systemctl restart %s", unit)
 	case "reloaded", "reload", "reload-or-restart":
-		if deps.IsServiceDirty != nil && !deps.IsServiceDirty(unit) && serviceIsActive(ctx.Client, unit, deps.RunRoot) {
-			logger.Debugf("handleService: %s clean and active, skipping reload-or-restart\n", unit)
-			return nil
-		}
 		cmd = fmt.Sprintf("systemctl reload-or-restart %s", unit)
 	default:
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
@@ -89,9 +73,6 @@ func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
 
 	if err := deps.RunRoot(ctx.Client, cmd); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
-	}
-	if deps.ClearServiceDirty != nil {
-		deps.ClearServiceDirty(unit)
 	}
 
 	return nil
@@ -108,14 +89,14 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	var details []string
 
 	enabledState := "unknown"
-	if ctx.Inspector.IsServiceEnabled(unit) {
+	if serviceIsEnabledRuntime(ctx.Runtime, unit) {
 		enabledState = "enabled"
 	} else {
 		enabledState = "disabled or not-found"
 	}
 
 	activeState := "unknown"
-	if ctx.Inspector.IsServiceActive(unit) {
+	if serviceIsActiveRuntime(ctx.Runtime, unit) {
 		activeState = "active"
 	} else {
 		activeState = "inactive or not-found"
@@ -227,4 +208,20 @@ func serviceIsEnabled(client *ssh.Client, unit string, runRoot func(*ssh.Client,
 func serviceIsActive(client *ssh.Client, unit string, runRoot func(*ssh.Client, string) error) bool {
 	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
 	return runRoot(client, cmd) == nil
+}
+
+func serviceIsEnabledRuntime(rt pluginapi.Runtime, unit string) bool {
+	if rt == nil {
+		return false
+	}
+	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)
+	return rt.RunRoot(cmd) == nil
+}
+
+func serviceIsActiveRuntime(rt pluginapi.Runtime, unit string) bool {
+	if rt == nil {
+		return false
+	}
+	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
+	return rt.RunRoot(cmd) == nil
 }

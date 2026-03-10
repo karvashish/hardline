@@ -14,10 +14,9 @@ import (
 func TestPlugin_MetadataAndValidation(t *testing.T) {
 	plugin := Plugin(
 		ApplyDeps{
-			RunRoot:          func(*ssh.Client, string) error { return nil },
-			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-			MarkServiceDirty: func(string) {},
+			RunRoot:       func(*ssh.Client, string) error { return nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
 		},
 		RollbackDeps{},
 	)
@@ -52,10 +51,9 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 	plugin := Plugin(
 		ApplyDeps{
-			RunRoot:          func(*ssh.Client, string) error { return nil },
-			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-			MarkServiceDirty: func(string) {},
+			RunRoot:       func(*ssh.Client, string) error { return nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
 		},
 		RollbackDeps{},
 	)
@@ -87,10 +85,9 @@ func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 func TestPlugin_PlanAndRollback(t *testing.T) {
 	plugin := Plugin(
 		ApplyDeps{
-			RunRoot:          func(*ssh.Client, string) error { return nil },
-			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-			MarkServiceDirty: func(string) {},
+			RunRoot:       func(*ssh.Client, string) error { return nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
 		},
 		RollbackDeps{
 			RunRoot:           func(*ssh.Client, string) error { return nil },
@@ -120,7 +117,7 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 	}
 
 	if _, err := plugin.Plan(pluginapi.PlanContext{
-		Inspector: firewallInspectorStub{include: true, statInfo: fakeFileInfo{mode: 0o644, size: 12}},
+		Runtime: firewallRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 12}, include: true},
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}

@@ -3,14 +3,14 @@ package plan
 import (
 	"fmt"
 
-	"github.com/karvashish/hardline/internals/apply"
-	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/internals/plugins/builtin"
+	"github.com/karvashish/hardline/internals/runtime"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"golang.org/x/crypto/ssh"
 )
 
-var planPluginRegistry = apply.PluginRegistry()
+var planPluginRegistry = newDefaultPlanRegistry()
 
 func RegisterPlugin(p pluginapi.Plugin) error {
 	return planPluginRegistry.Register(p)
@@ -30,37 +30,13 @@ func newDefaultPlanRegistry() *pluginapi.Registry {
 	return r
 }
 
-type inspectorAdapter struct {
-	inspector.Inspector
-}
-
-func (a inspectorAdapter) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
-	rules, err := a.Inspector.FirewallAllowedPortsDetailed()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]pluginapi.FirewallRuleInfo, 0, len(rules))
-	for _, r := range rules {
-		out = append(out, pluginapi.FirewallRuleInfo{
-			Family: r.Family,
-			Table:  r.Table,
-			Chain:  r.Chain,
-			Proto:  r.Proto,
-			Port:   r.Port,
-			Iif:    r.Iif,
-			Oif:    r.Oif,
-		})
-	}
-	return out, nil
-}
-
-func planActionContext(insp inspector.Inspector, p *profile.Profile) pluginapi.PlanContext {
-	var planInspector pluginapi.PlanInspector
-	if insp != nil {
-		planInspector = inspectorAdapter{Inspector: insp}
+func planActionContext(client *ssh.Client, p *profile.Profile) pluginapi.PlanContext {
+	var hostRuntime pluginapi.Runtime
+	if client != nil {
+		hostRuntime = runtime.NewSSHRuntime(client)
 	}
 	return pluginapi.PlanContext{
-		Inspector: planInspector,
-		Profile:   p,
+		Runtime: hostRuntime,
+		Profile: p,
 	}
 }

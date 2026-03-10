@@ -2,11 +2,13 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
 
 var debug bool
+var stderr io.Writer = os.Stderr
 
 const (
 	ColorTagDefault    = "\033[38;5;208m"
@@ -83,7 +85,7 @@ func Debugf(format string, args ...any) {
 	}
 
 	fmt.Fprintf(
-		os.Stderr,
+		stderr,
 		tagColor+"[debug] "+detailColor+format+ColorReset,
 		args...,
 	)
@@ -100,11 +102,11 @@ func Infof(format string, args ...any) {
 	}
 
 	if color == "" {
-		fmt.Fprintf(os.Stderr, format, args...)
+		fmt.Fprintf(stderr, format, args...)
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, color+format+ColorReset, args...)
+	fmt.Fprintf(stderr, color+format+ColorReset, args...)
 }
 
 func Warnf(format string, args ...any) {

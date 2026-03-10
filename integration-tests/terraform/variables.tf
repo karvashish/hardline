@@ -90,17 +90,6 @@ variable "use_spot" {
   default     = false
 }
 
-variable "max_lifetime_hours" {
-  description = "TTL hint used in labels for janitor cleanup."
-  type        = number
-  default     = 2
-
-  validation {
-    condition     = var.max_lifetime_hours >= 1 && var.max_lifetime_hours <= 24
-    error_message = "max_lifetime_hours must be between 1 and 24."
-  }
-}
-
 variable "additional_labels" {
   description = "Additional labels to add to the integration VM."
   type        = map(string)

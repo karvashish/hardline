@@ -3,9 +3,9 @@ package plan
 import (
 	"fmt"
 
-	"github.com/karvashish/hardline/internals/inspector"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"golang.org/x/crypto/ssh"
 )
 
 type StepPlan struct {
@@ -18,7 +18,7 @@ type StepPlan struct {
 	Details []string
 }
 
-func planStep(insp inspector.Inspector, p *profile.Profile, s profile.Step) (StepPlan, error) {
+func planStep(client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan, error) {
 	pluginName := s.PluginName()
 
 	plan := StepPlan{
@@ -37,7 +37,7 @@ func planStep(insp inspector.Inspector, p *profile.Profile, s profile.Step) (Ste
 		return plan, err
 	}
 
-	result, err := plugin.Plan(planActionContext(insp, p), s)
+	result, err := plugin.Plan(planActionContext(client, p), s)
 	if err != nil {
 		return plan, err
 	}

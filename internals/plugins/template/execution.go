@@ -15,10 +15,9 @@ import (
 )
 
 type ApplyDeps struct {
-	RunRoot          func(*ssh.Client, string) error
-	NewSFTPClient    func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
-	MarkServiceDirty func(string)
+	RunRoot       func(*ssh.Client, string) error
+	NewSFTPClient func(*ssh.Client) (*sftp.Client, error)
+	WriteRootFile func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
 }
 
 type RollbackDeps struct {
@@ -65,9 +64,6 @@ func Apply(ctx pluginapi.ApplyContext, t *Spec, deps ApplyDeps) error {
 	if err := deps.WriteRootFile(ctx.Client, sftpClient, t.Dest, data, mode); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", t.Dest, err)
 	}
-	if deps.MarkServiceDirty != nil {
-		deps.MarkServiceDirty(serviceForManagedPath(t.Dest))
-	}
 
 	return nil
 }
@@ -102,7 +98,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 	contentMatches := false
 	compareReady := false
 
-	info, err := ctx.Inspector.Stat(t.Dest)
+	info, err := ctx.Runtime.Stat(t.Dest)
 	if err != nil {
 		line := fmt.Sprintf(
 			"%sdestination %q:%s %sdoes not exist (file will be created)%s",
@@ -129,7 +125,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 			)
 		}
 
-		current, readErr := ctx.Inspector.ReadRootFile(t.Dest)
+		current, readErr := ctx.Runtime.ReadRootFile(t.Dest)
 		if readErr != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("cannot compare content for %q (%v)", t.Dest, readErr)+logger.ColorReset,
@@ -153,13 +149,6 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 		logger.ColorGreen+fmt.Sprintf("desired: template %q rendered to %q with mode %s", t.Src, t.Dest, modeText)+logger.ColorReset,
 	)
 
-	if strings.HasPrefix(t.Dest, "/etc/ssh/") {
-		details = append(details, logger.ColorDim+"note: this template affects SSH daemon configuration"+logger.ColorReset)
-	}
-	if strings.Contains(t.Dest, "nftables") {
-		details = append(details, logger.ColorDim+"note: this template affects nftables firewall configuration"+logger.ColorReset)
-	}
-
 	summary := fmt.Sprintf("template step: render %q to %q (mode %s)", t.Src, t.Dest, modeText)
 	if exists && compareReady && modeMatches && contentMatches {
 		summary = fmt.Sprintf("template step: no rewrite required for %q (content and mode already match)", t.Dest)
@@ -172,51 +161,6 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 		)
 	}
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
-}
-
-func ValidateApply(ctx pluginapi.ApplyContext, runRoot func(*ssh.Client, string) error) error {
-	checkIncludeCmd := `grep -q '^Include /etc/ssh/sshd_config.d/\*.conf' /etc/ssh/sshd_config`
-	if err := runRoot(ctx.Client, checkIncludeCmd); err != nil {
-		return fmt.Errorf("sshd_config missing Include for /etc/ssh/sshd_config.d/*.conf: %w", err)
-	}
-
-	if err := runRoot(ctx.Client, "sshd -t -f /etc/ssh/sshd_config"); err != nil {
-		return fmt.Errorf("sshd config test failed: %w", err)
-	}
-	return nil
-}
-
-func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
-	logger.Debugf("planValidate: kind=sshd\n")
-
-	var details []string
-
-	if ctx.Inspector.SSHIncludePresent() {
-		details = append(details,
-			logger.ColorGreen+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is present"+logger.ColorReset,
-		)
-	} else {
-		details = append(details,
-			logger.ColorRed+"sshd_config: Include for /etc/ssh/sshd_config.d/*.conf is missing (validate would fail)"+logger.ColorReset,
-		)
-	}
-
-	testErr := ctx.Inspector.SSHConfigTest()
-	if testErr == nil {
-		details = append(details,
-			logger.ColorGreen+"current sshd configuration: passes sshd -t"+logger.ColorReset,
-		)
-	} else {
-		details = append(details,
-			logger.ColorRed+fmt.Sprintf("current sshd configuration: sshd -t reports errors (%v)", testErr)+logger.ColorReset,
-		)
-	}
-
-	return pluginapi.PlanResult{
-		Summary: "validate sshd: check Include hook and sshd -t on /etc/ssh/sshd_config",
-		Details: details,
-		Noop:    2,
-	}, nil
 }
 
 func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
@@ -247,24 +191,4 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, d
 		{Kind: rollback.ObjectFile, File: &snap},
 	}
 	return record, nil
-}
-
-func serviceForManagedPath(dest string) string {
-	p := strings.TrimSpace(dest)
-	switch {
-	case strings.HasPrefix(p, "/etc/ssh/"):
-		return "ssh"
-	case strings.HasPrefix(p, "/etc/sysctl.d/"):
-		return "systemd-sysctl"
-	case strings.HasPrefix(p, "/etc/fail2ban/"):
-		return "fail2ban"
-	case strings.HasPrefix(p, "/etc/audit/"):
-		return "auditd"
-	case strings.HasPrefix(p, "/etc/systemd/journald.conf.d/"):
-		return "systemd-journald"
-	case strings.Contains(p, "nftables"):
-		return "nftables"
-	default:
-		return ""
-	}
 }

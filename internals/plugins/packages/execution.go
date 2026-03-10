@@ -20,6 +20,101 @@ type RollbackDeps struct {
 	RunRootWithOutput func(*ssh.Client, string) (string, error)
 }
 
+func packageInstalled(rt pluginapi.Runtime, name string) bool {
+	if rt == nil {
+		return false
+	}
+	cmd := fmt.Sprintf("dpkg -s %q >/dev/null 2>&1", name)
+	return rt.RunRoot(cmd) == nil
+}
+
+func aptUpgradePreview(rt pluginapi.Runtime) ([]string, error) {
+	if rt == nil {
+		return nil, nil
+	}
+	out, err := rt.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s upgrade")
+	if err != nil {
+		return nil, err
+	}
+	var pkgs []string
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Inst ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := fields[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		pkgs = append(pkgs, name)
+	}
+	return pkgs, nil
+}
+
+func aptInstallPreview(rt pluginapi.Runtime, pkgs []string) ([]string, error) {
+	if rt == nil || len(pkgs) == 0 {
+		return nil, nil
+	}
+	out, err := rt.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s install " + strings.Join(pkgs, " "))
+	if err != nil {
+		return nil, err
+	}
+	var result []string
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Inst ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := fields[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result, nil
+}
+
+func aptAutoremovePreview(rt pluginapi.Runtime) ([]string, error) {
+	if rt == nil {
+		return nil, nil
+	}
+	out, err := rt.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s autoremove")
+	if err != nil {
+		return nil, err
+	}
+	var pkgs []string
+	seen := make(map[string]struct{})
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Remv ") && !strings.HasPrefix(line, "Remv\t") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := fields[1]
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		pkgs = append(pkgs, name)
+	}
+	return pkgs, nil
+}
+
 func Apply(ctx pluginapi.ApplyContext, pk *Spec, deps ApplyDeps) error {
 	logger.Debugf(
 		"handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
@@ -77,7 +172,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+logger.ColorReset)
 	}
 	if pk.Upgrade {
-		up, err := ctx.Inspector.AptUpgradePreview()
+		up, err := aptUpgradePreview(ctx.Runtime)
 		if err != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("upgrade: failed to preview upgrades (%v)", err)+logger.ColorReset,
@@ -96,7 +191,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	for _, name := range pk.Install {
-		if ctx.Inspector.PackageInstalled(name) {
+		if packageInstalled(ctx.Runtime, name) {
 			line := fmt.Sprintf(
 				"%spackage %q:%s %scurrently installed (no install change)%s",
 				logger.ColorBlue, name, logger.ColorReset,
@@ -116,7 +211,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	if len(pk.Install) > 0 {
-		all, err := ctx.Inspector.AptInstallPreview(pk.Install)
+		all, err := aptInstallPreview(ctx.Runtime, pk.Install)
 		if err != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("install: failed to preview dependency installs (%v)", err)+logger.ColorReset,
@@ -142,7 +237,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	for _, name := range pk.Purge {
-		if ctx.Inspector.PackageInstalled(name) {
+		if packageInstalled(ctx.Runtime, name) {
 			purgeWillChange = append(purgeWillChange, name)
 
 			line := fmt.Sprintf(
@@ -162,7 +257,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	if pk.Autoremove {
-		pkgs, err := ctx.Inspector.AptAutoremovePreview()
+		pkgs, err := aptAutoremovePreview(ctx.Runtime)
 		if err != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("autoremove: failed to preview packages to be removed (%v)", err)+logger.ColorReset,

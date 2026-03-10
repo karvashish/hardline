@@ -14,9 +14,6 @@ allowed_ssh_cidrs = ["0.0.0.0/0"]
 # Optional: lower cost, less reliability.
 use_spot = false
 
-# Janitor hint for automated stale-resource cleanup.
-max_lifetime_hours = 2
-
 additional_labels = {
   env = "integration"
 }

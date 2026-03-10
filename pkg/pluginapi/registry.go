@@ -69,30 +69,11 @@ type FirewallRuleInfo struct {
 	Oif    string
 }
 
-type PlanInspector interface {
-	PackageInstalled(name string) bool
-	AptAutoremovePreview() ([]string, error)
-	AptUpgradePreview() ([]string, error)
-	AptInstallPreview(pkgs []string) ([]string, error)
-
+type Runtime interface {
+	RunRoot(cmd string) error
+	RunRootWithOutput(cmd string) (string, error)
 	Stat(path string) (os.FileInfo, error)
 	ReadRootFile(path string) (string, error)
-
-	IsServiceEnabled(unit string) bool
-	IsServiceActive(unit string) bool
-
-	SSHIncludePresent() bool
-	SSHConfigTest() error
-
-	FirewallIncludePresent() bool
-	FirewallConfigTest() error
-	FirewallAllowedPorts() (map[string][]int, error)
-	FirewallPolicySummary() ([]string, error)
-	FirewallOtherManagers() ([]string, error)
-	FirewallOnDiskPolicySummary(confPath string) ([]string, error)
-	FirewallHasStatefulBaseline() (bool, error)
-	FirewallHasDefaultDropInput() (bool, error)
-	FirewallAllowedPortsDetailed() ([]FirewallRuleInfo, error)
 }
 
 type ApplyContext struct {
@@ -101,8 +82,8 @@ type ApplyContext struct {
 }
 
 type PlanContext struct {
-	Inspector PlanInspector
-	Profile   *profile.Profile
+	Runtime Runtime
+	Profile *profile.Profile
 }
 
 type RollbackContext struct {

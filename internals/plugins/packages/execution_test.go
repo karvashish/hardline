@@ -67,13 +67,13 @@ func TestApply(t *testing.T) {
 
 func TestPlan(t *testing.T) {
 	t.Run("rich change path", func(t *testing.T) {
-		insp := packagesInspectorStub{
+		rt := packagesRuntimeStub{
 			installed: map[string]bool{"a": true, "c": true},
 			upgrade:   []string{"openssl"},
 			install:   []string{"a", "b", "dep1"},
 			auto:      []string{"oldpkg"},
 		}
-		res, err := Plan(pluginapi.PlanContext{Inspector: insp}, &Spec{
+		res, err := Plan(pluginapi.PlanContext{Runtime: rt}, &Spec{
 			Update:     true,
 			Upgrade:    true,
 			Install:    []string{"a", "b"},
@@ -95,7 +95,7 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("full noop", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Inspector: packagesInspectorStub{}}, &Spec{})
+		res, err := Plan(pluginapi.PlanContext{Runtime: packagesRuntimeStub{}}, &Spec{})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -105,7 +105,7 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("update only partial noop", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Inspector: packagesInspectorStub{}}, &Spec{Update: true, Upgrade: true, Autoremove: true})
+		res, err := Plan(pluginapi.PlanContext{Runtime: packagesRuntimeStub{}}, &Spec{Update: true, Upgrade: true, Autoremove: true})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -118,12 +118,12 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("preview errors", func(t *testing.T) {
-		insp := packagesInspectorStub{
+		rt := packagesRuntimeStub{
 			upgradeErr: errors.New("uerr"),
 			installErr: errors.New("ierr"),
 			autoErr:    errors.New("aerr"),
 		}
-		res, err := Plan(pluginapi.PlanContext{Inspector: insp}, &Spec{Upgrade: true, Install: []string{"x"}, Autoremove: true})
+		res, err := Plan(pluginapi.PlanContext{Runtime: rt}, &Spec{Upgrade: true, Install: []string{"x"}, Autoremove: true})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -195,7 +195,52 @@ func TestCaptureRollbackAndSnapshot(t *testing.T) {
 	})
 }
 
-type packagesInspectorStub struct {
+func TestRuntimePreviewHelpers(t *testing.T) {
+	t.Run("nil runtime", func(t *testing.T) {
+		if packageInstalled(nil, "curl") {
+			t.Fatal("expected packageInstalled(nil) to be false")
+		}
+		if out, err := aptUpgradePreview(nil); err != nil || len(out) != 0 {
+			t.Fatalf("expected nil upgrade preview to be empty, got out=%v err=%v", out, err)
+		}
+		if out, err := aptInstallPreview(nil, []string{"curl"}); err != nil || len(out) != 0 {
+			t.Fatalf("expected nil install preview to be empty, got out=%v err=%v", out, err)
+		}
+		if out, err := aptInstallPreview(packagesRuntimeStub{}, nil); err != nil || len(out) != 0 {
+			t.Fatalf("expected empty install preview to be empty, got out=%v err=%v", out, err)
+		}
+		if out, err := aptAutoremovePreview(nil); err != nil || len(out) != 0 {
+			t.Fatalf("expected nil autoremove preview to be empty, got out=%v err=%v", out, err)
+		}
+	})
+
+	t.Run("parsing and dedupe", func(t *testing.T) {
+		rt := packagesRuntimeStub{
+			installed: map[string]bool{"curl": true},
+			upgrade:   []string{"openssl", "openssl"},
+			install:   []string{"curl", "jq", "jq"},
+			auto:      []string{"oldpkg", "oldpkg"},
+		}
+
+		if !packageInstalled(rt, "curl") {
+			t.Fatal("expected curl to be installed")
+		}
+		up, err := aptUpgradePreview(rt)
+		if err != nil || strings.Join(up, ",") != "openssl" {
+			t.Fatalf("unexpected upgrade preview: out=%v err=%v", up, err)
+		}
+		install, err := aptInstallPreview(rt, []string{"curl", "jq"})
+		if err != nil || strings.Join(install, ",") != "curl,jq" {
+			t.Fatalf("unexpected install preview: out=%v err=%v", install, err)
+		}
+		auto, err := aptAutoremovePreview(rt)
+		if err != nil || strings.Join(auto, ",") != "oldpkg" {
+			t.Fatalf("unexpected autoremove preview: out=%v err=%v", auto, err)
+		}
+	})
+}
+
+type packagesRuntimeStub struct {
 	installed map[string]bool
 	upgrade   []string
 	install   []string
@@ -206,59 +251,56 @@ type packagesInspectorStub struct {
 	autoErr    error
 }
 
-func (s packagesInspectorStub) PackageInstalled(name string) bool {
-	return s.installed[name]
-}
-
-func (s packagesInspectorStub) AptAutoremovePreview() ([]string, error) {
-	if s.autoErr != nil {
-		return nil, s.autoErr
+func (s packagesRuntimeStub) RunRoot(cmd string) error {
+	if strings.HasPrefix(cmd, "dpkg -s ") {
+		name := strings.TrimSuffix(strings.TrimPrefix(cmd, "dpkg -s "), " >/dev/null 2>&1")
+		name = strings.Trim(name, "\"")
+		if s.installed[name] {
+			return nil
+		}
+		return errors.New("not installed")
 	}
-	return append([]string(nil), s.auto...), nil
+	return nil
 }
 
-func (s packagesInspectorStub) AptUpgradePreview() ([]string, error) {
-	if s.upgradeErr != nil {
-		return nil, s.upgradeErr
+func (s packagesRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	switch {
+	case strings.Contains(cmd, "apt-get -s upgrade"):
+		if s.upgradeErr != nil {
+			return "", s.upgradeErr
+		}
+		return joinInstLines(s.upgrade), nil
+	case strings.Contains(cmd, "apt-get -s install"):
+		if s.installErr != nil {
+			return "", s.installErr
+		}
+		return joinInstLines(s.install), nil
+	case strings.Contains(cmd, "apt-get -s autoremove"):
+		if s.autoErr != nil {
+			return "", s.autoErr
+		}
+		return joinRemvLines(s.auto), nil
+	default:
+		return "", nil
 	}
-	return append([]string(nil), s.upgrade...), nil
 }
 
-func (s packagesInspectorStub) AptInstallPreview([]string) ([]string, error) {
-	if s.installErr != nil {
-		return nil, s.installErr
+func (packagesRuntimeStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not found") }
+
+func (packagesRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+
+func joinInstLines(pkgs []string) string {
+	var lines []string
+	for _, pkg := range pkgs {
+		lines = append(lines, "Inst "+pkg)
 	}
-	return append([]string(nil), s.install...), nil
+	return strings.Join(lines, "\n")
 }
 
-func (s packagesInspectorStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not found") }
-
-func (s packagesInspectorStub) ReadRootFile(string) (string, error) { return "", nil }
-
-func (s packagesInspectorStub) IsServiceEnabled(string) bool { return false }
-
-func (s packagesInspectorStub) IsServiceActive(string) bool { return false }
-
-func (s packagesInspectorStub) SSHIncludePresent() bool { return false }
-
-func (s packagesInspectorStub) SSHConfigTest() error { return nil }
-
-func (s packagesInspectorStub) FirewallIncludePresent() bool { return false }
-
-func (s packagesInspectorStub) FirewallConfigTest() error { return nil }
-
-func (s packagesInspectorStub) FirewallAllowedPorts() (map[string][]int, error) { return nil, nil }
-
-func (s packagesInspectorStub) FirewallPolicySummary() ([]string, error) { return nil, nil }
-
-func (s packagesInspectorStub) FirewallOtherManagers() ([]string, error) { return nil, nil }
-
-func (s packagesInspectorStub) FirewallOnDiskPolicySummary(string) ([]string, error) { return nil, nil }
-
-func (s packagesInspectorStub) FirewallHasStatefulBaseline() (bool, error) { return false, nil }
-
-func (s packagesInspectorStub) FirewallHasDefaultDropInput() (bool, error) { return false, nil }
-
-func (s packagesInspectorStub) FirewallAllowedPortsDetailed() ([]pluginapi.FirewallRuleInfo, error) {
-	return nil, nil
+func joinRemvLines(pkgs []string) string {
+	var lines []string
+	for _, pkg := range pkgs {
+		lines = append(lines, "Remv "+pkg)
+	}
+	return strings.Join(lines, "\n")
 }

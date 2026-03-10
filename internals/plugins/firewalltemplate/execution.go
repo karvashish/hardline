@@ -20,10 +20,9 @@ import (
 const DefaultManagedDestination = "/etc/nftables.d/99-hardline-firewall.nft"
 
 type ApplyDeps struct {
-	RunRoot          func(*ssh.Client, string) error
-	NewSFTPClient    func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
-	MarkServiceDirty func(string)
+	RunRoot       func(*ssh.Client, string) error
+	NewSFTPClient func(*ssh.Client) (*sftp.Client, error)
+	WriteRootFile func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
 }
 
 type RollbackDeps struct {
@@ -105,9 +104,6 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 	if err := deps.WriteRootFile(ctx.Client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
-	if deps.MarkServiceDirty != nil {
-		deps.MarkServiceDirty("nftables")
-	}
 	return nil
 }
 
@@ -130,7 +126,7 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 		destPath = ManagedDestination(fw)
 	}
 
-	info, err := ctx.Inspector.Stat(destPath)
+	info, err := ctx.Runtime.Stat(destPath)
 	if err != nil {
 		details = append(details,
 			logger.ColorBlue+fmt.Sprintf("destination %q: does not exist (file will be created)", destPath)+logger.ColorReset,

@@ -13,22 +13,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestServiceDirtyHelpers(t *testing.T) {
-	resetApplyStepState()
-	if got := normalizeServiceUnit("  ssh  "); got != "ssh" {
-		t.Fatalf("unexpected normalized service unit: %q", got)
-	}
-
-	markServiceDirty("  ssh  ")
-	if !isServiceDirty("ssh") {
-		t.Fatal("expected ssh to be dirty")
-	}
-	clearServiceDirty("ssh")
-	if isServiceDirty("ssh") {
-		t.Fatal("expected ssh to be clean")
-	}
-}
-
 func TestHandleStepDispatch(t *testing.T) {
 	prev := pluginRegistry
 	defer func() { pluginRegistry = prev }()

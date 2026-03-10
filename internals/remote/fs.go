@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"time"
@@ -10,6 +11,35 @@ import (
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+)
+
+type fileSession interface {
+	Run(string) error
+	Close() error
+	SetWriters(stdout io.Writer, stderr io.Writer)
+}
+
+type sshFileSession struct {
+	*ssh.Session
+}
+
+func (s sshFileSession) SetWriters(stdout io.Writer, stderr io.Writer) {
+	s.Stdout = stdout
+	s.Stderr = stderr
+}
+
+var newFileSession = func(client *ssh.Client) (fileSession, error) {
+	sess, err := client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	return sshFileSession{Session: sess}, nil
+}
+
+var (
+	writeFileFn = WriteFile
+	runRootFn   = RunRoot
+	nowUnixNano = func() int64 { return time.Now().UnixNano() }
 )
 
 func WriteFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
@@ -28,18 +58,18 @@ func WriteFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.
 }
 
 func WriteRootFile(client *ssh.Client, sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
-	tmpPath := fmt.Sprintf("/tmp/.hardline-%d", time.Now().UnixNano())
+	tmpPath := fmt.Sprintf("/tmp/.hardline-%d", nowUnixNano())
 
 	logger.Debugf("writeRootFile: tmp=%q dest=%q\n", tmpPath, remotePath)
 
-	if err := WriteFile(sftpClient, tmpPath, data, 0600); err != nil {
+	if err := writeFileFn(sftpClient, tmpPath, data, 0600); err != nil {
 		return err
 	}
 
 	modeOct := strconv.FormatUint(uint64(mode.Perm()), 8)
 	cmd := fmt.Sprintf("install -m %s %s %s && rm -f %s", modeOct, tmpPath, remotePath, tmpPath)
 
-	if err := RunRoot(client, cmd); err != nil {
+	if err := runRootFn(client, cmd); err != nil {
 		return err
 	}
 	return nil
@@ -51,7 +81,7 @@ func ReadRootFile(client *ssh.Client, path string) (string, error) {
 	cmd := "cat " + path
 	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
 
-	session, err := client.NewSession()
+	session, err := newFileSession(client)
 	if err != nil {
 		return "", err
 	}
@@ -59,8 +89,7 @@ func ReadRootFile(client *ssh.Client, path string) (string, error) {
 
 	var out bytes.Buffer
 	var errBuf bytes.Buffer
-	session.Stdout = &out
-	session.Stderr = &errBuf
+	session.SetWriters(&out, &errBuf)
 
 	if err := session.Run(wrapped); err != nil {
 		if errBuf.Len() > 0 {

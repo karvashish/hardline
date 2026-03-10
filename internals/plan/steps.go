@@ -2,9 +2,9 @@ package plan
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/karvashish/hardline/internals/inspector"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
@@ -19,61 +19,33 @@ type StepPlan struct {
 }
 
 func planStep(insp inspector.Inspector, p *profile.Profile, s profile.Step) (StepPlan, error) {
-	stepType := strings.ToLower(strings.TrimSpace(s.Type))
+	pluginName := s.PluginName()
 
 	plan := StepPlan{
 		StepID:    s.ID,
-		StepType:  stepType,
+		StepType:  pluginName,
 		Severity:  s.Severity,
 		RiskClass: s.RiskClass,
 	}
 
-	if stepType == "validate" {
-		kind := strings.TrimSpace(s.Validate)
-		if kind == "" {
-			return plan, fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
-		}
-		summary, details, err := planValidate(insp, kind)
-		if err != nil {
-			return plan, err
-		}
-		plan.Summary = summary
-		plan.Details = details
-		return plan, nil
-	}
-
-	handler, ok := planPluginRegistry.LookupPlanType(stepType)
+	plugin, ok := planPluginRegistry.Lookup(pluginName)
 	if !ok {
-		plan.Summary = fmt.Sprintf("unknown or empty step type %q (no-op in planning)", s.Type)
+		plan.Summary = fmt.Sprintf("unknown or empty plugin %q (no-op in planning)", s.Plugin)
 		return plan, nil
 	}
+	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
+		return plan, err
+	}
 
-	result, err := handler.Plan(planActionContext(insp, p), s)
+	result, err := plugin.Plan(planActionContext(insp, p), s)
 	if err != nil {
 		return plan, err
 	}
+	if !plugin.InternalValidation && s.AllowUnvalidated {
+		result.Details = append(result.Details, "validation: explicitly disabled for this step (allow_unvalidated=true)")
+	}
 	plan.Summary = result.Summary
 	plan.Details = result.Details
-	switch result.Noop {
-	case 1:
-		plan.Severity = "medium"
-	case 0:
-		plan.Severity = "low"
-	}
 
 	return plan, nil
-}
-
-func planValidate(insp inspector.Inspector, kind string) (string, []string, error) {
-	validateFn, ok := planPluginRegistry.LookupPlanValidate(kind)
-	if !ok {
-		summary := fmt.Sprintf("validate step: unsupported kind %q", kind)
-		return summary, []string{"no validation logic implemented for this kind"}, nil
-	}
-
-	result, err := validateFn(planActionContext(insp, nil))
-	if err != nil {
-		return "", nil, err
-	}
-	return result.Summary, result.Details, nil
 }

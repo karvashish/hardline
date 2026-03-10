@@ -2,74 +2,87 @@ package template
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func ApplyHandler(
-	applyFn func(pluginapi.ApplyContext, *profile.TemplateSpec) error,
-	validateSSHD func(pluginapi.ApplyContext) error,
-) pluginapi.ApplyHandler {
-	h := pluginapi.ApplyHandler{
-		Type: "template",
-		Apply: func(ctx pluginapi.ApplyContext, s profile.Step) error {
-			if s.Template == nil {
-				return fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
+func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+	return pluginapi.Plugin{
+		Name:               "template",
+		InternalValidation: true,
+		Apply: func(ctx pluginapi.ApplyContext, step profile.Step) error {
+			spec, err := decodeTemplateSpec(step)
+			if err != nil {
+				return err
 			}
-			return applyFn(ctx, s.Template)
+			if err := validateTemplateSpec(spec); err != nil {
+				return err
+			}
+			if err := Apply(ctx, spec, applyDeps); err != nil {
+				return err
+			}
+			return ValidateApply(ctx, applyDeps.RunRoot)
+		},
+		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
+			spec, err := decodeTemplateSpec(step)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			if err := validateTemplateSpec(spec); err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+
+			result, err := Plan(ctx, spec)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+
+			validateResult, err := ValidatePlan(ctx)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			result.Details = append(result.Details, validateResult.Details...)
+			return result, nil
+		},
+		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+			spec, err := decodeTemplateSpec(step)
+			if err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
+			}
+			if err := validateTemplateSpec(spec); err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
+			}
+
+			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
 		},
 	}
-	if validateSSHD != nil {
-		h.ValidateKinds = map[string]func(pluginapi.ApplyContext) error{
-			"sshd": validateSSHD,
+}
+
+func decodeTemplateSpec(step profile.Step) (*Spec, error) {
+	var spec Spec
+	if err := step.Decode(&spec); err != nil {
+		return nil, err
+	}
+	return &spec, nil
+}
+
+func validateTemplateSpec(spec *Spec) error {
+	if spec == nil {
+		return fmt.Errorf("template config is required")
+	}
+	if strings.TrimSpace(spec.Src) == "" {
+		return fmt.Errorf("template src is required")
+	}
+	if strings.TrimSpace(spec.Dest) == "" {
+		return fmt.Errorf("template dest is required")
+	}
+	if mode := strings.TrimSpace(spec.Mode); mode != "" {
+		var parsed uint64
+		if _, err := fmt.Sscanf(mode, "%o", &parsed); err != nil {
+			return fmt.Errorf("template mode %q must be octal", spec.Mode)
 		}
 	}
-	return h
-}
-
-func PlanHandler(
-	planFn func(pluginapi.PlanContext, *profile.TemplateSpec) (pluginapi.PlanResult, error),
-	validateSSHD func(pluginapi.PlanContext) (pluginapi.PlanResult, error),
-) pluginapi.PlanHandler {
-	h := pluginapi.PlanHandler{
-		Type: "template",
-		Plan: func(ctx pluginapi.PlanContext, s profile.Step) (pluginapi.PlanResult, error) {
-			if s.Template == nil {
-				return pluginapi.PlanResult{}, fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
-			}
-			return planFn(ctx, s.Template)
-		},
-	}
-	if validateSSHD != nil {
-		h.ValidateKinds = map[string]func(pluginapi.PlanContext) (pluginapi.PlanResult, error){
-			"sshd": validateSSHD,
-		}
-	}
-	return h
-}
-
-func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
-	return ApplyHandler(
-		func(ctx pluginapi.ApplyContext, spec *profile.TemplateSpec) error {
-			return Apply(ctx, spec, deps)
-		},
-		func(ctx pluginapi.ApplyContext) error {
-			return ValidateApply(ctx, deps.RunRoot)
-		},
-	)
-}
-
-func DefaultPlanHandler() pluginapi.PlanHandler {
-	return PlanHandler(Plan, ValidatePlan)
-}
-
-func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
-	return pluginapi.RollbackHandler{
-		Type: "template",
-		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
-			return CaptureRollback(ctx, s, deps)
-		},
-	}
+	return nil
 }

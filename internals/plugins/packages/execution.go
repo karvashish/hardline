@@ -9,7 +9,6 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -21,7 +20,7 @@ type RollbackDeps struct {
 	RunRootWithOutput func(*ssh.Client, string) (string, error)
 }
 
-func Apply(ctx pluginapi.ApplyContext, pk *profile.PackageSpec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, pk *Spec, deps ApplyDeps) error {
 	logger.Debugf(
 		"handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove,
@@ -62,7 +61,7 @@ func Apply(ctx pluginapi.ApplyContext, pk *profile.PackageSpec, deps ApplyDeps) 
 	return nil
 }
 
-func Plan(ctx pluginapi.PlanContext, pk *profile.PackageSpec) (pluginapi.PlanResult, error) {
+func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
 
@@ -253,35 +252,35 @@ func Plan(ctx pluginapi.PlanContext, pk *profile.PackageSpec) (pluginapi.PlanRes
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: noop}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
-		ID:   s.ID,
+		ID:   stepID,
 		Type: "packages",
 	}
-	if s.Packages == nil {
-		return record, fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
+	if pk == nil {
+		return record, fmt.Errorf("step %q (type=packages): packages spec missing", stepID)
 	}
 
-	pkgs, err := snapshotPackageState(ctx.Client, s.Packages, deps.RunRootWithOutput)
+	pkgs, err := snapshotPackageState(ctx.Client, pk, deps.RunRootWithOutput)
 	if err != nil {
 		return record, err
 	}
 
 	record.RollbackMode = rollback.ModeBestEffort
 	record.Objects = pkgs
-	if s.Packages.Update {
+	if pk.Update {
 		record.Notes = append(record.Notes, "apt update is not directly reversible")
 	}
-	if s.Packages.Upgrade {
+	if pk.Upgrade {
 		record.Notes = append(record.Notes, "apt upgrade rollback is best-effort")
 	}
-	if s.Packages.Autoremove {
+	if pk.Autoremove {
 		record.Notes = append(record.Notes, "apt autoremove rollback is best-effort")
 	}
 	return record, nil
 }
 
-func snapshotPackageState(client *ssh.Client, pk *profile.PackageSpec, runRootWithOutput func(*ssh.Client, string) (string, error)) ([]rollback.ObjectRecord, error) {
+func snapshotPackageState(client *ssh.Client, pk *Spec, runRootWithOutput func(*ssh.Client, string) (string, error)) ([]rollback.ObjectRecord, error) {
 	pkgSet := map[string]struct{}{}
 	installSet := map[string]struct{}{}
 	purgeSet := map[string]struct{}{}

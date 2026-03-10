@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "unattended-upgrades-auto",
-      "type": "template",
+      "plugin": "template",
       "severity": "medium",
       "risk_class": "availability",
       "control_tags": [],
-      "template": {
+      "config": {
         "src": "templates/15-unattended-upgrades.tmpl",
         "dest": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
         "mode": "0644"

@@ -41,37 +41,25 @@ func TestLoad_ActionsErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("undeclared template", func(t *testing.T) {
+	t.Run("generic plugin config is accepted at load time", func(t *testing.T) {
 		dir := t.TempDir()
 		writeProfileJSON(t, dir, []string{"actions/a.json"}, []string{"templates/declared.tmpl"})
 		writeFile(t, filepath.Join(dir, "actions", "a.json"), `{
   "steps": [
     {
       "id": "tmpl",
-      "type": "template",
-      "template": {"src": "templates/not-declared.tmpl", "dest": "/tmp/x", "mode": "0644"}
-    }
-  ]
-}`)
-		if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "uses undeclared template") {
-			t.Fatalf("expected undeclared template error, got %v", err)
-		}
-	})
-
-	t.Run("undeclared firewall template", func(t *testing.T) {
-		dir := t.TempDir()
-		writeProfileJSON(t, dir, []string{"actions/a.json"}, []string{"templates/declared.tmpl"})
-		writeFile(t, filepath.Join(dir, "actions", "a.json"), `{
-  "steps": [
+      "plugin": "template",
+      "config": {"src": "templates/not-declared.tmpl", "dest": "/tmp/x", "mode": "0644"}
+    },
     {
       "id": "fw",
-      "type": "firewall_template",
-      "firewall_template": {"backend": "nftables", "policy": "deny", "template_src": "templates/not-declared.tmpl", "template_dest": "/etc/nftables.conf", "allow": []}
+      "plugin": "firewall_template",
+      "config": {"backend": "nftables", "policy": "deny", "template_src": "templates/not-declared.tmpl", "template_dest": "/etc/nftables.conf", "allow": []}
     }
   ]
 }`)
-		if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "uses undeclared firewall template") {
-			t.Fatalf("expected undeclared firewall template error, got %v", err)
+		if _, err := Load(dir); err != nil {
+			t.Fatalf("expected generic action load success, got %v", err)
 		}
 	})
 }
@@ -83,8 +71,8 @@ func TestLoad_AndTemplateHelpers_SuccessAndErrors(t *testing.T) {
   "steps": [
     {
       "id": "tmpl",
-      "type": "template",
-      "template": {"src": "templates/t.tmpl", "dest": "/etc/example.conf", "mode": "0644"}
+      "plugin": "template",
+      "config": {"src": "templates/t.tmpl", "dest": "/etc/example.conf", "mode": "0644"}
     }
   ]
 }`)

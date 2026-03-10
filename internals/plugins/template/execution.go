@@ -10,7 +10,6 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -28,7 +27,7 @@ type RollbackDeps struct {
 	ReadRootFile      func(*ssh.Client, string) (string, error)
 }
 
-func Apply(ctx pluginapi.ApplyContext, t *profile.TemplateSpec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, t *Spec, deps ApplyDeps) error {
 	logger.Debugf("handleTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
 	if ctx.Profile == nil {
@@ -73,7 +72,7 @@ func Apply(ctx pluginapi.ApplyContext, t *profile.TemplateSpec, deps ApplyDeps) 
 	return nil
 }
 
-func Plan(ctx pluginapi.PlanContext, t *profile.TemplateSpec) (pluginapi.PlanResult, error) {
+func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
 	if ctx.Profile == nil {
@@ -220,18 +219,18 @@ func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
 	}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
-		ID:   s.ID,
+		ID:   stepID,
 		Type: "template",
 	}
-	if s.Template == nil {
-		return record, fmt.Errorf("step %q (type=%s): template spec missing", s.ID, s.Type)
+	if spec == nil {
+		return record, fmt.Errorf("step %q (type=template): template spec missing", stepID)
 	}
 
-	dest := strings.TrimSpace(s.Template.Dest)
+	dest := strings.TrimSpace(spec.Dest)
 	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
-		return record, fmt.Errorf("step %q (type=%s): %w", s.ID, s.Type, err)
+		return record, fmt.Errorf("step %q (type=template): %w", stepID, err)
 	}
 
 	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{

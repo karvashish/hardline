@@ -1,54 +1,82 @@
 package packages
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"golang.org/x/crypto/ssh"
 )
 
-func TestApplyHandler(t *testing.T) {
-	h := ApplyHandler(func(_ pluginapi.ApplyContext, spec *profile.PackageSpec) error {
-		if spec == nil {
-			t.Fatal("spec should not be nil")
-		}
-		return nil
-	})
-	if h.Type != "packages" {
-		t.Fatalf("unexpected type: %q", h.Type)
+func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{RunRoot: func(*ssh.Client, string) error { return nil }},
+		RollbackDeps{RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil }},
+	)
+
+	if !plugin.InternalValidation {
+		t.Fatal("expected packages plugin to declare internal validation")
 	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "packages"}); err == nil || !strings.Contains(err.Error(), "packages spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
+
+	step := profile.Step{
+		ID:     "pkg",
+		Plugin: "packages",
+		Config: map[string]any{
+			"install": []any{"curl"},
+		},
 	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "packages", Packages: &profile.PackageSpec{}}); err != nil {
-		t.Fatalf("unexpected apply error: %v", err)
+
+	if err := plugin.Apply(pluginapi.ApplyContext{}, step); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if _, err := plugin.Plan(pluginapi.PlanContext{
+		Inspector: packagesInspectorStub{},
+	}, step); err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+		t.Fatalf("rollback failed: %v", err)
 	}
 }
 
-func TestPlanHandler(t *testing.T) {
-	h := PlanHandler(func(_ pluginapi.PlanContext, _ *profile.PackageSpec) (pluginapi.PlanResult, error) {
-		return pluginapi.PlanResult{Summary: "ok", Noop: 2}, nil
+func TestPlugin_Validation(t *testing.T) {
+	plugin := Plugin(ApplyDeps{}, RollbackDeps{})
+
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "pkg",
+		Plugin: "packages",
+		Config: map[string]any{
+			"install": []any{"curl", "curl"},
+		},
 	})
-	if h.Type != "packages" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if _, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "packages"}); err == nil || !strings.Contains(err.Error(), "packages spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	res, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "packages", Packages: &profile.PackageSpec{}})
-	if err != nil {
-		t.Fatalf("unexpected plan error: %v", err)
-	}
-	if res.Summary != "ok" {
-		t.Fatalf("unexpected plan summary: %q", res.Summary)
+	if err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("expected duplicate package validation error, got %v", err)
 	}
 
-	hErr := PlanHandler(func(_ pluginapi.PlanContext, _ *profile.PackageSpec) (pluginapi.PlanResult, error) {
-		return pluginapi.PlanResult{}, errors.New("boom")
+	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+		ID:     "pkg",
+		Plugin: "packages",
+		Config: map[string]any{
+			"install": []any{"curl", "curl"},
+		},
 	})
-	if _, err := hErr.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "packages", Packages: &profile.PackageSpec{}}); err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("expected boom error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("expected rollback duplicate package validation error, got %v", err)
+	}
+
+	if err := validatePackageSpec(nil); err == nil || !strings.Contains(err.Error(), "config is required") {
+		t.Fatalf("expected nil config validation error, got %v", err)
+	}
+
+	err = plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "pkg",
+		Plugin: "packages",
+		Config: map[string]any{
+			"install": []any{""},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must not be empty") {
+		t.Fatalf("expected empty package validation error, got %v", err)
 	}
 }

@@ -2,6 +2,9 @@ package apply
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -123,7 +126,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("apply profile failed", func(t *testing.T) {
+	t.Run("profile validation failed", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
@@ -131,6 +134,24 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
 			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
+		}
+		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+		compareSemVer = func(a, b string) (int, error) { return 0, nil }
+
+		err := applyCommand(c)
+		if err == nil || !strings.Contains(err.Error(), "profile validation failed") {
+			t.Fatalf("expected profile validation error, got %v", err)
+		}
+	})
+
+	t.Run("apply profile failed", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
+		loadProfile = func(string) (*profile.Profile, error) {
+			return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
 		}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
@@ -151,7 +172,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *ssh.Client) error { return nil }
 		loadProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{ID: "p", MinHardline: "1.0.0", ProfileSchema: 1}, nil
+			return mustLoadApplyFixtureProfile(t, applyProfileFixture{ID: "p", MinHardline: "1.0.0", Schema: 1}), nil
 		}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
@@ -206,7 +227,7 @@ func TestApplyCommand_Success(t *testing.T) {
 	}
 	ensureApplySudo = func(_ *ssh.Client) error { return nil }
 	loadProfile = func(string) (*profile.Profile, error) {
-		return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
+		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
@@ -286,8 +307,8 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
-				{Steps: []profile.Step{{ID: "s1", Type: "validate"}}},
-				{Steps: []profile.Step{{ID: "s2", Type: "validate"}}},
+				{Steps: []profile.Step{{ID: "s1", Plugin: "unknown"}}},
+				{Steps: []profile.Step{{ID: "s2", Plugin: "unknown"}}},
 			},
 		}
 		journal := rollback.NewJournal("example.com", "p", "profile")
@@ -312,7 +333,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
-				{Steps: []profile.Step{{ID: "s1", Type: "validate"}}},
+				{Steps: []profile.Step{{ID: "s1", Plugin: "unknown"}}},
 			},
 		}
 
@@ -339,7 +360,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
-				{Steps: []profile.Step{{ID: "s1", Type: "validate"}}},
+				{Steps: []profile.Step{{ID: "s1", Plugin: "unknown"}}},
 			},
 		}
 
@@ -364,7 +385,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
-				{Steps: []profile.Step{{ID: "s1", Type: "validate"}}},
+				{Steps: []profile.Step{{ID: "s1", Plugin: "unknown"}}},
 			},
 		}
 
@@ -384,13 +405,18 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}()
 
 		registry := pluginapi.NewRegistry()
-		if err := registry.RegisterRollback(pluginapi.RollbackHandler{
-			Type: "failing",
-			Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
+		if err := registry.Register(pluginapi.Plugin{
+			Name:               "failing",
+			InternalValidation: true,
+			Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
+			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+				return pluginapi.PlanResult{}, nil
+			},
+			Rollback: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
 				return rollback.StepRecord{}, errors.New("capture failed")
 			},
 		}); err != nil {
-			t.Fatalf("register rollback handler failed: %v", err)
+			t.Fatalf("register plugin failed: %v", err)
 		}
 		pluginRegistry = registry
 
@@ -399,8 +425,8 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 				{
 					Steps: []profile.Step{
 						{
-							ID:   "bad-step",
-							Type: "failing",
+							ID:     "bad-step",
+							Plugin: "failing",
 						},
 					},
 				},
@@ -440,4 +466,40 @@ func stubApplyDeps() func() {
 		runStep = prevRunStep
 		pluginRegistry = prevRegistry
 	}
+}
+
+type applyProfileFixture struct {
+	ID          string
+	MinHardline string
+	Schema      int
+}
+
+func mustLoadApplyFixtureProfile(t *testing.T, f applyProfileFixture) *profile.Profile {
+	t.Helper()
+
+	id := f.ID
+	if id == "" {
+		id = "p"
+	}
+
+	dir := t.TempDir()
+	body := `{
+  "id": "` + id + `",
+  "display_name": "Profile",
+  "version": "1.0.0",
+  "os": {"family":"ubuntu","version":"24.04","variant":"lts"},
+  "profile_schema": ` + strconv.Itoa(f.Schema) + `,
+  "min_hardline": "` + f.MinHardline + `",
+  "actions": [],
+  "templates": []
+}`
+	if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write profile fixture: %v", err)
+	}
+
+	p, err := profile.Load(dir)
+	if err != nil {
+		t.Fatalf("load fixture profile failed: %v", err)
+	}
+	return p
 }

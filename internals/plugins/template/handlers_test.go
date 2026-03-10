@@ -1,86 +1,128 @@
 package template
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
-func TestApplyHandler(t *testing.T) {
-	validated := false
-	h := ApplyHandler(
-		func(_ pluginapi.ApplyContext, _ *profile.TemplateSpec) error { return nil },
-		func(pluginapi.ApplyContext) error {
-			validated = true
-			return nil
+func TestPlugin_MetadataAndValidation(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
 		},
+		RollbackDeps{},
 	)
-	if h.Type != "template" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if _, ok := h.ValidateKinds["sshd"]; !ok {
-		t.Fatal("expected sshd validate handler")
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "template"}); err == nil || !strings.Contains(err.Error(), "template spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "template", Template: &profile.TemplateSpec{Src: "x", Dest: "y"}}); err != nil {
-		t.Fatalf("unexpected apply error: %v", err)
-	}
-	if err := h.ValidateKinds["sshd"](pluginapi.ApplyContext{}); err != nil {
-		t.Fatalf("unexpected validate error: %v", err)
-	}
-	if !validated {
-		t.Fatal("expected validate callback invocation")
+
+	if !plugin.InternalValidation {
+		t.Fatal("expected template plugin to declare internal validation")
 	}
 
-	hNoValidate := ApplyHandler(func(_ pluginapi.ApplyContext, _ *profile.TemplateSpec) error { return nil }, nil)
-	if hNoValidate.ValidateKinds != nil {
-		t.Fatalf("expected nil validate map when callback is nil, got %#v", hNoValidate.ValidateKinds)
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "tmpl",
+		Plugin: "template",
+		Config: map[string]any{
+			"src":  "x",
+			"dest": "y",
+			"mode": "bad",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be octal") {
+		t.Fatalf("expected template validation error, got %v", err)
+	}
+
+	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+		ID:     "tmpl",
+		Plugin: "template",
+		Config: map[string]any{
+			"src":  "x",
+			"dest": "y",
+			"mode": "bad",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be octal") {
+		t.Fatalf("expected rollback template validation error, got %v", err)
 	}
 }
 
-func TestPlanHandler(t *testing.T) {
-	validated := false
-	h := PlanHandler(
-		func(_ pluginapi.PlanContext, _ *profile.TemplateSpec) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{Summary: "ok", Noop: 2}, nil
+func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
 		},
-		func(pluginapi.PlanContext) (pluginapi.PlanResult, error) {
-			validated = true
-			return pluginapi.PlanResult{Summary: "validated", Noop: 2}, nil
+		RollbackDeps{},
+	)
+
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "tmpl",
+		Plugin: "template",
+		Config: map[string]any{
+			"src":  "x",
+			"dest": "y",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "profile context is required") {
+		t.Fatalf("expected template apply to reach execution path, got %v", err)
+	}
+}
+
+func TestPlugin_PlanAndRollback(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
+		},
+		RollbackDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
 		},
 	)
-	if h.Type != "template" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if _, ok := h.ValidateKinds["sshd"]; !ok {
-		t.Fatal("expected sshd validate handler")
-	}
-	if _, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "template"}); err == nil || !strings.Contains(err.Error(), "template spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	res, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "template", Template: &profile.TemplateSpec{Src: "x", Dest: "y"}})
-	if err != nil {
-		t.Fatalf("unexpected plan error: %v", err)
-	}
-	if res.Summary != "ok" {
-		t.Fatalf("unexpected plan summary: %q", res.Summary)
-	}
-	vRes, err := h.ValidateKinds["sshd"](pluginapi.PlanContext{})
-	if err != nil {
-		t.Fatalf("unexpected validate error: %v", err)
-	}
-	if vRes.Summary != "validated" || !validated {
-		t.Fatalf("expected validate callback result, got=%+v validated=%v", vRes, validated)
+
+	prof := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
+	step := profile.Step{
+		ID:     "tmpl",
+		Plugin: "template",
+		Config: map[string]any{
+			"src":  "templates/t.tmpl",
+			"dest": "/etc/ssh/sshd_config.d/99-hardline-test.conf",
+			"mode": "0644",
+		},
 	}
 
-	hNoValidate := PlanHandler(func(_ pluginapi.PlanContext, _ *profile.TemplateSpec) (pluginapi.PlanResult, error) {
-		return pluginapi.PlanResult{}, nil
-	}, nil)
-	if hNoValidate.ValidateKinds != nil {
-		t.Fatalf("expected nil validate map when callback is nil, got %#v", hNoValidate.ValidateKinds)
+	if _, err := plugin.Plan(pluginapi.PlanContext{
+		Profile:   prof,
+		Inspector: templateInspectorStub{sshInclude: true},
+	}, step); err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+		t.Fatalf("rollback failed: %v", err)
+	}
+}
+
+func TestValidateTemplateSpec(t *testing.T) {
+	if err := validateTemplateSpec(nil); err == nil || !strings.Contains(err.Error(), "config is required") {
+		t.Fatalf("expected nil config validation error, got %v", err)
+	}
+	if err := validateTemplateSpec(&Spec{Dest: "/tmp/x"}); err == nil || !strings.Contains(err.Error(), "src is required") {
+		t.Fatalf("expected src validation error, got %v", err)
+	}
+	if err := validateTemplateSpec(&Spec{Src: "x"}); err == nil || !strings.Contains(err.Error(), "dest is required") {
+		t.Fatalf("expected dest validation error, got %v", err)
 	}
 }

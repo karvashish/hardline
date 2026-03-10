@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "journald-configure-persistence",
-      "type": "template",
+      "plugin": "template",
       "severity": "medium",
       "risk_class": "compliance",
       "control_tags": [],
-      "template": {
+      "config": {
         "src": "templates/50-journald-hardening.conf.tmpl",
         "dest": "/etc/systemd/journald.conf.d/99-hardline.conf",
         "mode": "0644"
@@ -14,11 +14,11 @@
     },
     {
       "id": "journald-reload",
-      "type": "service",
+      "plugin": "service",
       "severity": "medium",
       "risk_class": "compliance",
       "control_tags": [],
-      "service": {
+      "config": {
         "name": "systemd-journald",
         "enabled": true,
         "state": "restarted"

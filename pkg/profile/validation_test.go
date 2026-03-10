@@ -49,8 +49,20 @@ func TestAffirm_SucceedsForValidLoadedProfile(t *testing.T) {
   "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
   "profile_schema": 1,
   "min_hardline": "0.1.0",
-  "actions": [],
+  "actions": ["actions/ok.json"],
   "templates": []
+}`)
+	writeFile(t, filepath.Join(profileDir, "actions", "ok.json"), `{
+  "steps": [
+    {
+      "id": "pkg",
+      "plugin": "packages",
+      "severity": "medium",
+      "risk_class": "none",
+      "control_tags": [],
+      "config": {"install": ["curl"]}
+    }
+  ]
 }`)
 
 	p, err := Load(profileDir)
@@ -105,10 +117,91 @@ func TestAffirm_SchemaReadAndParseErrors(t *testing.T) {
 	}
 }
 
+func TestAffirm_ActionFileReadAndDecodeErrors(t *testing.T) {
+	t.Run("missing action file", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "profile.json"), `{
+  "id": "ok-profile",
+  "display_name": "OK Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": ["actions/missing.json"],
+  "templates": []
+}`)
+		p := &Profile{profilePath: dir}
+		if err := p.Affirm(); err == nil || !strings.Contains(err.Error(), "read action file") {
+			t.Fatalf("expected action file read error, got %v", err)
+		}
+	})
+
+	t.Run("invalid action file", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "profile.json"), `{
+  "id": "ok-profile",
+  "display_name": "OK Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": ["actions/invalid.json"],
+  "templates": []
+}`)
+		writeFile(t, filepath.Join(dir, "actions", "invalid.json"), "{bad-json")
+		p := &Profile{profilePath: dir}
+		if err := p.Affirm(); err == nil || !strings.Contains(err.Error(), "decode action file") {
+			t.Fatalf("expected action file decode error, got %v", err)
+		}
+	})
+}
+
 func TestProfileSchemaPath_ResolvesSchemaFile(t *testing.T) {
-	p := profileSchemaPath()
+	p := resolveProfileSchemaPath()
 	if !strings.HasSuffix(filepath.ToSlash(p), "schema/profile.schema.json") {
 		t.Fatalf("unexpected schema path %q", p)
+	}
+}
+
+func TestActionFileSchemaPath_ResolvesSchemaFile(t *testing.T) {
+	p := resolveActionFileSchemaPath()
+	if !strings.HasSuffix(filepath.ToSlash(p), "schema/action-file.schema.json") {
+		t.Fatalf("unexpected schema path %q", p)
+	}
+}
+
+func TestAffirm_ValidatesActionFiles(t *testing.T) {
+	profileDir := t.TempDir()
+	writeFile(t, filepath.Join(profileDir, "profile.json"), `{
+  "id": "ok-profile",
+  "display_name": "OK Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": ["actions/invalid.json"],
+  "templates": []
+}`)
+	writeFile(t, filepath.Join(profileDir, "actions", "invalid.json"), `{
+  "steps": [
+    {
+      "id": "svc",
+      "plugin": "service",
+      "severity": "medium",
+      "risk_class": "none",
+      "control_tags": [],
+      "name": "ssh"
+    }
+  ]
+}`)
+
+	p, err := Load(profileDir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	err = p.Affirm()
+	if err == nil || !strings.Contains(err.Error(), "action file validation failed") {
+		t.Fatalf("expected action schema validation error, got %v", err)
 	}
 }
 

@@ -28,78 +28,56 @@ type RollbackDeps struct {
 	ReadRootFile      func(*ssh.Client, string) (string, error)
 }
 
-func DefaultApplyHandlers(deps ApplyDeps) []pluginapi.ApplyHandler {
-	return []pluginapi.ApplyHandler{
-		packages.DefaultApplyHandler(packages.ApplyDeps{
-			RunRoot: deps.RunRoot,
+func DefaultPlugins(applyDeps ApplyDeps, rollbackDeps RollbackDeps) []pluginapi.Plugin {
+	return []pluginapi.Plugin{
+		packages.Plugin(packages.ApplyDeps{
+			RunRoot: applyDeps.RunRoot,
+		}, packages.RollbackDeps{
+			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
 		}),
-		template.DefaultApplyHandler(template.ApplyDeps{
-			RunRoot:          deps.RunRoot,
-			NewSFTPClient:    deps.NewSFTPClient,
-			WriteRootFile:    deps.WriteRootFile,
-			MarkServiceDirty: deps.MarkServiceDirty,
+		template.Plugin(template.ApplyDeps{
+			RunRoot:          applyDeps.RunRoot,
+			NewSFTPClient:    applyDeps.NewSFTPClient,
+			WriteRootFile:    applyDeps.WriteRootFile,
+			MarkServiceDirty: applyDeps.MarkServiceDirty,
+		}, template.RollbackDeps{
+			RunRoot:           rollbackDeps.RunRoot,
+			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
+			ReadRootFile:      rollbackDeps.ReadRootFile,
 		}),
-		service.DefaultApplyHandler(service.ApplyDeps{
-			RunRoot:           deps.RunRoot,
-			IsServiceDirty:    deps.IsServiceDirty,
-			ClearServiceDirty: deps.ClearServiceDirty,
+		service.Plugin(service.ApplyDeps{
+			RunRoot:           applyDeps.RunRoot,
+			IsServiceDirty:    applyDeps.IsServiceDirty,
+			ClearServiceDirty: applyDeps.ClearServiceDirty,
+		}, service.RollbackDeps{
+			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
 		}),
-		firewall.DefaultApplyHandler(firewall.ApplyDeps{
-			RunRoot:          deps.RunRoot,
-			NewSFTPClient:    deps.NewSFTPClient,
-			WriteRootFile:    deps.WriteRootFile,
-			MarkServiceDirty: deps.MarkServiceDirty,
+		firewall.Plugin(firewall.ApplyDeps{
+			RunRoot:          applyDeps.RunRoot,
+			NewSFTPClient:    applyDeps.NewSFTPClient,
+			WriteRootFile:    applyDeps.WriteRootFile,
+			MarkServiceDirty: applyDeps.MarkServiceDirty,
+		}, firewall.RollbackDeps{
+			RunRoot:           rollbackDeps.RunRoot,
+			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
+			ReadRootFile:      rollbackDeps.ReadRootFile,
 		}),
-		firewalltemplate.DefaultApplyHandler(firewalltemplate.ApplyDeps{
-			RunRoot:          deps.RunRoot,
-			NewSFTPClient:    deps.NewSFTPClient,
-			WriteRootFile:    deps.WriteRootFile,
-			MarkServiceDirty: deps.MarkServiceDirty,
-		}),
-	}
-}
-
-func DefaultPlanHandlers() []pluginapi.PlanHandler {
-	return []pluginapi.PlanHandler{
-		packages.DefaultPlanHandler(),
-		template.DefaultPlanHandler(),
-		service.DefaultPlanHandler(),
-		firewall.DefaultPlanHandler(),
-		firewalltemplate.DefaultPlanHandler(),
-	}
-}
-
-func DefaultRollbackHandlers(deps RollbackDeps) []pluginapi.RollbackHandler {
-	return []pluginapi.RollbackHandler{
-		packages.DefaultRollbackHandler(packages.RollbackDeps{
-			RunRootWithOutput: deps.RunRootWithOutput,
-		}),
-		template.DefaultRollbackHandler(template.RollbackDeps{
-			RunRoot:           deps.RunRoot,
-			RunRootWithOutput: deps.RunRootWithOutput,
-			ReadRootFile:      deps.ReadRootFile,
-		}),
-		service.DefaultRollbackHandler(service.RollbackDeps{
-			RunRootWithOutput: deps.RunRootWithOutput,
-		}),
-		firewall.DefaultRollbackHandler(firewall.RollbackDeps{
-			RunRoot:           deps.RunRoot,
-			RunRootWithOutput: deps.RunRootWithOutput,
-			ReadRootFile:      deps.ReadRootFile,
-		}),
-		firewalltemplate.DefaultRollbackHandler(firewalltemplate.RollbackDeps{
-			RunRoot:           deps.RunRoot,
-			RunRootWithOutput: deps.RunRootWithOutput,
-			ReadRootFile:      deps.ReadRootFile,
+		firewalltemplate.Plugin(firewalltemplate.ApplyDeps{
+			RunRoot:          applyDeps.RunRoot,
+			NewSFTPClient:    applyDeps.NewSFTPClient,
+			WriteRootFile:    applyDeps.WriteRootFile,
+			MarkServiceDirty: applyDeps.MarkServiceDirty,
+		}, firewalltemplate.RollbackDeps{
+			RunRoot:           rollbackDeps.RunRoot,
+			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
+			ReadRootFile:      rollbackDeps.ReadRootFile,
 		}),
 	}
 }
 
 func DefaultBundle(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.PluginBundle {
 	return pluginapi.PluginBundle{
-		Name:             "builtin",
-		ApplyHandlers:    DefaultApplyHandlers(applyDeps),
-		PlanHandlers:     DefaultPlanHandlers(),
-		RollbackHandlers: DefaultRollbackHandlers(rollbackDeps),
+		Name:    "builtin",
+		Plugins: DefaultPlugins(applyDeps, rollbackDeps),
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"os"
@@ -14,16 +13,16 @@ import (
 )
 
 func TestNormalizeDesiredSpec(t *testing.T) {
-	spec, err := NormalizeDesiredSpec(&profile.FirewallSpec{
+	spec, err := NormalizeDesiredSpec(&Spec{
 		Backend:     "nftables",
 		Family:      "inet",
 		Table:       "filter",
 		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
-		Policies: []profile.FirewallPolicy{
+		Policies: []Policy{
 			{Chain: "input", Policy: "drop"},
 			{Chain: "output", Policy: "accept"},
 		},
-		Rules: []profile.FirewallRule{
+		Rules: []Rule{
 			{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/24", InInterface: "eth0", Action: "accept"},
 			{Chain: "input", Proto: "tcp", Port: 443, Action: "accept"},
 		},
@@ -153,28 +152,28 @@ func TestNormalizeRuleAndDecodeHelpers(t *testing.T) {
 		t.Fatalf("unexpected normalized states: states=%v err=%v", states, err)
 	}
 
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Proto: "icmp", Port: 22, Action: "accept"}); err == nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "icmp", Port: 22, Action: "accept"}); err == nil {
 		t.Fatalf("expected icmp port validation error")
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Proto: "tcp", Action: "accept"}); err == nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "tcp", Action: "accept"}); err == nil {
 		t.Fatalf("expected missing port error")
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Proto: "tcp", Port: 70000, Action: "accept"}); err == nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "tcp", Port: 70000, Action: "accept"}); err == nil {
 		t.Fatalf("expected invalid port error")
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Action: "accept"}); err == nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Action: "accept"}); err == nil {
 		t.Fatalf("expected missing matcher error")
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Proto: "tcp", Port: 22, Action: "allow"}); err == nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "tcp", Port: 22, Action: "allow"}); err == nil {
 		t.Fatalf("expected invalid action error")
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Proto: "tcp", Ports: []int{22, 443, 22}, Action: "accept"}); err != nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "tcp", Ports: []int{22, 443, 22}, Action: "accept"}); err != nil {
 		t.Fatalf("expected valid deterministic tcp rule, got %v", err)
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", Proto: "icmp", Action: "accept"}); err != nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "icmp", Action: "accept"}); err != nil {
 		t.Fatalf("expected valid icmp rule, got %v", err)
 	}
-	if _, err := NormalizeDesiredRule(profile.FirewallRule{Chain: "input", InInterface: "lo", Action: "accept"}); err != nil {
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", InInterface: "lo", Action: "accept"}); err != nil {
 		t.Fatalf("expected valid interface-only rule, got %v", err)
 	}
 
@@ -199,12 +198,12 @@ func TestNormalizeRuleAndDecodeHelpers(t *testing.T) {
 		t.Fatalf("expected missing policies error")
 	}
 	bad = validDeterministicFirewallSpec()
-	bad.Policies = []profile.FirewallPolicy{{Chain: "", Policy: "drop"}}
+	bad.Policies = []Policy{{Chain: "", Policy: "drop"}}
 	if _, err := NormalizeDesiredSpec(bad); err == nil {
 		t.Fatalf("expected missing chain error")
 	}
 	bad = validDeterministicFirewallSpec()
-	bad.Rules = []profile.FirewallRule{{Chain: "output", Proto: "tcp", Port: 443, Action: "accept"}}
+	bad.Rules = []Rule{{Chain: "output", Proto: "tcp", Port: 443, Action: "accept"}}
 	if _, err := NormalizeDesiredSpec(bad); err == nil || !strings.Contains(err.Error(), "missing policy") {
 		t.Fatalf("expected missing policy for rule chain error, got %v", err)
 	}
@@ -281,7 +280,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if got := ManagedDestination(nil); got != "" {
 			t.Fatalf("unexpected nil destination: %q", got)
 		}
-		if got := ManagedDestination(&profile.FirewallSpec{ManagedDest: " /etc/nftables.d/99-hardline-managed.nft "}); got != "/etc/nftables.d/99-hardline-managed.nft" {
+		if got := ManagedDestination(&Spec{ManagedDest: " /etc/nftables.d/99-hardline-managed.nft "}); got != "/etc/nftables.d/99-hardline-managed.nft" {
 			t.Fatalf("unexpected managed destination: %q", got)
 		}
 	})
@@ -333,7 +332,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 	})
 
 	t.Run("apply paths", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.FirewallSpec{Backend: "ufw"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Backend: "ufw"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
 			t.Fatalf("expected unsupported backend error, got %v", err)
 		}
@@ -439,24 +438,24 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 	})
 
 	t.Run("plan validate capture", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &profile.FirewallSpec{Backend: "ufw"})
+		res, err := Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "ufw"})
 		if err != nil || !strings.Contains(res.Summary, "unsupported backend") {
 			t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 		}
 
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &profile.FirewallSpec{Backend: "nftables"})
+		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "family is required") {
 			t.Fatalf("expected family required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &profile.FirewallSpec{Backend: "nftables", Family: "inet"})
+		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables", Family: "inet"})
 		if err == nil || !strings.Contains(err.Error(), "table is required") {
 			t.Fatalf("expected table required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &profile.FirewallSpec{Backend: "nftables", Family: "inet", Table: "filter"})
+		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter"})
 		if err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
 			t.Fatalf("expected managed_dest required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &profile.FirewallSpec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+		_, err = Plan(pluginapi.PlanContext{Inspector: firewallInspectorStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err == nil || !strings.Contains(err.Error(), "policies are required") {
 			t.Fatalf("expected policies required error, got %v", err)
 		}
@@ -507,15 +506,15 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected include-present detail, got %+v", vres.Details)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "f", Type: "firewall"}, RollbackDeps{})
+		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", nil, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "firewall spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "f", Type: "firewall", Firewall: &profile.FirewallSpec{ManagedDest: "/tmp/nope.nft"}}, RollbackDeps{})
+		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", &Spec{ManagedDest: "/tmp/nope.nft"}, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 			t.Fatalf("expected managed path error, got %v", err)
 		}
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "f", Type: "firewall", Firewall: validDeterministicFirewallSpec()}, RollbackDeps{
+		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", validDeterministicFirewallSpec(), RollbackDeps{
 			RunRoot:           func(*ssh.Client, string) error { return nil },
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("stat bad") },
 			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
@@ -523,7 +522,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "capture firewall snapshot") {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "f", Type: "firewall", Firewall: validDeterministicFirewallSpec()}, RollbackDeps{
+		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "f", validDeterministicFirewallSpec(), RollbackDeps{
 			RunRoot:           func(*ssh.Client, string) error { return nil },
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644", nil },
 			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "abc", nil },
@@ -580,16 +579,16 @@ func TestExtraDecodeAndRenderBranches(t *testing.T) {
 	}
 }
 
-func validDeterministicFirewallSpec() *profile.FirewallSpec {
-	return &profile.FirewallSpec{
+func validDeterministicFirewallSpec() *Spec {
+	return &Spec{
 		Backend:     "nftables",
 		Family:      "inet",
 		Table:       "filter",
 		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
-		Policies: []profile.FirewallPolicy{
+		Policies: []Policy{
 			{Chain: "input", Policy: "drop"},
 		},
-		Rules: []profile.FirewallRule{
+		Rules: []Rule{
 			{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
 		},
 	}

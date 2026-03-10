@@ -8,7 +8,6 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -22,7 +21,7 @@ type RollbackDeps struct {
 	RunRootWithOutput func(*ssh.Client, string) (string, error)
 }
 
-func Apply(ctx pluginapi.ApplyContext, s *profile.ServiceSpec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
 	if s.Name == "" {
 		return fmt.Errorf("service name is required")
 	}
@@ -98,7 +97,7 @@ func Apply(ctx pluginapi.ApplyContext, s *profile.ServiceSpec, deps ApplyDeps) e
 	return nil
 }
 
-func Plan(ctx pluginapi.PlanContext, s *profile.ServiceSpec) (pluginapi.PlanResult, error) {
+func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	if s.Name == "" {
 		return pluginapi.PlanResult{Summary: "service step: invalid (missing service name)"}, fmt.Errorf("service name is required")
 	}
@@ -188,16 +187,16 @@ func Plan(ctx pluginapi.PlanContext, s *profile.ServiceSpec) (pluginapi.PlanResu
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
-		ID:   s.ID,
+		ID:   stepID,
 		Type: "service",
 	}
-	if s.Service == nil {
-		return record, fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
+	if spec == nil {
+		return record, fmt.Errorf("step %q (type=service): service spec missing", stepID)
 	}
 
-	unit := normalizeServiceUnit(s.Service.Name)
+	unit := normalizeServiceUnit(spec.Name)
 	state, err := rollbackutil.SnapshotServiceState(ctx.Client, unit, rollbackutil.Deps{
 		RunRootWithOutput: deps.RunRootWithOutput,
 	})

@@ -31,7 +31,7 @@ func TestPlanProfile(t *testing.T) {
 			ActionFiles: []profile.ActionFile{
 				{
 					Steps: []profile.Step{
-						{ID: "s1", Type: "unknown", Severity: "low", RiskClass: "none"},
+						{ID: "s1", Plugin: "unknown", Severity: "low", RiskClass: "none"},
 					},
 				},
 			},
@@ -51,13 +51,18 @@ func TestPlanProfile(t *testing.T) {
 		}()
 
 		registry := pluginapi.NewRegistry()
-		if err := registry.RegisterPlan(pluginapi.PlanHandler{
-			Type: "boom",
+		if err := registry.Register(pluginapi.Plugin{
+			Name:               "boom",
+			InternalValidation: true,
+			Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
 			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, errors.New("plan boom")
 			},
+			Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+				return pluginapi.StepRecord{}, nil
+			},
 		}); err != nil {
-			t.Fatalf("register plan handler: %v", err)
+			t.Fatalf("register plugin: %v", err)
 		}
 		planPluginRegistry = registry
 
@@ -65,7 +70,7 @@ func TestPlanProfile(t *testing.T) {
 			ActionFiles: []profile.ActionFile{
 				{
 					Steps: []profile.Step{
-						{ID: "bad", Type: "boom"},
+						{ID: "bad", Plugin: "boom"},
 					},
 				},
 			},

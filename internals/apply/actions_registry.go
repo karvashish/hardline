@@ -2,7 +2,6 @@ package apply
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/karvashish/hardline/internals/plugins/builtin"
 	"github.com/karvashish/hardline/pkg/pluginapi"
@@ -16,16 +15,8 @@ func PluginRegistry() *pluginapi.Registry {
 	return pluginRegistry
 }
 
-func RegisterApplyAction(h pluginapi.ApplyHandler) error {
-	return pluginRegistry.RegisterApply(h)
-}
-
-func RegisterPlanAction(h pluginapi.PlanHandler) error {
-	return pluginRegistry.RegisterPlan(h)
-}
-
-func RegisterRollbackAction(h pluginapi.RollbackHandler) error {
-	return pluginRegistry.RegisterRollback(h)
+func RegisterPlugin(p pluginapi.Plugin) error {
+	return pluginRegistry.Register(p)
 }
 
 func RegisterPluginBundle(bundle pluginapi.PluginBundle) error {
@@ -69,12 +60,4 @@ func applyRollbackContext(client *ssh.Client, p *profile.Profile) pluginapi.Roll
 		Client:  client,
 		Profile: p,
 	}
-}
-
-func applyValidateByKind(client *ssh.Client, p *profile.Profile, kind string) error {
-	validateFn, ok := pluginRegistry.LookupApplyValidate(kind)
-	if !ok {
-		return fmt.Errorf("unsupported validate kind %q", strings.TrimSpace(kind))
-	}
-	return validateFn(applyActionContext(client, p))
 }

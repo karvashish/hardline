@@ -1,86 +1,145 @@
 package firewall
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
-func TestApplyHandler(t *testing.T) {
-	validated := false
-	h := ApplyHandler(
-		func(_ pluginapi.ApplyContext, _ *profile.FirewallSpec) error { return nil },
-		func(pluginapi.ApplyContext) error {
-			validated = true
-			return nil
+func TestPlugin_MetadataAndValidation(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
 		},
+		RollbackDeps{},
 	)
-	if h.Type != "firewall" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if _, ok := h.ValidateKinds["firewall"]; !ok {
-		t.Fatal("expected firewall validate handler")
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "firewall"}); err == nil || !strings.Contains(err.Error(), "firewall spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "firewall", Firewall: &profile.FirewallSpec{Backend: "nftables"}}); err != nil {
-		t.Fatalf("unexpected apply error: %v", err)
-	}
-	if err := h.ValidateKinds["firewall"](pluginapi.ApplyContext{}); err != nil {
-		t.Fatalf("unexpected validate error: %v", err)
-	}
-	if !validated {
-		t.Fatal("expected validate callback invocation")
+
+	if !plugin.InternalValidation {
+		t.Fatal("expected firewall plugin to declare internal validation")
 	}
 
-	hNoValidate := ApplyHandler(func(_ pluginapi.ApplyContext, _ *profile.FirewallSpec) error { return nil }, nil)
-	if hNoValidate.ValidateKinds != nil {
-		t.Fatalf("expected nil validate map when callback is nil, got %#v", hNoValidate.ValidateKinds)
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "fw",
+		Plugin: "firewall",
+		Config: map[string]any{
+			"backend": "ufw",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
+		t.Fatalf("expected firewall validation error, got %v", err)
+	}
+
+	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+		ID:     "fw",
+		Plugin: "firewall",
+		Config: map[string]any{
+			"backend": "ufw",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
+		t.Fatalf("expected rollback firewall validation error, got %v", err)
 	}
 }
 
-func TestPlanHandler(t *testing.T) {
-	validated := false
-	h := PlanHandler(
-		func(_ pluginapi.PlanContext, _ *profile.FirewallSpec) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{Summary: "ok", Noop: 2}, nil
+func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
 		},
-		func(pluginapi.PlanContext) (pluginapi.PlanResult, error) {
-			validated = true
-			return pluginapi.PlanResult{Summary: "validated", Noop: 2}, nil
+		RollbackDeps{},
+	)
+
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "fw",
+		Plugin: "firewall",
+		Config: map[string]any{
+			"backend":      "nftables",
+			"family":       "inet",
+			"table":        "filter",
+			"managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
+			"policies": []any{
+				map[string]any{"chain": "input", "policy": "drop"},
+				map[string]any{"chain": "forward", "policy": "drop"},
+				map[string]any{"chain": "output", "policy": "accept"},
+			},
+			"rules": []any{
+				map[string]any{"chain": "input", "proto": "tcp", "port": 22, "action": "accept"},
+				map[string]any{"chain": "input", "ct_states": []any{"established", "related"}, "action": "accept"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+}
+
+func TestPlugin_PlanAndRollback(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
+		},
+		RollbackDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
 		},
 	)
-	if h.Type != "firewall" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if _, ok := h.ValidateKinds["firewall"]; !ok {
-		t.Fatal("expected firewall validate handler")
-	}
-	if _, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "firewall"}); err == nil || !strings.Contains(err.Error(), "firewall spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	res, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "firewall", Firewall: &profile.FirewallSpec{Backend: "nftables"}})
-	if err != nil {
-		t.Fatalf("unexpected plan error: %v", err)
-	}
-	if res.Summary != "ok" {
-		t.Fatalf("unexpected plan summary: %q", res.Summary)
-	}
-	vRes, err := h.ValidateKinds["firewall"](pluginapi.PlanContext{})
-	if err != nil {
-		t.Fatalf("unexpected validate error: %v", err)
-	}
-	if vRes.Summary != "validated" || !validated {
-		t.Fatalf("expected validate callback result, got=%+v validated=%v", vRes, validated)
+
+	step := profile.Step{
+		ID:     "fw",
+		Plugin: "firewall",
+		Config: map[string]any{
+			"backend":      "nftables",
+			"family":       "inet",
+			"table":        "filter",
+			"managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
+			"policies": []any{
+				map[string]any{"chain": "input", "policy": "drop"},
+				map[string]any{"chain": "forward", "policy": "drop"},
+				map[string]any{"chain": "output", "policy": "accept"},
+			},
+			"rules": []any{
+				map[string]any{"chain": "input", "proto": "tcp", "port": 22, "action": "accept"},
+				map[string]any{"chain": "input", "ct_states": []any{"established", "related"}, "action": "accept"},
+			},
+		},
 	}
 
-	hNoValidate := PlanHandler(func(_ pluginapi.PlanContext, _ *profile.FirewallSpec) (pluginapi.PlanResult, error) {
-		return pluginapi.PlanResult{}, nil
-	}, nil)
-	if hNoValidate.ValidateKinds != nil {
-		t.Fatalf("expected nil validate map when callback is nil, got %#v", hNoValidate.ValidateKinds)
+	if _, err := plugin.Plan(pluginapi.PlanContext{
+		Inspector: firewallInspectorStub{include: true, statInfo: fakeFileInfo{mode: 0o644, size: 12}},
+	}, step); err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+		t.Fatalf("rollback failed: %v", err)
+	}
+}
+
+func TestValidateFirewallSpec(t *testing.T) {
+	if err := validateFirewallSpec(nil); err == nil || !strings.Contains(err.Error(), "config is required") {
+		t.Fatalf("expected nil config error, got %v", err)
+	}
+	if err := validateFirewallSpec(&Spec{}); err == nil || !strings.Contains(err.Error(), "backend is required") {
+		t.Fatalf("expected backend error, got %v", err)
+	}
+	spec := validDeterministicFirewallSpec()
+	spec.ManagedDest = ""
+	if err := validateFirewallSpec(spec); err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
+		t.Fatalf("expected managed_dest error, got %v", err)
 	}
 }

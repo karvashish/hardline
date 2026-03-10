@@ -10,43 +10,33 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func TestCaptureStepRecord_ValidateNoop(t *testing.T) {
-	record, err := captureStepRecord(nil, nil, profile.Step{ID: "v", Type: "validate"})
-	if err != nil {
-		t.Fatalf("captureStepRecord failed: %v", err)
-	}
-	if record.RollbackMode != rollback.ModeNoop {
-		t.Fatalf("expected noop rollback mode, got %q", record.RollbackMode)
-	}
-	if len(record.Objects) != 1 || record.Objects[0].Kind != rollback.ObjectValidate {
-		t.Fatalf("unexpected validate rollback object: %+v", record.Objects)
-	}
-}
-
 func TestCaptureStepRecord_UnknownNoop(t *testing.T) {
-	record, err := captureStepRecord(nil, nil, profile.Step{ID: "u", Type: "mystery"})
+	record, err := captureStepRecord(nil, nil, profile.Step{ID: "u", Plugin: "mystery"})
 	if err != nil {
 		t.Fatalf("captureStepRecord failed: %v", err)
 	}
 	if record.RollbackMode != rollback.ModeNoop {
 		t.Fatalf("expected noop rollback mode, got %q", record.RollbackMode)
 	}
-	if len(record.Objects) != 1 || !strings.Contains(record.Objects[0].Message, "unknown step type") {
-		t.Fatalf("unexpected unknown-step rollback object: %+v", record.Objects)
+	if len(record.Objects) != 1 || !strings.Contains(record.Objects[0].Message, "unknown plugin") {
+		t.Fatalf("unexpected unknown-plugin rollback object: %+v", record.Objects)
 	}
 }
 
 func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 	prev := pluginRegistry
-	defer func() {
-		pluginRegistry = prev
-	}()
+	defer func() { pluginRegistry = prev }()
 
 	registry := pluginapi.NewRegistry()
 	called := false
-	err := registry.RegisterRollback(pluginapi.RollbackHandler{
-		Type: "fake",
-		Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
+	err := registry.Register(pluginapi.Plugin{
+		Name:               "fake",
+		InternalValidation: true,
+		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
+		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+			return pluginapi.PlanResult{}, nil
+		},
+		Rollback: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
 			called = true
 			return rollback.StepRecord{
 				ID:           "f1",
@@ -56,11 +46,11 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("register rollback handler failed: %v", err)
+		t.Fatalf("register plugin failed: %v", err)
 	}
 	pluginRegistry = registry
 
-	record, err := captureStepRecord(nil, nil, profile.Step{ID: "f1", Type: "fake"})
+	record, err := captureStepRecord(nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
 	if err != nil {
 		t.Fatalf("captureStepRecord failed: %v", err)
 	}
@@ -74,23 +64,26 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 
 func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 	prev := pluginRegistry
-	defer func() {
-		pluginRegistry = prev
-	}()
+	defer func() { pluginRegistry = prev }()
 
 	registry := pluginapi.NewRegistry()
-	err := registry.RegisterRollback(pluginapi.RollbackHandler{
-		Type: "fake",
-		Capture: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
+	err := registry.Register(pluginapi.Plugin{
+		Name:               "fake",
+		InternalValidation: true,
+		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
+		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+			return pluginapi.PlanResult{}, nil
+		},
+		Rollback: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
 			return rollback.StepRecord{}, errors.New("capture boom")
 		},
 	})
 	if err != nil {
-		t.Fatalf("register rollback handler failed: %v", err)
+		t.Fatalf("register plugin failed: %v", err)
 	}
 	pluginRegistry = registry
 
-	_, gotErr := captureStepRecord(nil, nil, profile.Step{ID: "f1", Type: "fake"})
+	_, gotErr := captureStepRecord(nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "capture boom") {
 		t.Fatalf("expected capture error, got %v", gotErr)
 	}

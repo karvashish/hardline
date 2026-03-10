@@ -2,61 +2,82 @@ package firewalltemplate
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func ApplyHandler(applyFn func(pluginapi.ApplyContext, *profile.FirewallTemplateSpec) error) pluginapi.ApplyHandler {
-	return pluginapi.ApplyHandler{
-		Type: "firewall_template",
-		Apply: func(ctx pluginapi.ApplyContext, s profile.Step) error {
-			if s.FirewallTemplate == nil {
-				return fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
+func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+	return pluginapi.Plugin{
+		Name:               "firewall_template",
+		InternalValidation: true,
+		Apply: func(ctx pluginapi.ApplyContext, step profile.Step) error {
+			spec, err := decodeFirewallTemplateSpec(step)
+			if err != nil {
+				return err
 			}
-			return applyFn(ctx, s.FirewallTemplate)
-		},
-	}
-}
-
-func PlanHandler(planFn func(pluginapi.PlanContext, *profile.FirewallTemplateSpec) (pluginapi.PlanResult, error)) pluginapi.PlanHandler {
-	return pluginapi.PlanHandler{
-		Type: "firewall_template",
-		Plan: func(ctx pluginapi.PlanContext, s profile.Step) (pluginapi.PlanResult, error) {
-			if s.FirewallTemplate == nil {
-				return pluginapi.PlanResult{}, fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
+			if err := validateFirewallTemplateSpec(spec); err != nil {
+				return err
 			}
-			return planFn(ctx, s.FirewallTemplate)
+			return Apply(ctx, spec, applyDeps)
+		},
+		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
+			spec, err := decodeFirewallTemplateSpec(step)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			if err := validateFirewallTemplateSpec(spec); err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			return Plan(ctx, spec)
+		},
+		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+			spec, err := decodeFirewallTemplateSpec(step)
+			if err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "firewall_template"}, err
+			}
+			if err := validateFirewallTemplateSpec(spec); err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "firewall_template"}, err
+			}
+
+			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
 		},
 	}
 }
 
-func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
-	h := ApplyHandler(func(ctx pluginapi.ApplyContext, spec *profile.FirewallTemplateSpec) error {
-		return Apply(ctx, spec, deps)
-	})
-	h.ValidateKinds = map[string]func(pluginapi.ApplyContext) error{
-		"firewall_template": func(pluginapi.ApplyContext) error { return nil },
+func decodeFirewallTemplateSpec(step profile.Step) (*Spec, error) {
+	var spec Spec
+	if err := step.Decode(&spec); err != nil {
+		return nil, err
 	}
-	return h
+	return &spec, nil
 }
 
-func DefaultPlanHandler() pluginapi.PlanHandler {
-	h := PlanHandler(Plan)
-	h.ValidateKinds = map[string]func(pluginapi.PlanContext) (pluginapi.PlanResult, error){
-		"firewall_template": func(pluginapi.PlanContext) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{Summary: "firewall_template validation: no additional checks"}, nil
-		},
+func validateFirewallTemplateSpec(spec *Spec) error {
+	if spec == nil {
+		return fmt.Errorf("firewall_template config is required")
 	}
-	return h
-}
+	if strings.TrimSpace(spec.Backend) == "" {
+		return fmt.Errorf("firewall backend is required")
+	}
+	if spec.Backend != "nftables" {
+		return fmt.Errorf("unsupported firewall backend %q", spec.Backend)
+	}
+	if strings.TrimSpace(spec.Policy) == "" {
+		return fmt.Errorf("firewall_template policy is required")
+	}
 
-func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
-	return pluginapi.RollbackHandler{
-		Type: "firewall_template",
-		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
-			return CaptureRollback(ctx, s, deps)
-		},
+	for _, rule := range spec.Allow {
+		if rule.Port <= 0 || rule.Port > 65535 {
+			return fmt.Errorf("firewall_template allow port %d is out of range", rule.Port)
+		}
+		switch strings.ToLower(strings.TrimSpace(rule.Proto)) {
+		case "", "tcp", "udp":
+		default:
+			return fmt.Errorf("unsupported firewall_template protocol %q", rule.Proto)
+		}
 	}
+
+	return nil
 }

@@ -11,19 +11,18 @@ Profiles are deterministic, data-only descriptions of system configuration and h
   Each file contains:
   {
     "steps": [
-      { "...": "..." }
+      {
+        "id": "step-id",
+        "plugin": "plugin-name",
+        "config": {
+          "... plugin-owned fields ...": "..."
+        }
+      }
     ]
   }
-
-  Allowed primitives:
-  - packages
-  - service
-  - sysctl
-  - template
-  - file
-  - firewall
-  - user
-  - wireguard
+  The core only owns common step metadata such as `id`, `plugin`, `severity`,
+  `risk_class`, `control_tags`, and `allow_unvalidated`.
+  All plugin-specific fields live under `config` and are parsed and validated by the plugin that owns them.
 
 - `profile/templates/*.tmpl`
   Static templates with no logic.
@@ -33,7 +32,7 @@ Profiles are deterministic, data-only descriptions of system configuration and h
 1. Load profile.json
 2. Validate schema and min_hardline
 3. Validate OS match
-4. Validate all step types
+4. Validate each step through its plugin
 5. Execute actions in order
 6. Render templates
 7. Write metadata

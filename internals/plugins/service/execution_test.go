@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 	"os"
 	"strings"
@@ -12,7 +11,7 @@ import (
 
 func TestApply(t *testing.T) {
 	t.Run("missing name", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "service name is required") {
 			t.Fatalf("expected missing name error, got %v", err)
 		}
@@ -21,7 +20,7 @@ func TestApply(t *testing.T) {
 	t.Run("enable and restart when dirty", func(t *testing.T) {
 		dirty := map[string]bool{"ssh": true}
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "sshd", State: "restart", Enabled: boolPtr(true)}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "sshd", State: "restart", Enabled: boolPtr(true)}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				if cmd == "systemctl is-enabled ssh >/dev/null 2>&1" {
@@ -53,7 +52,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("disable and stop", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "stop", Enabled: boolPtr(false)}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "stop", Enabled: boolPtr(false)}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
@@ -74,7 +73,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("clean restart skips", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "restart"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "restart"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
@@ -92,7 +91,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("clean reload skips", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "reload"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "reload"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
@@ -111,7 +110,7 @@ func TestApply(t *testing.T) {
 	t.Run("dirty reload runs and clears", func(t *testing.T) {
 		dirty := map[string]bool{"cron": true}
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "reload"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "reload"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
@@ -134,7 +133,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("start skips when already active", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "start"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "start"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
@@ -151,7 +150,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("stop skips when inactive", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "stop"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "stop"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				cmds = append(cmds, cmd)
 				if cmd == "systemctl is-active cron >/dev/null 2>&1" {
@@ -170,14 +169,14 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("unsupported state", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "wat"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "wat"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "unsupported service state") {
 			t.Fatalf("expected unsupported state error, got %v", err)
 		}
 	})
 
 	t.Run("enable command error", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", Enabled: boolPtr(true)}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", Enabled: boolPtr(true)}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				if cmd == "systemctl is-enabled cron >/dev/null 2>&1" {
 					return errors.New("disabled")
@@ -191,7 +190,7 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("state command error", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.ServiceSpec{Name: "cron", State: "start"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "start"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				if cmd == "systemctl is-active cron >/dev/null 2>&1" {
 					return errors.New("inactive")
@@ -206,12 +205,12 @@ func TestApply(t *testing.T) {
 }
 
 func TestPlan(t *testing.T) {
-	_, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{}}, &profile.ServiceSpec{})
+	_, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{}}, &Spec{})
 	if err == nil || !strings.Contains(err.Error(), "service name is required") {
 		t.Fatalf("expected missing name error, got %v", err)
 	}
 
-	res, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &profile.ServiceSpec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
+	res, err := Plan(pluginapi.PlanContext{Inspector: serviceInspectorStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -224,14 +223,14 @@ func TestPlan(t *testing.T) {
 
 	cases := []struct {
 		name       string
-		spec       profile.ServiceSpec
+		spec       Spec
 		wantSubstr string
 	}{
-		{name: "empty state", spec: profile.ServiceSpec{Name: "cron"}, wantSubstr: "no-op"},
-		{name: "started", spec: profile.ServiceSpec{Name: "cron", State: "started"}, wantSubstr: "started"},
-		{name: "stopped", spec: profile.ServiceSpec{Name: "cron", State: "stopped"}, wantSubstr: "stopped"},
-		{name: "reloaded", spec: profile.ServiceSpec{Name: "cron", State: "reloaded"}, wantSubstr: "reload or restart"},
-		{name: "unsupported", spec: profile.ServiceSpec{Name: "cron", State: "broken"}, wantSubstr: "unsupported state"},
+		{name: "empty state", spec: Spec{Name: "cron"}, wantSubstr: "no-op"},
+		{name: "started", spec: Spec{Name: "cron", State: "started"}, wantSubstr: "started"},
+		{name: "stopped", spec: Spec{Name: "cron", State: "stopped"}, wantSubstr: "stopped"},
+		{name: "reloaded", spec: Spec{Name: "cron", State: "reloaded"}, wantSubstr: "reload or restart"},
+		{name: "unsupported", spec: Spec{Name: "cron", State: "broken"}, wantSubstr: "unsupported state"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -248,14 +247,14 @@ func TestPlan(t *testing.T) {
 
 func TestCaptureRollback(t *testing.T) {
 	t.Run("missing spec", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "s", Type: "service"}, RollbackDeps{})
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "s", nil, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "service spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 	})
 
 	t.Run("query error", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "s", Type: "service", Service: &profile.ServiceSpec{Name: "sshd"}}, RollbackDeps{
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "s", &Spec{Name: "sshd"}, RollbackDeps{
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("boom") },
 		})
 		if err == nil || !strings.Contains(err.Error(), "capture service snapshot") {
@@ -265,7 +264,7 @@ func TestCaptureRollback(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		calls := 0
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "s", Type: "service", Service: &profile.ServiceSpec{Name: "sshd"}}, RollbackDeps{
+		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "s", &Spec{Name: "sshd"}, RollbackDeps{
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) {
 				calls++
 				if calls == 1 {

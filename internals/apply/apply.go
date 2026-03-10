@@ -103,6 +103,11 @@ func applyCommand(c cli.Command) error {
 		)
 	}
 
+	if err := p.Affirm(); err != nil {
+		logger.Errorf("profile validation failed: %v\n", err)
+		return fmt.Errorf("profile validation failed: %w", err)
+	}
+
 	journal := rollback.NewJournal(c.Host, p.ID, c.Profile)
 
 	if err := runApplyProfile(sshClient, p, journal); err != nil {
@@ -131,9 +136,9 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 	for _, af := range p.ActionFiles {
 		for _, step := range af.Steps {
 			if !logger.DebugMode() {
-				logger.Infof("step: %s (%s) ", step.ID, step.Type)
+				logger.Infof("step: %s (%s) ", step.ID, step.PluginName())
 			}
-			logger.Debugf("handleStep: id=%q type=%q\n", step.ID, step.Type)
+			logger.Debugf("handleStep: id=%q type=%q\n", step.ID, step.PluginName())
 
 			var stop func()
 			if !logger.DebugMode() {

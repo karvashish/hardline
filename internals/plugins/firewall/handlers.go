@@ -2,74 +2,87 @@ package firewall
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func ApplyHandler(
-	applyFn func(pluginapi.ApplyContext, *profile.FirewallSpec) error,
-	validateFirewall func(pluginapi.ApplyContext) error,
-) pluginapi.ApplyHandler {
-	h := pluginapi.ApplyHandler{
-		Type: "firewall",
-		Apply: func(ctx pluginapi.ApplyContext, s profile.Step) error {
-			if s.Firewall == nil {
-				return fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
+func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+	return pluginapi.Plugin{
+		Name:               "firewall",
+		InternalValidation: true,
+		Apply: func(ctx pluginapi.ApplyContext, step profile.Step) error {
+			spec, err := decodeFirewallSpec(step)
+			if err != nil {
+				return err
 			}
-			return applyFn(ctx, s.Firewall)
-		},
-	}
-	if validateFirewall != nil {
-		h.ValidateKinds = map[string]func(pluginapi.ApplyContext) error{
-			"firewall": validateFirewall,
-		}
-	}
-	return h
-}
-
-func PlanHandler(
-	planFn func(pluginapi.PlanContext, *profile.FirewallSpec) (pluginapi.PlanResult, error),
-	validateFirewall func(pluginapi.PlanContext) (pluginapi.PlanResult, error),
-) pluginapi.PlanHandler {
-	h := pluginapi.PlanHandler{
-		Type: "firewall",
-		Plan: func(ctx pluginapi.PlanContext, s profile.Step) (pluginapi.PlanResult, error) {
-			if s.Firewall == nil {
-				return pluginapi.PlanResult{}, fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
+			if err := validateFirewallSpec(spec); err != nil {
+				return err
 			}
-			return planFn(ctx, s.Firewall)
+			if err := Apply(ctx, spec, applyDeps); err != nil {
+				return err
+			}
+			return ValidateApply(ctx, applyDeps.RunRoot)
+		},
+		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
+			spec, err := decodeFirewallSpec(step)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			if err := validateFirewallSpec(spec); err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+
+			result, err := Plan(ctx, spec)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+
+			validateResult, err := ValidatePlan(ctx)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			result.Details = append(result.Details, validateResult.Details...)
+			return result, nil
+		},
+		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+			spec, err := decodeFirewallSpec(step)
+			if err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "firewall"}, err
+			}
+			if err := validateFirewallSpec(spec); err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "firewall"}, err
+			}
+
+			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
 		},
 	}
-	if validateFirewall != nil {
-		h.ValidateKinds = map[string]func(pluginapi.PlanContext) (pluginapi.PlanResult, error){
-			"firewall": validateFirewall,
-		}
+}
+
+func decodeFirewallSpec(step profile.Step) (*Spec, error) {
+	var spec Spec
+	if err := step.Decode(&spec); err != nil {
+		return nil, err
 	}
-	return h
+	return &spec, nil
 }
 
-func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
-	return ApplyHandler(
-		func(ctx pluginapi.ApplyContext, spec *profile.FirewallSpec) error {
-			return Apply(ctx, spec, deps)
-		},
-		func(ctx pluginapi.ApplyContext) error {
-			return ValidateApply(ctx, deps.RunRoot)
-		},
-	)
-}
-
-func DefaultPlanHandler() pluginapi.PlanHandler {
-	return PlanHandler(Plan, ValidatePlan)
-}
-
-func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
-	return pluginapi.RollbackHandler{
-		Type: "firewall",
-		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
-			return CaptureRollback(ctx, s, deps)
-		},
+func validateFirewallSpec(spec *Spec) error {
+	if spec == nil {
+		return fmt.Errorf("firewall config is required")
 	}
+	if strings.TrimSpace(spec.Backend) == "" {
+		return fmt.Errorf("firewall backend is required")
+	}
+	if spec.Backend != "nftables" {
+		return fmt.Errorf("unsupported firewall backend %q", spec.Backend)
+	}
+	if strings.TrimSpace(spec.ManagedDest) == "" {
+		return fmt.Errorf("firewall managed_dest is required")
+	}
+	if _, err := NormalizeDesiredSpec(spec); err != nil {
+		return err
+	}
+	return nil
 }

@@ -1,42 +1,20 @@
 package apply
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/karvashish/hardline/internals/rollback"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 )
 
 func captureStepRecord(client *ssh.Client, p *profile.Profile, s profile.Step) (rollback.StepRecord, error) {
-	stepType := strings.ToLower(strings.TrimSpace(s.Type))
-	record := rollback.StepRecord{
-		ID:   s.ID,
-		Type: stepType,
-	}
-	if stepType == "validate" {
-		record.RollbackMode = rollback.ModeNoop
-		record.Objects = []rollback.ObjectRecord{
-			{
-				Kind:    rollback.ObjectValidate,
-				Message: "validate step has no rollback action",
-			},
-		}
-		return record, nil
-	}
-
-	handler, ok := pluginRegistry.LookupRollbackType(stepType)
+	plugin, ok := pluginRegistry.Lookup(s.PluginName())
 	if !ok {
-		record.RollbackMode = rollback.ModeNoop
-		record.Objects = []rollback.ObjectRecord{
-			{
-				Kind:    rollback.ObjectValidate,
-				Message: fmt.Sprintf("unknown step type %q captured as noop", s.Type),
-			},
-		}
-		return record, nil
+		return pluginapi.NoopRecord(s, "unknown plugin captured as noop"), nil
+	}
+	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
+		return rollback.StepRecord{}, err
 	}
 
-	return handler.Capture(applyRollbackContext(client, p), s)
+	return plugin.Rollback(applyRollbackContext(client, p), s)
 }

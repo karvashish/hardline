@@ -16,14 +16,14 @@ import (
 func TestApply(t *testing.T) {
 	t.Run("unsupported backend", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "ok"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "ufw"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "ufw"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
 			t.Fatalf("expected backend error, got %v", err)
 		}
 	})
 
 	t.Run("profile required", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.FirewallTemplateSpec{Backend: "nftables"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Backend: "nftables"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -31,7 +31,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("template load error", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/other.tmpl": "ok"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "load nftables template") {
 			t.Fatalf("expected load error, got %v", err)
 		}
@@ -39,13 +39,13 @@ func TestApply(t *testing.T) {
 
 	t.Run("parse and execute errors", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/bad.tmpl": "{{"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "parse nftables template") {
 			t.Fatalf("expected parse error, got %v", err)
 		}
 
 		p = mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/bad.tmpl": "{{index .Missing 0}}"})
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"}, ApplyDeps{
+		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
@@ -58,7 +58,7 @@ func TestApply(t *testing.T) {
 	t.Run("mkdir include sftp write errors", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "{{allow_rules}}"})
 
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
 			RunRoot: func(*ssh.Client, string) error { return errors.New("boom") },
 		})
 		if err == nil || !strings.Contains(err.Error(), "mkdir") {
@@ -66,7 +66,7 @@ func TestApply(t *testing.T) {
 		}
 
 		checkCount := 0
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables"}, ApplyDeps{
+		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
 			RunRoot: func(_ *ssh.Client, cmd string) error {
 				if cmd == `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf` {
 					checkCount++
@@ -85,7 +85,7 @@ func TestApply(t *testing.T) {
 			t.Fatalf("expected one include check, got %d", checkCount)
 		}
 
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables"}, ApplyDeps{
+		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, errors.New("boom") },
 		})
@@ -93,7 +93,7 @@ func TestApply(t *testing.T) {
 			t.Fatalf("expected sftp error, got %v", err)
 		}
 
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{Backend: "nftables"}, ApplyDeps{
+		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return errors.New("boom") },
@@ -106,9 +106,9 @@ func TestApply(t *testing.T) {
 	t.Run("success renders rules and marks dirty", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}"})
 		var gotDest, gotText, marked string
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.FirewallTemplateSpec{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{
 			Backend: "nftables",
-			Allow: []profile.FirewallTemplateRule{
+			Allow: []AllowRule{
 				{Port: 22, Proto: "tcp"},
 			},
 		}, ApplyDeps{
@@ -139,29 +139,27 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 	if got := ManagedDestination(nil); got != DefaultManagedDestination {
 		t.Fatalf("unexpected nil destination: %q", got)
 	}
-	if got := ManagedDestination(&profile.FirewallTemplateSpec{}); got != DefaultManagedDestination {
+	if got := ManagedDestination(&Spec{}); got != DefaultManagedDestination {
 		t.Fatalf("unexpected empty destination: %q", got)
 	}
-	if got := ManagedDestination(&profile.FirewallTemplateSpec{TemplateDest: "/etc/nftables.d/99-hardline-custom.nft"}); got != "/etc/nftables.d/99-hardline-custom.nft" {
+	if got := ManagedDestination(&Spec{TemplateDest: "/etc/nftables.d/99-hardline-custom.nft"}); got != "/etc/nftables.d/99-hardline-custom.nft" {
 		t.Fatalf("unexpected custom destination: %q", got)
 	}
 
-	res, err := Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &profile.FirewallTemplateSpec{Backend: "ufw"})
+	res, err := Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &Spec{Backend: "ufw"})
 	if err != nil || !strings.Contains(res.Summary, "unsupported backend") {
 		t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 	}
 
-	_, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &profile.FirewallTemplateSpec{Backend: "nftables"})
-	if err == nil || !strings.Contains(err.Error(), "template_src is required") {
-		t.Fatalf("expected template_src error, got %v", err)
+	res, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &Spec{Backend: "nftables"})
+	if err != nil {
+		t.Fatalf("expected defaulted template plan success, got %v", err)
+	}
+	if !strings.Contains(res.Summary, "templates/nftables_base.tmpl") || !strings.Contains(res.Summary, DefaultManagedDestination) {
+		t.Fatalf("expected plan summary to use defaults, got %+v", res)
 	}
 
-	_, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{}}, &profile.FirewallTemplateSpec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"})
-	if err == nil || !strings.Contains(err.Error(), "template_dest is required") {
-		t.Fatalf("expected template_dest error, got %v", err)
-	}
-
-	res, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &profile.FirewallTemplateSpec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+	res, err = Plan(pluginapi.PlanContext{Inspector: fwTemplateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -169,17 +167,17 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("unexpected plan result: %+v", res)
 	}
 
-	_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "ft", Type: "firewall_template"}, RollbackDeps{})
+	_, err = CaptureRollback(pluginapi.RollbackContext{}, "ft", nil, RollbackDeps{})
 	if err == nil || !strings.Contains(err.Error(), "firewall_template spec missing") {
 		t.Fatalf("expected missing spec error, got %v", err)
 	}
 
-	_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "ft", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{TemplateDest: "/tmp/nope.nft"}}, RollbackDeps{})
+	_, err = CaptureRollback(pluginapi.RollbackContext{}, "ft", &Spec{TemplateDest: "/tmp/nope.nft"}, RollbackDeps{})
 	if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 		t.Fatalf("expected managed path error, got %v", err)
 	}
 
-	rec, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "ft", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"}}, RollbackDeps{
+	rec, err := CaptureRollback(pluginapi.RollbackContext{}, "ft", &Spec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"}, RollbackDeps{
 		RunRoot:           func(*ssh.Client, string) error { return nil },
 		RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644", nil },
 		ReadRootFile:      func(*ssh.Client, string) (string, error) { return "abc", nil },

@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "timesyncd-enable",
-      "type": "service",
+      "plugin": "service",
       "severity": "low",
       "risk_class": "availability",
       "control_tags": [],
-      "service": {
+      "config": {
         "name": "chrony",
         "enabled": true,
         "state": "started"

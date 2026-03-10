@@ -15,7 +15,7 @@ import (
 
 func TestApply(t *testing.T) {
 	t.Run("profile required", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -23,7 +23,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("load template error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.TemplateSpec{Src: "templates/missing.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/missing.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{})
 		if err == nil || !strings.Contains(err.Error(), "load template") {
 			t.Fatalf("expected load template error, got %v", err)
 		}
@@ -31,7 +31,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("new sftp error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, errors.New("boom") },
 		})
 		if err == nil || !strings.Contains(err.Error(), "new sftp client") {
@@ -41,7 +41,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("mkdir error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return errors.New("boom") },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
@@ -53,7 +53,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("write error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return errors.New("boom") },
@@ -69,7 +69,7 @@ func TestApply(t *testing.T) {
 		var gotData string
 		var gotMode os.FileMode
 		var marked string
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Mode: "0644"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Mode: "0644"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
@@ -92,7 +92,7 @@ func TestApply(t *testing.T) {
 	t.Run("default mode on parse failure", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		gotMode := os.FileMode(0)
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/tmp/example.conf", Mode: "bad"}, ApplyDeps{
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/tmp/example.conf", Mode: "bad"}, ApplyDeps{
 			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, _ string, _ []byte, mode os.FileMode) error {
@@ -111,7 +111,7 @@ func TestApply(t *testing.T) {
 
 func TestPlan(t *testing.T) {
 	t.Run("profile required", func(t *testing.T) {
-		_, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{}}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
+		_, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{}}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -119,7 +119,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("load error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		_, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{}, Profile: p}, &profile.TemplateSpec{Src: "templates/missing.tmpl", Dest: "/etc/example.conf"})
+		_, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{}, Profile: p}, &Spec{Src: "templates/missing.tmpl", Dest: "/etc/example.conf"})
 		if err == nil || !strings.Contains(err.Error(), "load template") {
 			t.Fatalf("expected load error, got %v", err)
 		}
@@ -127,7 +127,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("exists and matches", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello", sshInclude: true, sshTestErr: nil}, Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf", Mode: "0644"})
+		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello", sshInclude: true, sshTestErr: nil}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf", Mode: "0644"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -138,7 +138,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("missing and mismatched", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statErr: errors.New("missing")}, Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/nftables.d/99-hardline-firewall.nft"})
+		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statErr: errors.New("missing")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -149,7 +149,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("read compare error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statInfo: fakeFileInfo{mode: 0o600, size: 4}, readErr: errors.New("boom")}, Profile: p}, &profile.TemplateSpec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
+		res, err := Plan(pluginapi.PlanContext{Inspector: templateInspectorStub{statInfo: fakeFileInfo{mode: 0o600, size: 4}, readErr: errors.New("boom")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -204,17 +204,17 @@ func TestValidateAndCapture(t *testing.T) {
 	})
 
 	t.Run("capture rollback", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "t", Type: "template"}, RollbackDeps{})
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "t", nil, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "template spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "t", Type: "template", Template: &profile.TemplateSpec{Dest: "/tmp/nope.conf"}}, RollbackDeps{})
+		_, err = CaptureRollback(pluginapi.RollbackContext{}, "t", &Spec{Dest: "/tmp/nope.conf"}, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 			t.Fatalf("expected managed path error, got %v", err)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "t", Type: "template", Template: &profile.TemplateSpec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"}}, RollbackDeps{
+		_, err = CaptureRollback(pluginapi.RollbackContext{}, "t", &Spec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"}, RollbackDeps{
 			RunRoot:           func(*ssh.Client, string) error { return nil },
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("stat boom") },
 			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
@@ -223,7 +223,7 @@ func TestValidateAndCapture(t *testing.T) {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
 
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "t", Type: "template", Template: &profile.TemplateSpec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"}}, RollbackDeps{
+		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "t", &Spec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"}, RollbackDeps{
 			RunRoot:           func(*ssh.Client, string) error { return nil },
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644", nil },
 			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "content", nil },

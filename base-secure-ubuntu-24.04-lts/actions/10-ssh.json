@@ -2,31 +2,23 @@
   "steps": [
     {
       "id": "ssh-template-apply",
-      "type": "template",
+      "plugin": "template",
       "severity": "medium",
       "risk_class": "access",
       "control_tags": [],
-      "template": {
+      "config": {
         "src": "templates/10-ssh-sshd-config.tmpl",
         "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
         "mode": "0600"
       }
     },
     {
-      "id": "ssh-config-validate",
-      "type": "validate",
-      "severity": "low",
-      "risk_class": "access",
-      "control_tags": [],
-      "validate": "sshd"
-    },
-    {
       "id": "ssh-service-reload",
-      "type": "service",
+      "plugin": "service",
       "severity": "critical",
       "risk_class": "access",
       "control_tags": [],
-      "service": {
+      "config": {
         "name": "ssh",
         "enabled": true,
         "state": "reloaded"

@@ -30,10 +30,11 @@ func writeSchema(path string, v any) {
 	}
 }
 
-func main() {
-	// schema for profile.json
-	writeSchema("schema/profile.schema.json", &profile.Profile{})
+func generateSchemas(profileSchemaPath, actionSchemaPath string) {
+	writeSchema(profileSchemaPath, &profile.Profile{})
+	writeSchema(actionSchemaPath, &profile.ActionFile{})
+}
 
-	// schema for actions/*.json
-	writeSchema("schema/action-file.schema.json", &profile.ActionFile{})
+func main() {
+	generateSchemas("schema/profile.schema.json", "schema/action-file.schema.json")
 }

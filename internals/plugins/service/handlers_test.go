@@ -6,60 +6,72 @@ import (
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"golang.org/x/crypto/ssh"
 )
 
-func TestApplyHandler(t *testing.T) {
-	h := ApplyHandler(func(_ pluginapi.ApplyContext, _ *profile.ServiceSpec) error { return nil })
-	if h.Type != "service" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "service"}); err == nil || !strings.Contains(err.Error(), "service spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "service", Service: &profile.ServiceSpec{Name: "ssh"}}); err != nil {
-		t.Fatalf("unexpected apply error: %v", err)
-	}
-}
+func TestPlugin_MetadataAndValidation(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{RunRoot: func(*ssh.Client, string) error { return nil }},
+		RollbackDeps{RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil }},
+	)
 
-func TestPlanHandler(t *testing.T) {
-	h := PlanHandler(func(_ pluginapi.PlanContext, _ *profile.ServiceSpec) (pluginapi.PlanResult, error) {
-		return pluginapi.PlanResult{Summary: "ok", Noop: 2}, nil
+	if !plugin.InternalValidation {
+		t.Fatal("expected service plugin to declare internal validation")
+	}
+
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "svc",
+		Plugin: "service",
+		Config: map[string]any{
+			"name":  "ssh",
+			"state": "explode",
+		},
 	})
-	if h.Type != "service" {
-		t.Fatalf("unexpected type: %q", h.Type)
+	if err == nil || !strings.Contains(err.Error(), "unsupported service state") {
+		t.Fatalf("expected service validation error, got %v", err)
 	}
-	if _, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "service"}); err == nil || !strings.Contains(err.Error(), "service spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
+
+	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+		ID:     "svc",
+		Plugin: "service",
+		Config: map[string]any{
+			"name":  "ssh",
+			"state": "explode",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported service state") {
+		t.Fatalf("expected rollback service validation error, got %v", err)
 	}
-	res, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "service", Service: &profile.ServiceSpec{Name: "ssh"}})
-	if err != nil {
-		t.Fatalf("unexpected plan error: %v", err)
-	}
-	if res.Summary != "ok" {
-		t.Fatalf("unexpected plan summary: %q", res.Summary)
+
+	if err := validateServiceSpec(nil); err == nil || !strings.Contains(err.Error(), "config is required") {
+		t.Fatalf("expected nil config validation error, got %v", err)
 	}
 }
 
-func TestDefaultHandlers_ValidateKinds(t *testing.T) {
-	applyHandler := DefaultApplyHandler(ApplyDeps{})
-	applyValidate, ok := applyHandler.ValidateKinds["service"]
-	if !ok {
-		t.Fatal("expected apply validate kind service")
-	}
-	if err := applyValidate(pluginapi.ApplyContext{}); err != nil {
-		t.Fatalf("unexpected apply validate error: %v", err)
+func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{RunRoot: func(*ssh.Client, string) error { return nil }},
+		RollbackDeps{RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil }},
+	)
+
+	step := profile.Step{
+		ID:     "svc",
+		Plugin: "service",
+		Config: map[string]any{
+			"name":  "ssh",
+			"state": "started",
+		},
 	}
 
-	planHandler := DefaultPlanHandler()
-	planValidate, ok := planHandler.ValidateKinds["service"]
-	if !ok {
-		t.Fatal("expected plan validate kind service")
+	if err := plugin.Apply(pluginapi.ApplyContext{}, step); err != nil {
+		t.Fatalf("apply failed: %v", err)
 	}
-	result, err := planValidate(pluginapi.PlanContext{})
-	if err != nil {
-		t.Fatalf("unexpected plan validate error: %v", err)
+	if _, err := plugin.Plan(pluginapi.PlanContext{
+		Inspector: serviceInspectorStub{},
+	}, step); err != nil {
+		t.Fatalf("plan failed: %v", err)
 	}
-	if !strings.Contains(result.Summary, "no additional checks") {
-		t.Fatalf("unexpected plan validate summary: %q", result.Summary)
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+		t.Fatalf("rollback failed: %v", err)
 	}
 }

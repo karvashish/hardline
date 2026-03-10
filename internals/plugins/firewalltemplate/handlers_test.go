@@ -1,65 +1,137 @@
 package firewalltemplate
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
+	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 )
 
-func TestApplyHandler(t *testing.T) {
-	h := ApplyHandler(func(_ pluginapi.ApplyContext, _ *profile.FirewallTemplateSpec) error { return nil })
-	if h.Type != "firewall_template" {
-		t.Fatalf("unexpected type: %q", h.Type)
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "firewall_template"}); err == nil || !strings.Contains(err.Error(), "firewall_template spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	if err := h.Apply(pluginapi.ApplyContext{}, profile.Step{ID: "x", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{Backend: "nftables"}}); err != nil {
-		t.Fatalf("unexpected apply error: %v", err)
-	}
-}
+func TestPlugin_MetadataAndValidation(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
+		},
+		RollbackDeps{},
+	)
 
-func TestPlanHandler(t *testing.T) {
-	h := PlanHandler(func(_ pluginapi.PlanContext, _ *profile.FirewallTemplateSpec) (pluginapi.PlanResult, error) {
-		return pluginapi.PlanResult{Summary: "ok", Noop: 2}, nil
+	if !plugin.InternalValidation {
+		t.Fatal("expected firewall_template plugin to declare internal validation")
+	}
+
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "ft",
+		Plugin: "firewall_template",
+		Config: map[string]any{
+			"backend": "nftables",
+			"policy":  "allow",
+			"allow": []any{
+				map[string]any{"port": 0, "proto": "tcp"},
+			},
+		},
 	})
-	if h.Type != "firewall_template" {
-		t.Fatalf("unexpected type: %q", h.Type)
+	if err == nil || !strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("expected firewall_template validation error, got %v", err)
 	}
-	if _, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "firewall_template"}); err == nil || !strings.Contains(err.Error(), "firewall_template spec missing") {
-		t.Fatalf("expected missing spec error, got %v", err)
-	}
-	res, err := h.Plan(pluginapi.PlanContext{}, profile.Step{ID: "x", Type: "firewall_template", FirewallTemplate: &profile.FirewallTemplateSpec{Backend: "nftables"}})
-	if err != nil {
-		t.Fatalf("unexpected plan error: %v", err)
-	}
-	if res.Summary != "ok" {
-		t.Fatalf("unexpected plan summary: %q", res.Summary)
+
+	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+		ID:     "ft",
+		Plugin: "firewall_template",
+		Config: map[string]any{
+			"backend": "nftables",
+			"policy":  "allow",
+			"allow": []any{
+				map[string]any{"port": 0, "proto": "tcp"},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("expected rollback firewall_template validation error, got %v", err)
 	}
 }
 
-func TestDefaultHandlers_ValidateKinds(t *testing.T) {
-	applyHandler := DefaultApplyHandler(ApplyDeps{})
-	applyValidate, ok := applyHandler.ValidateKinds["firewall_template"]
-	if !ok {
-		t.Fatal("expected apply validate kind firewall_template")
+func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
+		},
+		RollbackDeps{},
+	)
+
+	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
+		ID:     "ft",
+		Plugin: "firewall_template",
+		Config: map[string]any{
+			"backend": "nftables",
+			"policy":  "allow",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "profile context is required") {
+		t.Fatalf("expected firewall_template apply to reach execution path, got %v", err)
 	}
-	if err := applyValidate(pluginapi.ApplyContext{}); err != nil {
-		t.Fatalf("unexpected apply validate error: %v", err)
+}
+
+func TestPlugin_PlanAndRollback(t *testing.T) {
+	plugin := Plugin(
+		ApplyDeps{
+			RunRoot:          func(*ssh.Client, string) error { return nil },
+			NewSFTPClient:    func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile:    func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+			MarkServiceDirty: func(string) {},
+		},
+		RollbackDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
+		},
+	)
+
+	step := profile.Step{
+		ID:     "ft",
+		Plugin: "firewall_template",
+		Config: map[string]any{
+			"backend": "nftables",
+			"policy":  "allow",
+		},
 	}
 
-	planHandler := DefaultPlanHandler()
-	planValidate, ok := planHandler.ValidateKinds["firewall_template"]
-	if !ok {
-		t.Fatal("expected plan validate kind firewall_template")
+	if _, err := plugin.Plan(pluginapi.PlanContext{
+		Inspector: fwTemplateInspectorStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}},
+	}, step); err != nil {
+		t.Fatalf("plan failed: %v", err)
 	}
-	result, err := planValidate(pluginapi.PlanContext{})
-	if err != nil {
-		t.Fatalf("unexpected plan validate error: %v", err)
+
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+		t.Fatalf("rollback failed: %v", err)
 	}
-	if !strings.Contains(result.Summary, "no additional checks") {
-		t.Fatalf("unexpected plan validate summary: %q", result.Summary)
+}
+
+func TestValidateFirewallTemplateSpec(t *testing.T) {
+	if err := validateFirewallTemplateSpec(nil); err == nil || !strings.Contains(err.Error(), "config is required") {
+		t.Fatalf("expected nil config error, got %v", err)
+	}
+	if err := validateFirewallTemplateSpec(&Spec{}); err == nil || !strings.Contains(err.Error(), "backend is required") {
+		t.Fatalf("expected backend error, got %v", err)
+	}
+	if err := validateFirewallTemplateSpec(&Spec{Backend: "nftables"}); err == nil || !strings.Contains(err.Error(), "policy is required") {
+		t.Fatalf("expected policy error, got %v", err)
+	}
+	err := validateFirewallTemplateSpec(&Spec{
+		Backend: "nftables",
+		Policy:  "allow",
+		Allow:   []AllowRule{{Port: 22, Proto: "sctp"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported firewall_template protocol") {
+		t.Fatalf("expected proto validation error, got %v", err)
 	}
 }

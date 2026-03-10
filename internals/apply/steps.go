@@ -1,11 +1,11 @@
 package apply
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -47,25 +47,16 @@ func isServiceDirty(unit string) bool {
 }
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
-	stepType := strings.ToLower(strings.TrimSpace(s.Type))
+	pluginName := s.PluginName()
 
-	if stepType == "validate" {
-		if strings.TrimSpace(s.Validate) == "" {
-			return fmt.Errorf("step %q (type=%s): validate spec missing", s.ID, s.Type)
-		}
-		return handleValidate(client, p, s.Validate)
-	}
-
-	handler, ok := pluginRegistry.LookupApplyType(stepType)
+	plugin, ok := pluginRegistry.Lookup(pluginName)
 	if !ok {
-		logger.Warnf("warning: empty or unknown step type %q (id=%q)\n", s.Type, s.ID)
+		logger.Warnf("warning: empty or unknown plugin %q (id=%q)\n", s.Plugin, s.ID)
 		return nil
 	}
+	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
+		return err
+	}
 
-	return handler.Apply(applyActionContext(client, p), s)
-}
-
-func handleValidate(client *ssh.Client, p *profile.Profile, kind string) error {
-	logger.Debugf("handleValidate: kind=%s\n", strings.ToLower(strings.TrimSpace(kind)))
-	return applyValidateByKind(client, p, kind)
+	return plugin.Apply(applyActionContext(client, p), s)
 }

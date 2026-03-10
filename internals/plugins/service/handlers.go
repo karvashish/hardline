@@ -2,61 +2,70 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func ApplyHandler(applyFn func(pluginapi.ApplyContext, *profile.ServiceSpec) error) pluginapi.ApplyHandler {
-	return pluginapi.ApplyHandler{
-		Type: "service",
-		Apply: func(ctx pluginapi.ApplyContext, s profile.Step) error {
-			if s.Service == nil {
-				return fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
+func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+	return pluginapi.Plugin{
+		Name:               "service",
+		InternalValidation: true,
+		Apply: func(ctx pluginapi.ApplyContext, step profile.Step) error {
+			spec, err := decodeServiceSpec(step)
+			if err != nil {
+				return err
 			}
-			return applyFn(ctx, s.Service)
-		},
-	}
-}
-
-func PlanHandler(planFn func(pluginapi.PlanContext, *profile.ServiceSpec) (pluginapi.PlanResult, error)) pluginapi.PlanHandler {
-	return pluginapi.PlanHandler{
-		Type: "service",
-		Plan: func(ctx pluginapi.PlanContext, s profile.Step) (pluginapi.PlanResult, error) {
-			if s.Service == nil {
-				return pluginapi.PlanResult{}, fmt.Errorf("step %q (type=%s): service spec missing", s.ID, s.Type)
+			if err := validateServiceSpec(spec); err != nil {
+				return err
 			}
-			return planFn(ctx, s.Service)
+			return Apply(ctx, spec, applyDeps)
+		},
+		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
+			spec, err := decodeServiceSpec(step)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			if err := validateServiceSpec(spec); err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			return Plan(ctx, spec)
+		},
+		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+			spec, err := decodeServiceSpec(step)
+			if err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "service"}, err
+			}
+			if err := validateServiceSpec(spec); err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "service"}, err
+			}
+
+			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
 		},
 	}
 }
 
-func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
-	h := ApplyHandler(func(ctx pluginapi.ApplyContext, spec *profile.ServiceSpec) error {
-		return Apply(ctx, spec, deps)
-	})
-	h.ValidateKinds = map[string]func(pluginapi.ApplyContext) error{
-		"service": func(pluginapi.ApplyContext) error { return nil },
+func decodeServiceSpec(step profile.Step) (*Spec, error) {
+	var spec Spec
+	if err := step.Decode(&spec); err != nil {
+		return nil, err
 	}
-	return h
+	return &spec, nil
 }
 
-func DefaultPlanHandler() pluginapi.PlanHandler {
-	h := PlanHandler(Plan)
-	h.ValidateKinds = map[string]func(pluginapi.PlanContext) (pluginapi.PlanResult, error){
-		"service": func(pluginapi.PlanContext) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{Summary: "service validation: no additional checks"}, nil
-		},
+func validateServiceSpec(spec *Spec) error {
+	if spec == nil {
+		return fmt.Errorf("service config is required")
 	}
-	return h
-}
+	if strings.TrimSpace(spec.Name) == "" {
+		return fmt.Errorf("service name is required")
+	}
 
-func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
-	return pluginapi.RollbackHandler{
-		Type: "service",
-		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
-			return CaptureRollback(ctx, s, deps)
-		},
+	switch strings.ToLower(strings.TrimSpace(spec.State)) {
+	case "", "started", "start", "stopped", "stop", "restarted", "restart", "reloaded", "reload", "reload-or-restart":
+		return nil
+	default:
+		return fmt.Errorf("unsupported service state %q for %s", spec.State, strings.TrimSpace(spec.Name))
 	}
 }

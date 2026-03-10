@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
+	"github.com/karvashish/hardline/pkg/profile"
 )
 
 type fakePlugin struct {
@@ -191,8 +192,18 @@ func TestRegisterPluginBundle(t *testing.T) {
 
 		registerPluginBundleAction = func(pluginapi.PluginBundle) error { return errors.New("register fail") }
 		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name:          "p",
-			ApplyHandlers: []pluginapi.ApplyHandler{{Type: "x"}},
+			Name: "p",
+			Plugins: []pluginapi.Plugin{{
+				Name:               "x",
+				InternalValidation: true,
+				Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
+				Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+					return pluginapi.PlanResult{}, nil
+				},
+				Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+					return pluginapi.StepRecord{}, nil
+				},
+			}},
 		}, "/tmp/p.so")
 		if err == nil || !strings.Contains(err.Error(), "register fail") {
 			t.Fatalf("expected bundle registration error, got %v", err)
@@ -210,15 +221,17 @@ func TestRegisterPluginBundle(t *testing.T) {
 		}
 
 		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name:             "ok",
-			ApplyHandlers:    []pluginapi.ApplyHandler{{Type: "a1"}, {Type: "a2"}},
-			PlanHandlers:     []pluginapi.PlanHandler{{Type: "p1"}},
-			RollbackHandlers: []pluginapi.RollbackHandler{{Type: "r1"}},
+			Name: "ok",
+			Plugins: []pluginapi.Plugin{
+				validLoaderPlugin("a1"),
+				validLoaderPlugin("a2"),
+				validLoaderPlugin("p1"),
+			},
 		}, "/tmp/ok.so")
 		if err != nil {
 			t.Fatalf("registerPluginBundle failed: %v", err)
 		}
-		if len(got.ApplyHandlers) != 2 || len(got.PlanHandlers) != 1 || len(got.RollbackHandlers) != 1 {
+		if len(got.Plugins) != 3 {
 			t.Fatalf("unexpected bundle passed to registrar: %+v", got)
 		}
 	})
@@ -252,5 +265,19 @@ func mustWrite(t *testing.T, path string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write %q: %v", path, err)
+	}
+}
+
+func validLoaderPlugin(name string) pluginapi.Plugin {
+	return pluginapi.Plugin{
+		Name:               name,
+		InternalValidation: true,
+		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
+		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+			return pluginapi.PlanResult{}, nil
+		},
+		Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+			return pluginapi.StepRecord{}, nil
+		},
 	}
 }

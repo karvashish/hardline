@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "packages-base-secure",
-      "type": "packages",
+      "plugin": "packages",
       "severity": "high",
       "risk_class": "availability",
       "control_tags": [],
-      "packages": {
+      "config": {
         "update": true,
         "upgrade": true,
         "autoremove": true,

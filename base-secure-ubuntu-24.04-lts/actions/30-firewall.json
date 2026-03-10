@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "firewall-default-deny",
-      "type": "firewall",
+      "plugin": "firewall",
       "severity": "high",
       "risk_class": "access",
       "control_tags": [],
-      "firewall": {
+      "config": {
         "backend": "nftables",
         "family": "inet",
         "table": "filter",
@@ -99,20 +99,12 @@
       }
     },
     {
-      "id": "firewall-config-validate",
-      "type": "validate",
-      "severity": "low",
-      "risk_class": "access",
-      "control_tags": [],
-      "validate": "firewall"
-    },
-    {
       "id": "firewall-service-restart",
-      "type": "service",
+      "plugin": "service",
       "severity": "critical",
       "risk_class": "access",
       "control_tags": [],
-      "service": {
+      "config": {
         "name": "nftables",
         "enabled": true,
         "state": "restarted"

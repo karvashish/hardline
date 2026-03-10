@@ -13,7 +13,6 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -62,7 +61,7 @@ type NormalizedDiff struct {
 	RulesToRemove []NormalizedRule
 }
 
-func Apply(ctx pluginapi.ApplyContext, fw *profile.FirewallSpec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 	logger.Debugf("handleFirewall: backend=%q policies=%d rules=%d\n", fw.Backend, len(fw.Policies), len(fw.Rules))
 
 	if fw.Backend != "nftables" {
@@ -108,7 +107,7 @@ func Apply(ctx pluginapi.ApplyContext, fw *profile.FirewallSpec, deps ApplyDeps)
 	return nil
 }
 
-func Plan(ctx pluginapi.PlanContext, fw *profile.FirewallSpec) (pluginapi.PlanResult, error) {
+func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planFirewall: backend=%q family=%q table=%q policies=%d rules=%d\n", fw.Backend, fw.Family, fw.Table, len(fw.Policies), len(fw.Rules))
 
 	var details []string
@@ -202,18 +201,18 @@ func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
 	}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
-		ID:   s.ID,
+		ID:   stepID,
 		Type: "firewall",
 	}
-	if s.Firewall == nil {
-		return record, fmt.Errorf("step %q (type=%s): firewall spec missing", s.ID, s.Type)
+	if spec == nil {
+		return record, fmt.Errorf("step %q (type=firewall): firewall spec missing", stepID)
 	}
 
-	dest := ManagedDestination(s.Firewall)
+	dest := ManagedDestination(spec)
 	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
-		return record, fmt.Errorf("step %q (type=%s): %w", s.ID, s.Type, err)
+		return record, fmt.Errorf("step %q (type=firewall): %w", stepID, err)
 	}
 
 	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{
@@ -232,7 +231,7 @@ func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps Rollbac
 	return record, nil
 }
 
-func ManagedDestination(fw *profile.FirewallSpec) string {
+func ManagedDestination(fw *Spec) string {
 	if fw == nil {
 		return ""
 	}
@@ -259,7 +258,7 @@ func EnsureNftablesInclude(client *ssh.Client, runRoot func(*ssh.Client, string)
 	return nil
 }
 
-func NormalizeDesiredSpec(fw *profile.FirewallSpec) (NormalizedSpec, error) {
+func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 	family := normalizeFirewallFamily(fw.Family)
 	if family == "" {
 		return NormalizedSpec{}, fmt.Errorf("firewall family is required")
@@ -325,7 +324,7 @@ func NormalizeDesiredSpec(fw *profile.FirewallSpec) (NormalizedSpec, error) {
 	return out, nil
 }
 
-func NormalizeDesiredRule(rule profile.FirewallRule) ([]NormalizedRule, error) {
+func NormalizeDesiredRule(rule Rule) ([]NormalizedRule, error) {
 	chain, err := NormalizeChain(rule.Chain)
 	if err != nil {
 		return nil, err

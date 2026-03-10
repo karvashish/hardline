@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "sysctl-hardening-template",
-      "type": "template",
+      "plugin": "template",
       "severity": "medium",
       "risk_class": "availability",
       "control_tags": [],
-      "template": {
+      "config": {
         "src": "templates/20-sysctl-hardening.conf.tmpl",
         "dest": "/etc/sysctl.d/99-hardline-hardening.conf",
         "mode": "0644"
@@ -14,11 +14,11 @@
     },
     {
       "id": "sysctl-apply",
-      "type": "service",
+      "plugin": "service",
       "severity": "critical",
       "risk_class": "availability",
       "control_tags": [],
-      "service": {
+      "config": {
         "name": "systemd-sysctl",
         "state": "restarted"
       }

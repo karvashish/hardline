@@ -13,7 +13,6 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -33,7 +32,7 @@ type RollbackDeps struct {
 	ReadRootFile      func(*ssh.Client, string) (string, error)
 }
 
-func Apply(ctx pluginapi.ApplyContext, fw *profile.FirewallTemplateSpec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 	logger.Debugf("handleFirewallTemplate: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
 
 	if fw.Backend != "nftables" {
@@ -112,7 +111,7 @@ func Apply(ctx pluginapi.ApplyContext, fw *profile.FirewallTemplateSpec, deps Ap
 	return nil
 }
 
-func Plan(ctx pluginapi.PlanContext, fw *profile.FirewallTemplateSpec) (pluginapi.PlanResult, error) {
+func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planFirewallTemplate: backend=%q allow_rules=%d template=%q -> %q\n", fw.Backend, len(fw.Allow), fw.TemplateSrc, fw.TemplateDest)
 
 	var details []string
@@ -124,11 +123,11 @@ func Plan(ctx pluginapi.PlanContext, fw *profile.FirewallTemplateSpec) (pluginap
 
 	tmplPath := strings.TrimSpace(fw.TemplateSrc)
 	if tmplPath == "" {
-		return pluginapi.PlanResult{}, fmt.Errorf("firewall_template step: template_src is required")
+		tmplPath = "templates/nftables_base.tmpl"
 	}
 	destPath := strings.TrimSpace(fw.TemplateDest)
 	if destPath == "" {
-		return pluginapi.PlanResult{}, fmt.Errorf("firewall_template step: template_dest is required")
+		destPath = ManagedDestination(fw)
 	}
 
 	info, err := ctx.Inspector.Stat(destPath)
@@ -151,7 +150,7 @@ func Plan(ctx pluginapi.PlanContext, fw *profile.FirewallTemplateSpec) (pluginap
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
 }
 
-func ManagedDestination(fw *profile.FirewallTemplateSpec) string {
+func ManagedDestination(fw *Spec) string {
 	if fw == nil {
 		return DefaultManagedDestination
 	}
@@ -162,18 +161,18 @@ func ManagedDestination(fw *profile.FirewallTemplateSpec) string {
 	return dest
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, s profile.Step, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
-		ID:   s.ID,
+		ID:   stepID,
 		Type: "firewall_template",
 	}
-	if s.FirewallTemplate == nil {
-		return record, fmt.Errorf("step %q (type=%s): firewall_template spec missing", s.ID, s.Type)
+	if spec == nil {
+		return record, fmt.Errorf("step %q (type=firewall_template): firewall_template spec missing", stepID)
 	}
 
-	dest := ManagedDestination(s.FirewallTemplate)
+	dest := ManagedDestination(spec)
 	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
-		return record, fmt.Errorf("step %q (type=%s): %w", s.ID, s.Type, err)
+		return record, fmt.Errorf("step %q (type=firewall_template): %w", stepID, err)
 	}
 
 	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{

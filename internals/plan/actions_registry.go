@@ -12,17 +12,19 @@ import (
 
 var planPluginRegistry = apply.PluginRegistry()
 
-func RegisterPlanAction(h pluginapi.PlanHandler) error {
-	return planPluginRegistry.RegisterPlan(h)
+func RegisterPlugin(p pluginapi.Plugin) error {
+	return planPluginRegistry.Register(p)
 }
 
 func newDefaultPlanRegistry() *pluginapi.Registry {
 	r := pluginapi.NewRegistry()
 
-	for _, h := range builtin.DefaultPlanHandlers() {
-		if err := r.RegisterPlan(h); err != nil {
-			panic(fmt.Sprintf("register default plan action %q: %v", h.Type, err))
-		}
+	bundle := builtin.DefaultBundle(
+		builtin.ApplyDeps{},
+		builtin.RollbackDeps{},
+	)
+	if err := r.RegisterBundle(bundle); err != nil {
+		panic(fmt.Sprintf("register default plugin bundle %q: %v", bundle.Name, err))
 	}
 
 	return r

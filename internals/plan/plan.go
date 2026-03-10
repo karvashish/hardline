@@ -117,9 +117,9 @@ func planProfile(client *ssh.Client, p *profile.Profile, host string) error {
 	for _, af := range p.ActionFiles {
 		for _, step := range af.Steps {
 			if !logger.DebugMode() {
-				logger.Infof("step: %s (%s)", step.ID, step.Type)
+				logger.Infof("step: %s (%s)", step.ID, step.PluginName())
 			}
-			logger.Debugf("planStep: id=%q type=%q\n", step.ID, step.Type)
+			logger.Debugf("planStep: id=%q type=%q\n", step.ID, step.PluginName())
 
 			var stop func()
 			if !logger.DebugMode() {

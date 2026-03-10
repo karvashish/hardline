@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
 	"os"
 	"strings"
@@ -14,7 +13,7 @@ import (
 func TestApply(t *testing.T) {
 	t.Run("success runs commands in order", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &profile.PackageSpec{
+		err := Apply(pluginapi.ApplyContext{}, &Spec{
 			Update:     true,
 			Upgrade:    true,
 			Install:    []string{"a", "b"},
@@ -41,15 +40,15 @@ func TestApply(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		spec    profile.PackageSpec
+		spec    Spec
 		failCmd string
 		wantSub string
 	}{
-		{name: "update error", spec: profile.PackageSpec{Update: true}, failCmd: "apt-get update -y", wantSub: "apt-get update failed"},
-		{name: "upgrade error", spec: profile.PackageSpec{Upgrade: true}, failCmd: "apt-get upgrade -y", wantSub: "apt-get upgrade failed"},
-		{name: "install error", spec: profile.PackageSpec{Install: []string{"x"}}, failCmd: "apt-get install -y x", wantSub: "apt-get install failed"},
-		{name: "purge error", spec: profile.PackageSpec{Purge: []string{"x"}}, failCmd: "apt-get purge -y x", wantSub: "apt-get purge failed"},
-		{name: "autoremove error", spec: profile.PackageSpec{Autoremove: true}, failCmd: "apt-get autoremove -y", wantSub: "apt-get autoremove failed"},
+		{name: "update error", spec: Spec{Update: true}, failCmd: "apt-get update -y", wantSub: "apt-get update failed"},
+		{name: "upgrade error", spec: Spec{Upgrade: true}, failCmd: "apt-get upgrade -y", wantSub: "apt-get upgrade failed"},
+		{name: "install error", spec: Spec{Install: []string{"x"}}, failCmd: "apt-get install -y x", wantSub: "apt-get install failed"},
+		{name: "purge error", spec: Spec{Purge: []string{"x"}}, failCmd: "apt-get purge -y x", wantSub: "apt-get purge failed"},
+		{name: "autoremove error", spec: Spec{Autoremove: true}, failCmd: "apt-get autoremove -y", wantSub: "apt-get autoremove failed"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -74,7 +73,7 @@ func TestPlan(t *testing.T) {
 			install:   []string{"a", "b", "dep1"},
 			auto:      []string{"oldpkg"},
 		}
-		res, err := Plan(pluginapi.PlanContext{Inspector: insp}, &profile.PackageSpec{
+		res, err := Plan(pluginapi.PlanContext{Inspector: insp}, &Spec{
 			Update:     true,
 			Upgrade:    true,
 			Install:    []string{"a", "b"},
@@ -96,7 +95,7 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("full noop", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Inspector: packagesInspectorStub{}}, &profile.PackageSpec{})
+		res, err := Plan(pluginapi.PlanContext{Inspector: packagesInspectorStub{}}, &Spec{})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -106,7 +105,7 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("update only partial noop", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Inspector: packagesInspectorStub{}}, &profile.PackageSpec{Update: true, Upgrade: true, Autoremove: true})
+		res, err := Plan(pluginapi.PlanContext{Inspector: packagesInspectorStub{}}, &Spec{Update: true, Upgrade: true, Autoremove: true})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -124,7 +123,7 @@ func TestPlan(t *testing.T) {
 			installErr: errors.New("ierr"),
 			autoErr:    errors.New("aerr"),
 		}
-		res, err := Plan(pluginapi.PlanContext{Inspector: insp}, &profile.PackageSpec{Upgrade: true, Install: []string{"x"}, Autoremove: true})
+		res, err := Plan(pluginapi.PlanContext{Inspector: insp}, &Spec{Upgrade: true, Install: []string{"x"}, Autoremove: true})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -139,14 +138,14 @@ func TestPlan(t *testing.T) {
 
 func TestCaptureRollbackAndSnapshot(t *testing.T) {
 	t.Run("missing spec", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "p", Type: "packages"}, RollbackDeps{})
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "p", nil, RollbackDeps{})
 		if err == nil || !strings.Contains(err.Error(), "packages spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 	})
 
 	t.Run("query error", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{ID: "p", Type: "packages", Packages: &profile.PackageSpec{Install: []string{"x"}}}, RollbackDeps{
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "p", &Spec{Install: []string{"x"}}, RollbackDeps{
 			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("boom") },
 		})
 		if err == nil || !strings.Contains(err.Error(), "capture package state") {
@@ -155,16 +154,12 @@ func TestCaptureRollbackAndSnapshot(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, profile.Step{
-			ID:   "p",
-			Type: "packages",
-			Packages: &profile.PackageSpec{
-				Update:     true,
-				Upgrade:    true,
-				Autoremove: true,
-				Install:    []string{"curl"},
-				Purge:      []string{"vim"},
-			},
+		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "p", &Spec{
+			Update:     true,
+			Upgrade:    true,
+			Autoremove: true,
+			Install:    []string{"curl"},
+			Purge:      []string{"vim"},
 		}, RollbackDeps{
 			RunRootWithOutput: func(_ *ssh.Client, cmd string) (string, error) {
 				if strings.Contains(cmd, "curl") {

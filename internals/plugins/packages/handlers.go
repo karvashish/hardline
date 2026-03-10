@@ -2,61 +2,89 @@ package packages
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func ApplyHandler(applyFn func(pluginapi.ApplyContext, *profile.PackageSpec) error) pluginapi.ApplyHandler {
-	return pluginapi.ApplyHandler{
-		Type: "packages",
-		Apply: func(ctx pluginapi.ApplyContext, s profile.Step) error {
-			if s.Packages == nil {
-				return fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
+func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+	return pluginapi.Plugin{
+		Name:               "packages",
+		InternalValidation: true,
+		Apply: func(ctx pluginapi.ApplyContext, step profile.Step) error {
+			spec, err := decodePackageSpec(step)
+			if err != nil {
+				return err
 			}
-			return applyFn(ctx, s.Packages)
-		},
-	}
-}
-
-func PlanHandler(planFn func(pluginapi.PlanContext, *profile.PackageSpec) (pluginapi.PlanResult, error)) pluginapi.PlanHandler {
-	return pluginapi.PlanHandler{
-		Type: "packages",
-		Plan: func(ctx pluginapi.PlanContext, s profile.Step) (pluginapi.PlanResult, error) {
-			if s.Packages == nil {
-				return pluginapi.PlanResult{}, fmt.Errorf("step %q (type=%s): packages spec missing", s.ID, s.Type)
+			if err := validatePackageSpec(spec); err != nil {
+				return err
 			}
-			return planFn(ctx, s.Packages)
+			return Apply(ctx, spec, applyDeps)
+		},
+		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
+			spec, err := decodePackageSpec(step)
+			if err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			if err := validatePackageSpec(spec); err != nil {
+				return pluginapi.PlanResult{}, err
+			}
+			return Plan(ctx, spec)
+		},
+		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+			spec, err := decodePackageSpec(step)
+			if err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "packages"}, err
+			}
+			if err := validatePackageSpec(spec); err != nil {
+				return pluginapi.StepRecord{ID: step.ID, Type: "packages"}, err
+			}
+
+			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
 		},
 	}
 }
 
-func DefaultApplyHandler(deps ApplyDeps) pluginapi.ApplyHandler {
-	h := ApplyHandler(func(ctx pluginapi.ApplyContext, spec *profile.PackageSpec) error {
-		return Apply(ctx, spec, deps)
-	})
-	h.ValidateKinds = map[string]func(pluginapi.ApplyContext) error{
-		"packages": func(pluginapi.ApplyContext) error { return nil },
+func decodePackageSpec(step profile.Step) (*Spec, error) {
+	var spec Spec
+	if err := step.Decode(&spec); err != nil {
+		return nil, err
 	}
-	return h
+	return &spec, nil
 }
 
-func DefaultPlanHandler() pluginapi.PlanHandler {
-	h := PlanHandler(Plan)
-	h.ValidateKinds = map[string]func(pluginapi.PlanContext) (pluginapi.PlanResult, error){
-		"packages": func(pluginapi.PlanContext) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{Summary: "package validation: no additional checks"}, nil
-		},
+func validatePackageSpec(spec *Spec) error {
+	if spec == nil {
+		return fmt.Errorf("packages config is required")
 	}
-	return h
-}
 
-func DefaultRollbackHandler(deps RollbackDeps) pluginapi.RollbackHandler {
-	return pluginapi.RollbackHandler{
-		Type: "packages",
-		Capture: func(ctx pluginapi.RollbackContext, s profile.Step) (rollback.StepRecord, error) {
-			return CaptureRollback(ctx, s, deps)
-		},
+	install := make(map[string]struct{}, len(spec.Install))
+	for _, raw := range spec.Install {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			return fmt.Errorf("packages install entries must not be empty")
+		}
+		if _, exists := install[name]; exists {
+			return fmt.Errorf("package %q is duplicated in install list", name)
+		}
+		install[name] = struct{}{}
 	}
+
+	purge := make(map[string]struct{}, len(spec.Purge))
+	for _, raw := range spec.Purge {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			return fmt.Errorf("packages purge entries must not be empty")
+		}
+		if _, exists := purge[name]; exists {
+			return fmt.Errorf("package %q is duplicated in purge list", name)
+		}
+		purge[name] = struct{}{}
+		if _, exists := install[name]; exists {
+			return fmt.Errorf("package %q cannot be both installed and purged in one step", name)
+		}
+	}
+
+	return nil
 }

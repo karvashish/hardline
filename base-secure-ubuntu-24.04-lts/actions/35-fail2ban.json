@@ -2,11 +2,11 @@
   "steps": [
     {
       "id": "fail2ban-ssh-config",
-      "type": "template",
+      "plugin": "template",
       "severity": "medium",
       "risk_class": "access",
       "control_tags": [],
-      "template": {
+      "config": {
         "src": "templates/35-fail2ban-ssh-protection.tmpl",
         "dest": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
         "mode": "0644"
@@ -14,11 +14,11 @@
     },
     {
       "id": "fail2ban-service-enable",
-      "type": "service",
+      "plugin": "service",
       "severity": "high",
       "risk_class": "access",
       "control_tags": [],
-      "service": {
+      "config": {
         "name": "fail2ban",
         "enabled": true,
         "state": "started"

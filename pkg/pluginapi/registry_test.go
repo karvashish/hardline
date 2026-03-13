@@ -169,6 +169,65 @@ func TestEnsureValidationPolicy(t *testing.T) {
 	}
 }
 
+func TestRequireStepPlugin(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(validPlugin("template")); err != nil {
+		t.Fatalf("register plugin failed: %v", err)
+	}
+
+	plugin, err := RequireStepPlugin(r, profile.Step{ID: "s1", Plugin: " TEMPLATE "})
+	if err != nil {
+		t.Fatalf("expected plugin lookup success, got %v", err)
+	}
+	if plugin.Name != "template" {
+		t.Fatalf("expected normalized plugin name, got %q", plugin.Name)
+	}
+
+	_, err = RequireStepPlugin(r, profile.Step{ID: "s2"})
+	if err == nil || !strings.Contains(err.Error(), "plugin is required") {
+		t.Fatalf("expected missing plugin error, got %v", err)
+	}
+
+	_, err = RequireStepPlugin(r, profile.Step{ID: "s3", Plugin: "missing"})
+	if err == nil || !strings.Contains(err.Error(), "required plugin \"missing\" is not registered") {
+		t.Fatalf("expected missing registration error, got %v", err)
+	}
+}
+
+func TestEnsureProfilePlugins(t *testing.T) {
+	r := NewRegistry()
+	if err := r.Register(validPlugin("template")); err != nil {
+		t.Fatalf("register plugin failed: %v", err)
+	}
+	if err := r.Register(validPlugin("service")); err != nil {
+		t.Fatalf("register plugin failed: %v", err)
+	}
+
+	err := EnsureProfilePlugins(r, &profile.Profile{
+		ActionFiles: []profile.ActionFile{
+			{Steps: []profile.Step{{ID: "s1", Plugin: "template"}}},
+			{Steps: []profile.Step{{ID: "s2", Plugin: "service"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected profile plugin validation success, got %v", err)
+	}
+
+	err = EnsureProfilePlugins(r, &profile.Profile{
+		ActionFiles: []profile.ActionFile{
+			{Steps: []profile.Step{{ID: "bad", Plugin: "missing"}}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "required plugin \"missing\" is not registered") {
+		t.Fatalf("expected missing plugin error, got %v", err)
+	}
+
+	err = EnsureProfilePlugins(r, nil)
+	if err == nil || !strings.Contains(err.Error(), "profile is nil") {
+		t.Fatalf("expected nil profile error, got %v", err)
+	}
+}
+
 func TestNoopRecord(t *testing.T) {
 	record := NoopRecord(profile.Step{ID: "s1", Plugin: "template"}, "noop")
 	if record.ID != "s1" || record.Type != "template" || record.RollbackMode != ModeNoop {

@@ -3,7 +3,6 @@ package apply
 import (
 	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/remote"
-	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
@@ -25,12 +24,9 @@ func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
 }
 
 func handleStepWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profile.Profile, s profile.Step) error {
-	pluginName := s.PluginName()
-
-	plugin, ok := reg.Lookup(pluginName)
-	if !ok {
-		logger.Warnf("warning: empty or unknown plugin %q (id=%q)\n", s.Plugin, s.ID)
-		return nil
+	plugin, err := pluginapi.RequireStepPlugin(reg, s)
+	if err != nil {
+		return err
 	}
 	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
 		return err

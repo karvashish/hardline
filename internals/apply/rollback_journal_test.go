@@ -10,16 +10,10 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func TestCaptureStepRecord_UnknownNoop(t *testing.T) {
-	record, err := captureStepRecord(nil, nil, profile.Step{ID: "u", Plugin: "mystery"})
-	if err != nil {
-		t.Fatalf("captureStepRecord failed: %v", err)
-	}
-	if record.RollbackMode != rollback.ModeNoop {
-		t.Fatalf("expected noop rollback mode, got %q", record.RollbackMode)
-	}
-	if len(record.Objects) != 1 || !strings.Contains(record.Objects[0].Message, "unknown plugin") {
-		t.Fatalf("unexpected unknown-plugin rollback object: %+v", record.Objects)
+func TestCaptureStepRecord_UnknownPluginFails(t *testing.T) {
+	_, err := captureStepRecord(nil, nil, profile.Step{ID: "u", Plugin: "mystery"})
+	if err == nil || !strings.Contains(err.Error(), "required plugin \"mystery\" is not registered") {
+		t.Fatalf("expected missing plugin error, got %v", err)
 	}
 }
 

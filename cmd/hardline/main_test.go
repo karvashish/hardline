@@ -118,6 +118,7 @@ func TestRun_VerifyDispatch(t *testing.T) {
 		return cli.Command{Name: command, Profile: "p"}
 	}
 	setDebugMode = func(bool) {}
+	loadPlugins = func() error { return nil }
 
 	var verifyCalls int
 	runVerify = func(c cli.Command) {
@@ -133,6 +134,35 @@ func TestRun_VerifyDispatch(t *testing.T) {
 	}
 	if verifyCalls != 1 {
 		t.Fatalf("expected verify call once, got %d", verifyCalls)
+	}
+}
+
+func TestRun_VerifyPluginLoadFailure(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p"}
+	}
+	setDebugMode = func(bool) {}
+	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
+
+	var verifyCalled bool
+	runVerify = func(cli.Command) { verifyCalled = true }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+
+	code := run([]string{"hardline", "verify-profile", "profile"})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if verifyCalled {
+		t.Fatal("verify handler should not run when plugin loading fails")
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("plugin load failed: bad plugin")) {
+		t.Fatalf("expected plugin load error output, got %q", got)
 	}
 }
 

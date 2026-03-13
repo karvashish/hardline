@@ -1,8 +1,6 @@
 package plan
 
 import (
-	"fmt"
-
 	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -24,19 +22,16 @@ func planStep(client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan,
 }
 
 func planStepWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan, error) {
-	pluginName := s.PluginName()
-
 	plan := StepPlan{
 		StepID:    s.ID,
-		StepType:  pluginName,
+		StepType:  s.PluginName(),
 		Severity:  s.Severity,
 		RiskClass: s.RiskClass,
 	}
 
-	plugin, ok := reg.Lookup(pluginName)
-	if !ok {
-		plan.Summary = fmt.Sprintf("unknown or empty plugin %q (no-op in planning)", s.Plugin)
-		return plan, nil
+	plugin, err := pluginapi.RequireStepPlugin(reg, s)
+	if err != nil {
+		return plan, err
 	}
 	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
 		return plan, err

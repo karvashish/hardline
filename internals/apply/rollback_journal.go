@@ -13,9 +13,9 @@ func captureStepRecord(client *ssh.Client, p *profile.Profile, s profile.Step) (
 }
 
 func captureStepRecordWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profile.Profile, s profile.Step) (rollback.StepRecord, error) {
-	plugin, ok := reg.Lookup(s.PluginName())
-	if !ok {
-		return pluginapi.NoopRecord(s, "unknown plugin captured as noop"), nil
+	plugin, err := pluginapi.RequireStepPlugin(reg, s)
+	if err != nil {
+		return rollback.StepRecord{}, err
 	}
 	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
 		return rollback.StepRecord{}, err

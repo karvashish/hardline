@@ -67,6 +67,10 @@ func run(args []string) int {
 	case "verify-profile", "vp":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		if err := loadPlugins(); err != nil {
+			logErrorf("plugin load failed: %v\n", err)
+			return 1
+		}
 		runVerify(c)
 		return 0
 	case "version", "-v":

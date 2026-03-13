@@ -6,6 +6,7 @@ import (
 	"github.com/karvashish/hardline/internals/plugins/builtin"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/pluginapi"
+	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -21,6 +22,10 @@ var sharedRegistry = NewDefaultRegistry()
 
 func Shared() *pluginapi.Registry {
 	return sharedRegistry
+}
+
+func EnsureProfilePlugins(p *profile.Profile) error {
+	return pluginapi.EnsureProfilePlugins(Shared(), p)
 }
 
 func newRegistrySFTPClient(client *ssh.Client) (*sftp.Client, error) {

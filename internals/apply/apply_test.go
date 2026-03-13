@@ -144,6 +144,25 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("required plugin validation failed", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureApplySudo = func(_ *ssh.Client) error { return nil }
+		loadProfile = func(string) (*profile.Profile, error) {
+			return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
+		}
+		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+		compareSemVer = func(a, b string) (int, error) { return 0, nil }
+		ensureApplyPlugins = func(*profile.Profile) error { return errors.New("required plugin missing") }
+
+		err := applyCommand(c)
+		if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
+			t.Fatalf("expected required plugin validation error, got %v", err)
+		}
+	})
+
 	t.Run("apply profile failed", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
@@ -300,6 +319,9 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		defer restore()
 
 		seen := []string{}
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
+			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) error {
 			seen = append(seen, step.ID)
 			return nil
@@ -328,6 +350,9 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
+			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
 			return errors.New("step boom")
 		}
@@ -347,6 +372,9 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
+			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
 			return errors.New("step boom")
 		}
@@ -377,6 +405,9 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
+			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
 			return errors.New("step boom")
 		}
@@ -447,7 +478,9 @@ func stubApplyDeps() func() {
 	prevVersion := versionCmd
 	prevCompare := compareSemVer
 	prevEnsureSudo := ensureApplySudo
+	prevEnsurePlugins := ensureApplyPlugins
 	prevRunApplyProfile := runApplyProfile
+	prevRunCapture := runCaptureStepRecord
 	prevRunRollbackStep := runRollbackStep
 	prevRunApplyCommand := runApplyCommand
 	prevExit := exitProcess
@@ -458,7 +491,9 @@ func stubApplyDeps() func() {
 		versionCmd = prevVersion
 		compareSemVer = prevCompare
 		ensureApplySudo = prevEnsureSudo
+		ensureApplyPlugins = prevEnsurePlugins
 		runApplyProfile = prevRunApplyProfile
+		runCaptureStepRecord = prevRunCapture
 		runRollbackStep = prevRunRollbackStep
 		runApplyCommand = prevRunApplyCommand
 		exitProcess = prevExit

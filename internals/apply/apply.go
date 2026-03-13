@@ -6,6 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
@@ -14,17 +15,18 @@ import (
 )
 
 var (
-	newSSHClient    = connection.NewSSHClient
-	loadProfile     = profile.Load
-	versionCmd      = cli.VersionCmd
-	compareSemVer   = cli.CompareSemVer
-	ensureApplySudo = connection.EnsureNonInteractiveSudo
-	runApplyProfile = applyProfile
+	newSSHClient         = connection.NewSSHClient
+	loadProfile          = profile.Load
+	versionCmd           = cli.VersionCmd
+	compareSemVer        = cli.CompareSemVer
+	ensureApplySudo      = connection.EnsureNonInteractiveSudo
+	ensureApplyPlugins   = registry.EnsureProfilePlugins
+	runApplyProfile      = applyProfile
 	runCaptureStepRecord = captureStepRecord
-	runRollbackStep = rollback.RollbackSteps
-	runApplyCommand = applyCommand
-	exitProcess     = os.Exit
-	runStep         = handleStep
+	runRollbackStep      = rollback.RollbackSteps
+	runApplyCommand      = applyCommand
+	exitProcess          = os.Exit
+	runStep              = handleStep
 )
 
 func Apply(c cli.Command) {
@@ -107,6 +109,10 @@ func applyCommand(c cli.Command) error {
 	if err := p.Affirm(); err != nil {
 		logger.Errorf("profile validation failed: %v\n", err)
 		return fmt.Errorf("profile validation failed: %w", err)
+	}
+	if err := ensureApplyPlugins(p); err != nil {
+		logger.Errorf("required plugin validation failed: %v\n", err)
+		return fmt.Errorf("required plugin validation failed: %w", err)
 	}
 
 	journal := rollback.NewJournal(c.Host, p.ID, c.Profile)

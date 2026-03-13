@@ -11,6 +11,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -23,6 +24,16 @@ func TestPlanProfile(t *testing.T) {
 	defer logger.SetDebug(prevDebug)
 
 	t.Run("success with unknown step", func(t *testing.T) {
+		prevRunStep := runPlanStep
+		defer func() { runPlanStep = prevRunStep }()
+		runPlanStep = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (StepPlan, error) {
+			return StepPlan{
+				StepID:   step.ID,
+				StepType: step.PluginName(),
+				Summary:  "ok",
+			}, nil
+		}
+
 		p := &profile.Profile{
 			ID:          "p1",
 			DisplayName: "Test Profile",
@@ -149,6 +160,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 	prevCmp := planCompareSemVer
 	prevSSH := newPlanSSHClient
 	prevRunProfile := runPlanForProfile
+	prevEnsurePlugins := ensurePlanPlugins
 	prevExit := exitPlan
 	defer func() {
 		loadPlanProfile = prevLoad
@@ -156,6 +168,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 		planCompareSemVer = prevCmp
 		newPlanSSHClient = prevSSH
 		runPlanForProfile = prevRunProfile
+		ensurePlanPlugins = prevEnsurePlugins
 		exitPlan = prevExit
 	}()
 
@@ -245,6 +258,14 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 			t.Fatalf("expected exit(1), got exited=%v code=%d", exited, code)
 		}
 		loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
+	})
+
+	t.Run("required plugin missing", func(t *testing.T) {
+		ensurePlanPlugins = func(*profile.Profile) error { return errors.New("required plugin missing") }
+		if code, exited := run(cli.Command{Profile: "x", Debug: true}); !exited || code != 1 {
+			t.Fatalf("expected exit(1), got exited=%v code=%d", exited, code)
+		}
+		ensurePlanPlugins = registry.EnsureProfilePlugins
 	})
 
 	t.Run("connect failure", func(t *testing.T) {

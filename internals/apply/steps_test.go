@@ -39,8 +39,8 @@ func TestHandleStepDispatch(t *testing.T) {
 	}
 
 	p := &profile.Profile{ID: "p1"}
-	if err := handleStepWithRegistry(reg, nil, p, profile.Step{ID: "u", Plugin: "unknown"}); err != nil {
-		t.Fatalf("unknown plugin should be noop, got %v", err)
+	if err := handleStepWithRegistry(reg, nil, p, profile.Step{ID: "u", Plugin: "unknown"}); err == nil || !strings.Contains(err.Error(), "required plugin \"unknown\" is not registered") {
+		t.Fatalf("expected unknown plugin failure, got %v", err)
 	}
 
 	if err := handleStepWithRegistry(reg, nil, p, profile.Step{ID: "s1", Plugin: "fake"}); err != nil {

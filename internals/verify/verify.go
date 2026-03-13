@@ -1,15 +1,24 @@
 package verify
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/karvashish/hardline/internals/cli"
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/pkg/logger"
+	"github.com/karvashish/hardline/pkg/profile"
+)
+
+var (
+	verifyIntegrity     = VerifyProfileIntegrity
+	loadVerifyProfile   = profile.Load
+	ensureVerifyPlugins = registry.EnsureProfilePlugins
 )
 
 func Verify(c cli.Command) {
 	if err := verifyProfile(c); err != nil {
-		logger.Errorf("integrity verification failed: %v\n", err)
+		logger.Errorf("verify failed: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -21,8 +30,17 @@ func verifyProfile(c cli.Command) error {
 
 	logger.Debugf("verify-profile: profile=%q\n", c.Profile)
 
-	if err := VerifyProfileIntegrity(c.Profile); err != nil {
+	if err := verifyIntegrity(c.Profile); err != nil {
 		return err
+	}
+
+	p, err := loadVerifyProfile(c.Profile)
+	if err != nil {
+		return fmt.Errorf("profile load failed: %w", err)
+	}
+
+	if err := ensureVerifyPlugins(p); err != nil {
+		return fmt.Errorf("required plugin validation failed: %w", err)
 	}
 
 	if !c.Debug {

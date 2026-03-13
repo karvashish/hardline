@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/karvashish/hardline/internals/cli"
+	"github.com/karvashish/hardline/internals/registry"
+	"github.com/karvashish/hardline/pkg/profile"
 )
 
 func TestVerifyProfileIntegrity_SuccessForBundledProfile(t *testing.T) {
@@ -405,6 +407,32 @@ func TestVerifyProfile_Helper(t *testing.T) {
 	err := verifyProfile(cli.Command{Profile: filepath.Join(t.TempDir(), "missing")})
 	if err == nil {
 		t.Fatal("expected verifyProfile to fail for missing profile directory")
+	}
+}
+
+func TestVerifyProfile_MissingPluginFails(t *testing.T) {
+	prevIntegrity := verifyIntegrity
+	prevLoad := loadVerifyProfile
+	prevEnsure := ensureVerifyPlugins
+	defer func() {
+		verifyIntegrity = prevIntegrity
+		loadVerifyProfile = prevLoad
+		ensureVerifyPlugins = prevEnsure
+	}()
+
+	verifyIntegrity = func(string) error { return nil }
+	loadVerifyProfile = func(string) (*profile.Profile, error) {
+		return &profile.Profile{
+			ActionFiles: []profile.ActionFile{
+				{Steps: []profile.Step{{ID: "s1", Plugin: "missing"}}},
+			},
+		}, nil
+	}
+	ensureVerifyPlugins = registry.EnsureProfilePlugins
+
+	err := verifyProfile(cli.Command{Profile: "profile", Debug: true})
+	if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
+		t.Fatalf("expected required plugin validation error, got %v", err)
 	}
 }
 

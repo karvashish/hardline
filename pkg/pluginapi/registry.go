@@ -217,6 +217,36 @@ func (r *Registry) Lookup(name string) (Plugin, bool) {
 	return p, ok
 }
 
+func RequireStepPlugin(r *Registry, step profile.Step) (Plugin, error) {
+	name := step.PluginName()
+	if name == "" {
+		return Plugin{}, fmt.Errorf("step %q: plugin is required", step.ID)
+	}
+
+	plugin, ok := r.Lookup(name)
+	if !ok {
+		return Plugin{}, fmt.Errorf("step %q: required plugin %q is not registered", step.ID, name)
+	}
+
+	return plugin, nil
+}
+
+func EnsureProfilePlugins(r *Registry, p *profile.Profile) error {
+	if p == nil {
+		return fmt.Errorf("profile is nil")
+	}
+
+	for _, af := range p.ActionFiles {
+		for _, step := range af.Steps {
+			if _, err := RequireStepPlugin(r, step); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func NoopRecord(step profile.Step, message string) StepRecord {
 	return StepRecord{
 		ID:           step.ID,

@@ -49,12 +49,9 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 }
 
 func TestPlanStepUnknownPlugin(t *testing.T) {
-	sp, err := planStep(nil, &profile.Profile{}, profile.Step{ID: "u", Plugin: "unknown"})
-	if err != nil {
-		t.Fatalf("planStep unknown failed: %v", err)
-	}
-	if !strings.Contains(sp.Summary, "unknown or empty plugin") {
-		t.Fatalf("unexpected unknown step summary: %+v", sp)
+	_, err := planStep(nil, &profile.Profile{}, profile.Step{ID: "u", Plugin: "unknown"})
+	if err == nil || !strings.Contains(err.Error(), "required plugin \"unknown\" is not registered") {
+		t.Fatalf("expected unknown plugin failure, got %v", err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -19,6 +20,7 @@ var (
 	newPlanSSHClient  = connection.NewSSHClient
 	runPlanForProfile = planProfile
 	runPlanStep       = planStep
+	ensurePlanPlugins = registry.EnsureProfilePlugins
 	exitPlan          = os.Exit
 )
 
@@ -71,6 +73,10 @@ func Plan(c cli.Command) {
 
 	if err := p.Affirm(); err != nil {
 		logger.Errorf("profile validation failed: %v\n", err)
+		exitPlan(1)
+	}
+	if err := ensurePlanPlugins(p); err != nil {
+		logger.Errorf("required plugin validation failed: %v\n", err)
 		exitPlan(1)
 	}
 

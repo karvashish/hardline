@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
@@ -20,9 +21,13 @@ var (
 func resetApplyStepState() {}
 
 func handleStep(client *ssh.Client, p *profile.Profile, s profile.Step) error {
+	return handleStepWithRegistry(registry.Shared(), client, p, s)
+}
+
+func handleStepWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profile.Profile, s profile.Step) error {
 	pluginName := s.PluginName()
 
-	plugin, ok := pluginRegistry.Lookup(pluginName)
+	plugin, ok := reg.Lookup(pluginName)
 	if !ok {
 		logger.Warnf("warning: empty or unknown plugin %q (id=%q)\n", s.Plugin, s.ID)
 		return nil

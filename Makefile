@@ -30,9 +30,22 @@ checkversion:
 test:
 	@echo "== running repo-wide tests with coverage =="
 	@mkdir -p $(OUTDIR)
-	@GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test ./... -coverprofile=$(COVER_PROFILE); \
+	@GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test ./... -count=1 -coverprofile=$(COVER_PROFILE) -cover | tee $(OUTDIR)/coverage.txt; \
 	cov=$$(GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go tool cover -func=$(COVER_PROFILE) | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
 	echo "repo-wide coverage: $$cov%"; \
+	for pkg in $$(GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go list ./...); do \
+		pkg_name=$$(printf "%s" "$$pkg" | sed 's#/#_#g'); \
+		pkg_profile="$(OUTDIR)/$${pkg_name}.cover.out"; \
+		pkg_log="$(OUTDIR)/$${pkg_name}.cover.log"; \
+		GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test "$$pkg" -count=1 -coverprofile="$$pkg_profile" >"$$pkg_log" 2>&1 || { cat "$$pkg_log"; exit 1; }; \
+		pkg_cov=$$(GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go tool cover -func="$$pkg_profile" | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
+		if ! awk "BEGIN { exit !($$pkg_cov >= $(MIN_COVERAGE)) }"; then \
+			echo "package coverage below minimum: $$pkg $$pkg_cov%"; \
+			bad=1; \
+		fi; \
+	done; \
+	test -z "$$bad" || \
+		{ echo "one or more packages are below minimum $(MIN_COVERAGE)%"; exit 1; }; \
 	awk "BEGIN { if ($$cov < $(MIN_COVERAGE)) exit 1 }" || \
 		{ echo "repo-wide coverage $$cov% is below minimum $(MIN_COVERAGE)%"; exit 1; }
 

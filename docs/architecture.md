@@ -56,13 +56,13 @@ Planning:
 
 - [`internals/plan/plan.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/plan.go)
 - [`internals/plan/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/steps.go)
-- [`internals/plan/actions_registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/actions_registry.go)
+- [`internals/plan/context.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/context.go)
 
 Apply:
 
 - [`internals/apply/apply.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/apply.go)
 - [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go)
-- [`internals/apply/actions_registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/actions_registry.go)
+- [`internals/apply/context.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/context.go)
 
 Rollback:
 
@@ -74,6 +74,10 @@ Rollback:
 The plugin contract is defined in:
 
 - [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
+
+The command-independent shared registry owner lives in:
+
+- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
 
 Built-in plugin assembly lives in:
 

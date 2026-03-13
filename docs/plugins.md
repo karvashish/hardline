@@ -155,11 +155,7 @@ Requirements:
 - export the symbol `HardlinePluginV1`
 - provide a `*pluginapi.PluginBundle`
 
-Current caveat:
+Relevant registry files:
 
-- external plugin registration is routed through the apply-side registry path, while planning has its own default registry bootstrap
-
-That caveat is important enough that any contributor touching external plugin behavior should also read:
-
-- [`internals/apply/actions_registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/actions_registry.go)
-- [`internals/plan/actions_registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/actions_registry.go)
+- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
+- [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)

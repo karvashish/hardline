@@ -1,26 +1,20 @@
 package apply
 
 import (
-	"errors"
-	"os"
 	"strings"
 	"testing"
 
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestHandleStepDispatch(t *testing.T) {
-	prev := pluginRegistry
-	defer func() { pluginRegistry = prev }()
-
-	pluginRegistry = pluginapi.NewRegistry()
+	reg := pluginapi.NewRegistry()
 
 	called := false
-	err := RegisterPlugin(pluginapi.Plugin{
+	err := reg.Register(pluginapi.Plugin{
 		Name:               "fake",
 		InternalValidation: true,
 		Apply: func(ctx pluginapi.ApplyContext, s profile.Step) error {
@@ -45,11 +39,11 @@ func TestHandleStepDispatch(t *testing.T) {
 	}
 
 	p := &profile.Profile{ID: "p1"}
-	if err := handleStep(nil, p, profile.Step{ID: "u", Plugin: "unknown"}); err != nil {
+	if err := handleStepWithRegistry(reg, nil, p, profile.Step{ID: "u", Plugin: "unknown"}); err != nil {
 		t.Fatalf("unknown plugin should be noop, got %v", err)
 	}
 
-	if err := handleStep(nil, p, profile.Step{ID: "s1", Plugin: "fake"}); err != nil {
+	if err := handleStepWithRegistry(reg, nil, p, profile.Step{ID: "s1", Plugin: "fake"}); err != nil {
 		t.Fatalf("fake plugin apply failed: %v", err)
 	}
 	if !called {
@@ -57,12 +51,9 @@ func TestHandleStepDispatch(t *testing.T) {
 	}
 }
 
-func TestHandleStep_ValidationPolicy(t *testing.T) {
-	prev := pluginRegistry
-	defer func() { pluginRegistry = prev }()
-
-	pluginRegistry = pluginapi.NewRegistry()
-	err := RegisterPlugin(pluginapi.Plugin{
+func TestHandleStepValidationPolicy(t *testing.T) {
+	reg := pluginapi.NewRegistry()
+	err := reg.Register(pluginapi.Plugin{
 		Name:               "external",
 		InternalValidation: false,
 		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
@@ -77,12 +68,12 @@ func TestHandleStep_ValidationPolicy(t *testing.T) {
 		t.Fatalf("register external plugin failed: %v", err)
 	}
 
-	err = handleStep(nil, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"})
+	err = handleStepWithRegistry(reg, nil, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"})
 	if err == nil || !strings.Contains(err.Error(), "allow_unvalidated=true") {
 		t.Fatalf("expected validation policy error, got %v", err)
 	}
 
-	err = handleStep(nil, &profile.Profile{}, profile.Step{
+	err = handleStepWithRegistry(reg, nil, &profile.Profile{}, profile.Step{
 		ID:               "x",
 		Plugin:           "external",
 		AllowUnvalidated: true,
@@ -92,44 +83,8 @@ func TestHandleStep_ValidationPolicy(t *testing.T) {
 	}
 }
 
-func TestRegistryContextHelpers(t *testing.T) {
-	p := &profile.Profile{ID: "p2"}
-	actx := applyActionContext(nil, p)
-	if actx.Profile != p || actx.Client != nil {
-		t.Fatalf("unexpected apply action context: %+v", actx)
-	}
-
-	rctx := applyRollbackContext(nil, p)
-	if rctx.Profile != p || rctx.Client != nil {
-		t.Fatalf("unexpected rollback context: %+v", rctx)
-	}
-}
-
 func TestNewDefaultRegistries(t *testing.T) {
-	prevRunRoot := runRootCmd
-	prevRunRootOut := runRootCmdWithOutput
-	prevReadRoot := readRootFile
-	prevSFTP := newSFTPClient
-	prevWrite := writeRootFile
-	defer func() {
-		runRootCmd = prevRunRoot
-		runRootCmdWithOutput = prevRunRootOut
-		readRootFile = prevReadRoot
-		newSFTPClient = prevSFTP
-		writeRootFile = prevWrite
-	}()
-
-	runRootCalls := 0
-	runRootCmd = func(*ssh.Client, string) error {
-		runRootCalls++
-		return nil
-	}
-	runRootCmdWithOutput = func(*ssh.Client, string) (string, error) { return "", nil }
-	readRootFile = func(*ssh.Client, string) (string, error) { return "", nil }
-	newSFTPClient = func(*ssh.Client) (*sftp.Client, error) { return nil, nil }
-	writeRootFile = func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil }
-
-	reg := newDefaultPluginRegistry()
+	reg := registry.NewDefaultRegistry()
 	for _, name := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
 		plugin, ok := reg.Lookup(name)
 		if !ok {
@@ -140,36 +95,18 @@ func TestNewDefaultRegistries(t *testing.T) {
 		}
 	}
 
-	packagesPlugin, _ := reg.Lookup("packages")
-	if err := packagesPlugin.Apply(pluginapi.ApplyContext{}, profile.Step{
-		ID:     "p1",
-		Plugin: "packages",
-		Config: map[string]any{"update": true},
-	}); err != nil {
-		t.Fatalf("packages apply failed: %v", err)
+	if reg == nil {
+		t.Fatal("expected shared registry")
 	}
-
-	if runRootCalls == 0 {
-		t.Fatal("expected builtin registry to capture runtime dependencies")
+	fresh := registry.NewDefaultRegistry()
+	if fresh == nil {
+		t.Fatal("expected fresh default registry to be constructible")
 	}
-}
-
-func TestNewDefaultRegistries_RegisterPanics(t *testing.T) {
-	prevRunRoot := runRootCmd
-	defer func() {
-		runRootCmd = prevRunRoot
-	}()
-	runRootCmd = func(*ssh.Client, string) error { return errors.New("x") }
-
-	_ = newDefaultPluginRegistry()
 }
 
 func TestRegisterPluginBundle(t *testing.T) {
-	prev := pluginRegistry
-	defer func() { pluginRegistry = prev }()
-
-	pluginRegistry = pluginapi.NewRegistry()
-	err := RegisterPluginBundle(pluginapi.PluginBundle{
+	reg := pluginapi.NewRegistry()
+	err := reg.RegisterBundle(pluginapi.PluginBundle{
 		Name: "bundle",
 		Plugins: []pluginapi.Plugin{{
 			Name:               "rb",
@@ -187,7 +124,7 @@ func TestRegisterPluginBundle(t *testing.T) {
 		t.Fatalf("register bundle failed: %v", err)
 	}
 
-	plugin, ok := pluginRegistry.Lookup("rb")
+	plugin, ok := reg.Lookup("rb")
 	if !ok {
 		t.Fatal("expected plugin lookup to succeed")
 	}

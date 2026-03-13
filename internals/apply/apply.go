@@ -20,6 +20,7 @@ var (
 	compareSemVer   = cli.CompareSemVer
 	ensureApplySudo = connection.EnsureNonInteractiveSudo
 	runApplyProfile = applyProfile
+	runCaptureStepRecord = captureStepRecord
 	runRollbackStep = rollback.RollbackSteps
 	runApplyCommand = applyCommand
 	exitProcess     = os.Exit
@@ -145,7 +146,7 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 				stop = utils.Throbber()
 			}
 
-			stepRecord, err := captureStepRecord(client, p, step)
+			stepRecord, err := runCaptureStepRecord(client, p, step)
 			if err != nil {
 				if stop != nil {
 					stop()

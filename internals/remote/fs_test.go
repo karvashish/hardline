@@ -11,6 +11,29 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+type fakeSFTPFile struct {
+	writeErr error
+	chmodErr error
+	closed   bool
+	data     []byte
+	mode     os.FileMode
+}
+
+func (f *fakeSFTPFile) Write(p []byte) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	f.data = append(f.data, p...)
+	return len(p), nil
+}
+
+func (f *fakeSFTPFile) Close() error { f.closed = true; return nil }
+
+func (f *fakeSFTPFile) Chmod(mode os.FileMode) error {
+	f.mode = mode
+	return f.chmodErr
+}
+
 func TestWriteRootFile(t *testing.T) {
 	prevWrite := writeFileFn
 	prevRunRoot := runRootFn
@@ -73,6 +96,84 @@ func TestReadRootFile(t *testing.T) {
 	if _, err := ReadRootFile(nil, "/etc/example"); err == nil {
 		t.Fatal("expected ReadRootFile error")
 	}
+}
+
+func TestSSHFileSessionSetWriters(t *testing.T) {
+	sess := sshFileSession{Session: &ssh.Session{}}
+	var out, errOut io.Writer = io.Discard, io.Discard
+	sess.SetWriters(out, errOut)
+	if sess.Stdout != out || sess.Stderr != errOut {
+		t.Fatal("expected writers to be assigned")
+	}
+}
+
+func TestWriteFileWithStubbedOpen(t *testing.T) {
+	client := &fakeSFTPFile{}
+	if err := writeFileWithOpener(nil, "/tmp/x", []byte("abc"), 0o644, func(_ *sftp.Client, _ string) (remoteFile, error) {
+		return client, nil
+	}); err != nil {
+		t.Fatalf("writeFileWithOpener failed: %v", err)
+	}
+	if string(client.data) != "abc" {
+		t.Fatalf("unexpected data %q", string(client.data))
+	}
+	if client.mode != 0o644 {
+		t.Fatalf("unexpected mode %#o", client.mode)
+	}
+
+	if err := writeFileWithOpener(nil, "/tmp/x", []byte("abc"), 0o644, func(_ *sftp.Client, _ string) (remoteFile, error) {
+		return nil, errors.New("open boom")
+	}); err == nil {
+		t.Fatal("expected open error")
+	}
+
+	client = &fakeSFTPFile{writeErr: errors.New("write boom")}
+	if err := writeFileWithOpener(nil, "/tmp/x", []byte("abc"), 0o644, func(_ *sftp.Client, _ string) (remoteFile, error) {
+		return client, nil
+	}); err == nil {
+		t.Fatal("expected write error")
+	}
+
+	client = &fakeSFTPFile{chmodErr: errors.New("chmod boom")}
+	if err := writeFileWithOpener(nil, "/tmp/x", []byte("abc"), 0o644, func(_ *sftp.Client, _ string) (remoteFile, error) {
+		return client, nil
+	}); err == nil {
+		t.Fatal("expected chmod error")
+	}
+}
+
+func TestReadRootFileSessionError(t *testing.T) {
+	prevNewFileSession := newFileSession
+	defer func() { newFileSession = prevNewFileSession }()
+
+	newFileSession = func(*ssh.Client) (fileSession, error) { return nil, errors.New("session boom") }
+	if _, err := ReadRootFile(nil, "/etc/x"); err == nil {
+		t.Fatal("expected ReadRootFile session error")
+	}
+}
+
+func TestCurrentUnixNano(t *testing.T) {
+	if got := currentUnixNano(); got <= 0 {
+		t.Fatalf("expected positive unix nano time, got %d", got)
+	}
+}
+
+func TestWriteFilePanicsOnNilClient(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+	_ = writeFile(nil, "/tmp/x", []byte("abc"), 0o644)
+}
+
+func TestNewSSHFileSessionPanicsOnNilClient(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+	_, _ = newSSHFileSession(nil)
 }
 
 type fakeFileSession struct {

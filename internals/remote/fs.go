@@ -28,7 +28,9 @@ func (s sshFileSession) SetWriters(stdout io.Writer, stderr io.Writer) {
 	s.Stderr = stderr
 }
 
-var newFileSession = func(client *ssh.Client) (fileSession, error) {
+var newFileSession = newSSHFileSession
+
+func newSSHFileSession(client *ssh.Client) (fileSession, error) {
 	sess, err := client.NewSession()
 	if err != nil {
 		return nil, err
@@ -37,15 +39,37 @@ var newFileSession = func(client *ssh.Client) (fileSession, error) {
 }
 
 var (
-	writeFileFn = WriteFile
+	writeFileFn = writeFile
 	runRootFn   = RunRoot
-	nowUnixNano = func() int64 { return time.Now().UnixNano() }
+	nowUnixNano = currentUnixNano
 )
 
-func WriteFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
+type remoteFile interface {
+	Write([]byte) (int, error)
+	Close() error
+	Chmod(os.FileMode) error
+}
+
+func currentUnixNano() int64 {
+	return time.Now().UnixNano()
+}
+
+func writeFile(sftpClient *sftp.Client, remotePath string, data []byte, mode os.FileMode) error {
+	return writeFileWithOpener(sftpClient, remotePath, data, mode, func(client *sftp.Client, path string) (remoteFile, error) {
+		return client.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	})
+}
+
+func writeFileWithOpener(
+	sftpClient *sftp.Client,
+	remotePath string,
+	data []byte,
+	mode os.FileMode,
+	open func(*sftp.Client, string) (remoteFile, error),
+) error {
 	logger.Debugf("writeFile: path=%q size=%d\n", remotePath, len(data))
 
-	f, err := sftpClient.OpenFile(remotePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	f, err := open(sftpClient, remotePath)
 	if err != nil {
 		return err
 	}

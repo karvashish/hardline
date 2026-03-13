@@ -69,6 +69,44 @@ func TestRunErrorsAndDebugMode(t *testing.T) {
 	}
 }
 
+func TestSSHSessionSetWriters(t *testing.T) {
+	sess := sshSession{Session: &ssh.Session{}}
+	var out, errOut io.Writer = io.Discard, io.Discard
+	sess.SetWriters(out, errOut)
+	if sess.Stdout != out || sess.Stderr != errOut {
+		t.Fatal("expected writers to be assigned")
+	}
+}
+
+func TestRunNewSessionError(t *testing.T) {
+	prevNewSession := newSession
+	defer func() { newSession = prevNewSession }()
+
+	newSession = func(*ssh.Client) (session, error) { return nil, errors.New("session boom") }
+	if err := Run(nil, "x"); err == nil {
+		t.Fatal("expected Run to fail on session creation")
+	}
+	if _, err := RunWithOutput(nil, "x"); err == nil {
+		t.Fatal("expected RunWithOutput to fail on session creation")
+	}
+}
+
+func TestRunWithOutputReturnsStdoutOnCommandError(t *testing.T) {
+	prevNewSession := newSession
+	defer func() { newSession = prevNewSession }()
+
+	sess := &fakeSession{runErr: errors.New("boom"), stdoutText: "partial", stderrText: "bad"}
+	newSession = func(*ssh.Client) (session, error) { return sess, nil }
+
+	out, err := RunWithOutput(nil, "x")
+	if err == nil {
+		t.Fatal("expected RunWithOutput error")
+	}
+	if out != "partial" {
+		t.Fatalf("unexpected partial output %q", out)
+	}
+}
+
 func TestRunRootVariants(t *testing.T) {
 	prevNewSession := newSession
 	defer func() { newSession = prevNewSession }()

@@ -4,18 +4,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
 func TestRegisterPluginAndPlanStep(t *testing.T) {
-	prev := planPluginRegistry
-	defer func() { planPluginRegistry = prev }()
-
-	planPluginRegistry = pluginapi.NewRegistry()
+	reg := pluginapi.NewRegistry()
 
 	called := false
-	err := RegisterPlugin(pluginapi.Plugin{
+	err := reg.Register(pluginapi.Plugin{
 		Name:               "fake",
 		InternalValidation: true,
 		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
@@ -38,7 +36,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 	}
 
 	p := &profile.Profile{ID: "p1"}
-	sp, err := planStep(nil, p, profile.Step{ID: "s1", Plugin: "fake", Severity: "high", RiskClass: "r"})
+	sp, err := planStepWithRegistry(reg, nil, p, profile.Step{ID: "s1", Plugin: "fake", Severity: "high", RiskClass: "r"})
 	if err != nil {
 		t.Fatalf("planStep fake failed: %v", err)
 	}
@@ -50,7 +48,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 	}
 }
 
-func TestPlanStep_UnknownPlugin(t *testing.T) {
+func TestPlanStepUnknownPlugin(t *testing.T) {
 	sp, err := planStep(nil, &profile.Profile{}, profile.Step{ID: "u", Plugin: "unknown"})
 	if err != nil {
 		t.Fatalf("planStep unknown failed: %v", err)
@@ -60,12 +58,9 @@ func TestPlanStep_UnknownPlugin(t *testing.T) {
 	}
 }
 
-func TestPlanStep_ValidationPolicy(t *testing.T) {
-	prev := planPluginRegistry
-	defer func() { planPluginRegistry = prev }()
-
-	planPluginRegistry = pluginapi.NewRegistry()
-	err := RegisterPlugin(pluginapi.Plugin{
+func TestPlanStepValidationPolicy(t *testing.T) {
+	reg := pluginapi.NewRegistry()
+	err := reg.Register(pluginapi.Plugin{
 		Name:               "external",
 		InternalValidation: false,
 		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
@@ -80,12 +75,12 @@ func TestPlanStep_ValidationPolicy(t *testing.T) {
 		t.Fatalf("register external plugin failed: %v", err)
 	}
 
-	_, err = planStep(nil, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"})
+	_, err = planStepWithRegistry(reg, nil, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"})
 	if err == nil || !strings.Contains(err.Error(), "allow_unvalidated=true") {
 		t.Fatalf("expected validation policy error, got %v", err)
 	}
 
-	sp, err := planStep(nil, &profile.Profile{}, profile.Step{
+	sp, err := planStepWithRegistry(reg, nil, &profile.Profile{}, profile.Step{
 		ID:               "x",
 		Plugin:           "external",
 		AllowUnvalidated: true,
@@ -98,13 +93,12 @@ func TestPlanStep_ValidationPolicy(t *testing.T) {
 	}
 }
 
-func TestNewDefaultPlanRegistry(t *testing.T) {
-	r := newDefaultPlanRegistry()
-
+func TestPlanUsesSharedRegistry(t *testing.T) {
+	r := registry.Shared()
 	for _, name := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
 		plugin, ok := r.Lookup(name)
 		if !ok {
-			t.Fatalf("missing default plan plugin %q", name)
+			t.Fatalf("missing shared plugin %q", name)
 		}
 		if !plugin.InternalValidation {
 			t.Fatalf("expected builtin plugin %q to validate internally", name)

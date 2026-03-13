@@ -24,9 +24,6 @@ func TestCaptureStepRecord_UnknownNoop(t *testing.T) {
 }
 
 func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
-	prev := pluginRegistry
-	defer func() { pluginRegistry = prev }()
-
 	registry := pluginapi.NewRegistry()
 	called := false
 	err := registry.Register(pluginapi.Plugin{
@@ -48,9 +45,7 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register plugin failed: %v", err)
 	}
-	pluginRegistry = registry
-
-	record, err := captureStepRecord(nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
+	record, err := captureStepRecordWithRegistry(registry, nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
 	if err != nil {
 		t.Fatalf("captureStepRecord failed: %v", err)
 	}
@@ -63,9 +58,6 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 }
 
 func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
-	prev := pluginRegistry
-	defer func() { pluginRegistry = prev }()
-
 	registry := pluginapi.NewRegistry()
 	err := registry.Register(pluginapi.Plugin{
 		Name:               "fake",
@@ -81,9 +73,7 @@ func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register plugin failed: %v", err)
 	}
-	pluginRegistry = registry
-
-	_, gotErr := captureStepRecord(nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
+	_, gotErr := captureStepRecordWithRegistry(registry, nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "capture boom") {
 		t.Fatalf("expected capture error, got %v", gotErr)
 	}

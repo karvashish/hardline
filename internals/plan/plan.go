@@ -18,6 +18,7 @@ var (
 	planCompareSemVer = cli.CompareSemVer
 	newPlanSSHClient  = connection.NewSSHClient
 	runPlanForProfile = planProfile
+	runPlanStep       = planStep
 	exitPlan          = os.Exit
 )
 
@@ -125,7 +126,7 @@ func planProfile(client *ssh.Client, p *profile.Profile, host string) error {
 				stop = utils.Throbber()
 			}
 
-			sp, err := planStep(client, p, step)
+			sp, err := runPlanStep(client, p, step)
 
 			if stop != nil {
 				stop()

@@ -399,11 +399,6 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
-		prevRollbackRegistry := pluginRegistry
-		defer func() {
-			pluginRegistry = prevRollbackRegistry
-		}()
-
 		registry := pluginapi.NewRegistry()
 		if err := registry.Register(pluginapi.Plugin{
 			Name:               "failing",
@@ -418,7 +413,13 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("register plugin failed: %v", err)
 		}
-		pluginRegistry = registry
+		prevCapture := runCaptureStepRecord
+		defer func() {
+			runCaptureStepRecord = prevCapture
+		}()
+		runCaptureStepRecord = func(client *ssh.Client, p *profile.Profile, s profile.Step) (rollback.StepRecord, error) {
+			return captureStepRecordWithRegistry(registry, client, p, s)
+		}
 
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{
@@ -451,8 +452,6 @@ func stubApplyDeps() func() {
 	prevRunApplyCommand := runApplyCommand
 	prevExit := exitProcess
 	prevRunStep := runStep
-	prevRegistry := pluginRegistry
-
 	return func() {
 		newSSHClient = prevNewSSH
 		loadProfile = prevLoad
@@ -464,7 +463,6 @@ func stubApplyDeps() func() {
 		runApplyCommand = prevRunApplyCommand
 		exitProcess = prevExit
 		runStep = prevRunStep
-		pluginRegistry = prevRegistry
 	}
 }
 

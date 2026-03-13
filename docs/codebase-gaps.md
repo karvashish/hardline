@@ -37,7 +37,6 @@ Areas that are effectively solid today:
 Areas that are only partially realized:
 
 - plan/reporting depth
-- external plugin loading symmetry between planning and apply
 - contributor-facing architectural documentation
 - rollback semantics around partial and failed runs
 
@@ -172,12 +171,11 @@ Implemented:
 Divergence:
 
 - [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go) treats unknown plugins as warnings and skips them.
-- [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go) registers external shared-object plugins through the apply registry path, while planning uses a separate default registry in [`internals/plan/actions_registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/actions_registry.go).
 
 Assessment:
 
 - The core plugin shape is right.
-- Unknown-plugin handling and external plugin registry symmetry are not where they should be.
+- Unknown-plugin handling is not where it should be.
 
 ### Platform Assumptions
 
@@ -226,6 +224,5 @@ But “perfect” would require at least:
 
 - a cleaner contract for `verify-profile`
 - harder failure behavior for unknown plugins
-- explicit and symmetric external plugin handling
 - a clearer plan/reporting model
 - contributor docs that explain the plugin contract and architectural boundaries directly

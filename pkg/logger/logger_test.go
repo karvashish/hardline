@@ -63,3 +63,72 @@ func TestColorPrefixParsing(t *testing.T) {
 		t.Fatalf("unexpected colored info output %q", out)
 	}
 }
+
+func TestDebugModeAndSetDebugColorsDefaults(t *testing.T) {
+	prevDebug := debug
+	prevStderr := stderr
+	prevColors := debugColors
+	defer func() {
+		debug = prevDebug
+		stderr = prevStderr
+		debugColors = prevColors
+	}()
+
+	var buf bytes.Buffer
+	stderr = &buf
+
+	SetDebug(false)
+	if DebugMode() {
+		t.Fatal("expected debug mode disabled")
+	}
+
+	SetDebug(true)
+	if !DebugMode() {
+		t.Fatal("expected debug mode enabled")
+	}
+
+	original := debugColors
+	SetDebugColors("", "")
+	if debugColors != original {
+		t.Fatal("expected empty debug colors to preserve current colors")
+	}
+
+	Debugf("plain %s", "debug")
+	if out := buf.String(); !strings.Contains(out, "[debug]") || !strings.Contains(out, "plain debug") {
+		t.Fatalf("unexpected debug output %q", out)
+	}
+}
+
+func TestInfofColorWithoutBodyDelimiterFallsBackToPlain(t *testing.T) {
+	prevStderr := stderr
+	defer func() { stderr = prevStderr }()
+
+	var buf bytes.Buffer
+	stderr = &buf
+
+	Infof("color="+ColorGreen, "ignored")
+	if out := buf.String(); out != "color="+ColorGreen+"%!(EXTRA string=ignored)" {
+		t.Fatalf("unexpected fallback output %q", out)
+	}
+}
+
+func TestDebugfColorWithoutBodyDelimiterFallsBackToOriginalFormat(t *testing.T) {
+	prevDebug := debug
+	prevStderr := stderr
+	prevColors := debugColors
+	defer func() {
+		debug = prevDebug
+		stderr = prevStderr
+		debugColors = prevColors
+	}()
+
+	var buf bytes.Buffer
+	stderr = &buf
+	SetDebug(true)
+
+	Debugf("color="+ColorCyan, "ignored")
+	out := buf.String()
+	if !strings.Contains(out, "[debug]") || !strings.Contains(out, "color="+ColorCyan) {
+		t.Fatalf("unexpected debug fallback output %q", out)
+	}
+}

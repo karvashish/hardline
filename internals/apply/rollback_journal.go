@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -8,7 +9,11 @@ import (
 )
 
 func captureStepRecord(client *ssh.Client, p *profile.Profile, s profile.Step) (rollback.StepRecord, error) {
-	plugin, ok := pluginRegistry.Lookup(s.PluginName())
+	return captureStepRecordWithRegistry(registry.Shared(), client, p, s)
+}
+
+func captureStepRecordWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profile.Profile, s profile.Step) (rollback.StepRecord, error) {
+	plugin, ok := reg.Lookup(s.PluginName())
 	if !ok {
 		return pluginapi.NoopRecord(s, "unknown plugin captured as noop"), nil
 	}

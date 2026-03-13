@@ -3,6 +3,7 @@ package plan
 import (
 	"fmt"
 
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"golang.org/x/crypto/ssh"
@@ -19,6 +20,10 @@ type StepPlan struct {
 }
 
 func planStep(client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan, error) {
+	return planStepWithRegistry(registry.Shared(), client, p, s)
+}
+
+func planStepWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan, error) {
 	pluginName := s.PluginName()
 
 	plan := StepPlan{
@@ -28,7 +33,7 @@ func planStep(client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan,
 		RiskClass: s.RiskClass,
 	}
 
-	plugin, ok := planPluginRegistry.Lookup(pluginName)
+	plugin, ok := reg.Lookup(pluginName)
 	if !ok {
 		plan.Summary = fmt.Sprintf("unknown or empty plugin %q (no-op in planning)", s.Plugin)
 		return plan, nil

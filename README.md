@@ -70,6 +70,7 @@ For a new engineer, the fastest reading order is:
 - Apply: [`internals/apply/apply.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/apply.go), [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go)
 - Rollback: [`internals/rollback/journal.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/journal.go), [`internals/rollback/rollback.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/rollback.go)
 - Plugin contract: [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
+- Shared plugin registry owner: [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
 - Built-in plugin registration: [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go)
 - External plugin loading: [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
 - SSH and remote execution: [`internals/connection/connection.go`](/home/kartikeya_vashishtha/hardline-try2/internals/connection/connection.go), [`internals/remote/exec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/exec.go), [`internals/remote/fs.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/fs.go)
@@ -130,8 +131,6 @@ Before `plan` and `apply`, the binary attempts to load external Go plugins from 
 3. Validates `profile.json` and each action file against the generated JSON schemas.
 4. Connects to the target host over SSH.
 5. Runs each step's plugin planner and prints a human-readable report.
-
-Current caveat: external plugin loading is wired through the apply registry path, so planning behavior for external plugins should be verified against the actual binary you build.
 
 `apply`:
 

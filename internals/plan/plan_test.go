@@ -45,11 +45,6 @@ func TestPlanProfile(t *testing.T) {
 	})
 
 	t.Run("step error bubbles up", func(t *testing.T) {
-		prevRegistry := planPluginRegistry
-		defer func() {
-			planPluginRegistry = prevRegistry
-		}()
-
 		registry := pluginapi.NewRegistry()
 		if err := registry.Register(pluginapi.Plugin{
 			Name:               "boom",
@@ -64,7 +59,11 @@ func TestPlanProfile(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("register plugin: %v", err)
 		}
-		planPluginRegistry = registry
+		prevRunStep := runPlanStep
+		defer func() { runPlanStep = prevRunStep }()
+		runPlanStep = func(client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan, error) {
+			return planStepWithRegistry(registry, client, p, s)
+		}
 
 		p := &profile.Profile{
 			ActionFiles: []profile.ActionFile{

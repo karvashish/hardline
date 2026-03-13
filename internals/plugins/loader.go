@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/karvashish/hardline/internals/apply"
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -29,7 +29,9 @@ var (
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return plugin.Open(path)
 	}
-	registerPluginBundleAction = apply.RegisterPluginBundle
+	registerPluginBundleAction = func(bundle pluginapi.PluginBundle) error {
+		return registry.Shared().RegisterBundle(bundle)
+	}
 )
 
 func LoadFromBinaryDir() error {

@@ -82,17 +82,20 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	var details []string
+	var diff []string
 	var highlights []string
 
+	enabledNow := serviceIsEnabled(ctx.Host, unit)
 	enabledState := "unknown"
-	if serviceIsEnabled(ctx.Host, unit) {
+	if enabledNow {
 		enabledState = "enabled"
 	} else {
 		enabledState = "disabled or not-found"
 	}
 
+	activeNow := serviceIsActive(ctx.Host, unit)
 	activeState := "unknown"
-	if serviceIsActive(ctx.Host, unit) {
+	if activeNow {
 		activeState = "active"
 	} else {
 		activeState = "inactive or not-found"
@@ -109,6 +112,11 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 		} else {
 			desiredEnabled = "disabled"
 		}
+		if *s.Enabled != enabledNow {
+			diff = append(diff,
+				fmt.Sprintf("service enablement: %s -> %s", enabledState, desiredEnabled),
+			)
+		}
 	}
 	state := strings.ToLower(strings.TrimSpace(s.State))
 	desiredState := "unchanged"
@@ -117,12 +125,20 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 
 	case "started", "start":
 		desiredState = "active"
+		if !activeNow {
+			diff = append(diff, fmt.Sprintf("service activity: %s -> active", activeState))
+		}
 	case "stopped", "stop":
 		desiredState = "inactive"
+		if activeNow {
+			diff = append(diff, "service activity: active -> inactive")
+		}
 	case "restarted", "restart":
 		desiredState = "restarted (active)"
+		diff = append(diff, fmt.Sprintf("service activity: %s -> active (restart requested)", activeState))
 	case "reloaded", "reload":
 		desiredState = "reloaded or restarted (active)"
+		diff = append(diff, fmt.Sprintf("service activity: %s -> active (reload or restart requested)", activeState))
 	default:
 		desiredState = fmt.Sprintf("unsupported (%q)", s.State)
 		highlights = append(highlights, fmt.Sprintf("unsupported service state %q requested for %s", s.State, unit))
@@ -191,6 +207,7 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	return pluginapi.PlanResult{
 		Summary:         summary,
 		Details:         details,
+		Diff:            diff,
 		Noop:            noop,
 		OperatorSummary: operatorSummary,
 		Highlights:      highlights,

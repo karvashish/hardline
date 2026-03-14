@@ -16,6 +16,7 @@ type StepPlan struct {
 
 	Summary         string
 	Details         []string
+	Diff            []string
 	OperatorSummary string
 	Highlights      []string
 }
@@ -51,6 +52,7 @@ func planStepWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profil
 	plan.Noop = result.Noop
 	plan.Summary = result.Summary
 	plan.Details = result.Details
+	plan.Diff = result.Diff
 	plan.OperatorSummary = result.OperatorSummary
 	plan.Highlights = result.Highlights
 

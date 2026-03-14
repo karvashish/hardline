@@ -160,6 +160,7 @@ func TestPrintPlan(t *testing.T) {
 			Noop:      2,
 			Summary:   "render file",
 			Details:   []string{"line1", "line2"},
+			Diff:      []string{"mode /etc/example.conf: 0600 -> 0644"},
 		},
 	}
 
@@ -167,7 +168,7 @@ func TestPrintPlan(t *testing.T) {
 	if !strings.Contains(out, "SUMMARY") || !strings.Contains(out, "ACTIONS") {
 		t.Fatalf("expected detailed plan sections, got %q", out)
 	}
-	if !strings.Contains(out, "line1") || !strings.Contains(out, "Details") || !strings.Contains(out, "Change planned") {
+	if !strings.Contains(out, "line1") || !strings.Contains(out, "Details") || !strings.Contains(out, "Final State Diff") || !strings.Contains(out, "Change planned") {
 		t.Fatalf("expected detailed plan output, got %q", out)
 	}
 }
@@ -219,6 +220,10 @@ func TestRenderCompactStepResult(t *testing.T) {
 		Noop:            2,
 		Summary:         `firewall step (deterministic): backend=nftables table=inet filter, managed_dest="/etc/nftables.d/99-hardline-firewall.nft", policies=1, rules=6`,
 		OperatorSummary: `Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)`,
+		Diff: []string{
+			`chain input policy: accept -> drop`,
+			`+ tcp dport 443 accept`,
+		},
 		Highlights: []string{
 			`nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`,
 		},
@@ -230,6 +235,9 @@ func TestRenderCompactStepResult(t *testing.T) {
 	}
 	if !strings.Contains(normalizeLogText(out), "note: nftables.conf include") {
 		t.Fatalf("expected surfaced note, got %q", out)
+	}
+	if !strings.Contains(normalizeLogText(out), "change: chain input policy: accept -> drop") {
+		t.Fatalf("expected surfaced change preview, got %q", out)
 	}
 	if strings.Contains(out, "desired rules: 6") {
 		t.Fatalf("did not expect non-actionable detail in compact output, got %q", out)
@@ -409,6 +417,7 @@ func TestReportRenderingAndValidation(t *testing.T) {
 			Noop:            2,
 			Summary:         `firewall step: configure default deny`,
 			OperatorSummary: `Configure nftables default deny policy`,
+			Diff:            []string{`chain input policy: accept -> drop`},
 			Highlights:      []string{logger.ColorRed + `nftables.conf include "/etc/nftables.d/*.nft" is missing` + logger.ColorReset},
 		},
 	}
@@ -435,6 +444,9 @@ func TestReportRenderingAndValidation(t *testing.T) {
 	if decoded.Steps[1].Status != "needs_attention" {
 		t.Fatalf("expected status in JSON report, got %+v", decoded.Steps[1])
 	}
+	if len(decoded.Steps[1].Diff) != 1 || decoded.Steps[1].Diff[0] != "chain input policy: accept -> drop" {
+		t.Fatalf("expected diff in JSON report, got %+v", decoded.Steps[1])
+	}
 
 	yamlBody, err := renderPlanArtifact(report, "yaml")
 	if err != nil {
@@ -448,7 +460,7 @@ func TestReportRenderingAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render markdown report: %v", err)
 	}
-	if text := string(mdBody); !strings.Contains(text, "# Hardline Plan Report") || !strings.Contains(text, "## Steps") || !strings.Contains(text, "Configure nftables default deny policy") {
+	if text := string(mdBody); !strings.Contains(text, "# Hardline Plan Report") || !strings.Contains(text, "## Steps") || !strings.Contains(text, "Configure nftables default deny policy") || !strings.Contains(text, "Final state diff") {
 		t.Fatalf("unexpected markdown report %q", text)
 	}
 

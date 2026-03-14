@@ -87,6 +87,7 @@ type CaptureContext = Context
 type PlanResult struct {
 	Summary         string
 	Details         []string
+	Diff            []string
 	Noop            int
 	OperatorSummary string
 	Highlights      []string

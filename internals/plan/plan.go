@@ -133,7 +133,6 @@ func Plan(c cli.Command) {
 	logger.Debugf("plan completed\n")
 
 	// TODO:
-	// 3. Generate diff of what apply would do.
 	// 4. Compute per-step risk scores and priority order.
 	// 5. Derive mitigations and rollback strategies.
 	// 6. Aggregate final run-level risk and print report.
@@ -219,6 +218,12 @@ func renderDetailedPlan(profile profile.Profile, steps []StepPlan, hostname stri
 		if len(s.Details) > 0 {
 			fmt.Fprintf(&b, "%sDetails%s:\n", logger.ColorBold, logger.ColorReset)
 			for _, line := range s.Details {
+				fmt.Fprintf(&b, "  - %s\n", line)
+			}
+		}
+		if diff := normalizedReportLines(s.Diff); len(diff) > 0 {
+			fmt.Fprintf(&b, "%sFinal State Diff%s:\n", logger.ColorBold, logger.ColorReset)
+			for _, line := range diff {
 				fmt.Fprintf(&b, "  - %s\n", line)
 			}
 		}
@@ -315,6 +320,9 @@ func renderCompactStepResult(step StepPlan) string {
 	}
 	fmt.Fprintf(&b, " %s\n", compactOperatorSummary(step))
 
+	for _, line := range previewPlanLines(step.Diff, 2) {
+		fmt.Fprintf(&b, "    %schange%s: %s\n", logger.ColorBlue, logger.ColorReset, line)
+	}
 	for _, note := range normalizedHighlights(step.Highlights) {
 		fmt.Fprintf(&b, "    %snote%s: %s\n", logger.ColorYellow, logger.ColorReset, note)
 	}
@@ -383,6 +391,14 @@ func normalizedHighlights(highlights []string) []string {
 		return notes[:2]
 	}
 	return notes
+}
+
+func previewPlanLines(lines []string, limit int) []string {
+	clean := normalizedReportLines(lines)
+	if limit <= 0 || len(clean) <= limit {
+		return clean
+	}
+	return clean[:limit]
 }
 
 func normalizeLogText(text string) string {

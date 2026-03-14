@@ -150,6 +150,9 @@ func TestPlan(t *testing.T) {
 		if !strings.Contains(res.Summary, "no rewrite required") {
 			t.Fatalf("unexpected summary: %q", res.Summary)
 		}
+		if len(res.Diff) != 0 {
+			t.Fatalf("expected aligned template to have no diff, got %+v", res.Diff)
+		}
 	})
 
 	t.Run("missing and mismatched", func(t *testing.T) {
@@ -163,6 +166,33 @@ func TestPlan(t *testing.T) {
 		}
 		if !strings.Contains(strings.Join(res.Details, "\n"), "does not exist") {
 			t.Fatalf("expected missing destination detail, got %+v", res.Details)
+		}
+		joinedDiff := strings.Join(res.Diff, "\n")
+		if !strings.Contains(joinedDiff, `file "/etc/nftables.d/99-hardline-firewall.nft": absent -> present`) || !strings.Contains(joinedDiff, "+hello") {
+			t.Fatalf("expected create diff, got %+v", res.Diff)
+		}
+	})
+
+	t.Run("content and mode drift", func(t *testing.T) {
+		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello\nworld\n"})
+		res, err := Plan(pluginapi.PlanContext{
+			Host:    templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o600, size: 12}, readContent: "hullo\nworld\n"},
+			Profile: p,
+		}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf", Mode: "0644"})
+		if err != nil {
+			t.Fatalf("Plan failed: %v", err)
+		}
+		joinedDiff := strings.Join(res.Diff, "\n")
+		for _, want := range []string{
+			`file mode "/etc/example.conf": 0600 -> 0644`,
+			`--- current /etc/example.conf`,
+			`+++ desired /etc/example.conf`,
+			`-hullo`,
+			`+hello`,
+		} {
+			if !strings.Contains(joinedDiff, want) {
+				t.Fatalf("expected diff %q, got %s", want, joinedDiff)
+			}
 		}
 	})
 

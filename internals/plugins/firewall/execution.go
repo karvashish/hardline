@@ -154,6 +154,7 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var details []string
+	var diff []string
 	var highlights []string
 
 	if fw.Backend != "nftables" {
@@ -161,6 +162,7 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{
 			Summary:         summary,
 			Details:         []string{"only nftables backend is supported by executor"},
+			Diff:            nil,
 			Noop:            2,
 			OperatorSummary: fmt.Sprintf("Unsupported firewall backend %q requested", fw.Backend),
 			Highlights:      []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
@@ -179,20 +181,81 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: policies are required")
 	}
 
+	desired, err := NormalizeDesiredSpec(fw)
+	if err != nil {
+		return pluginapi.PlanResult{}, err
+	}
+	desiredRendered := RenderNormalized(desired)
+	const desiredMode = os.FileMode(0o644)
+	destinationMatches := false
+
 	info, err := ctx.Host.Stat(fw.ManagedDest)
 	if err != nil {
 		details = append(details,
 			logger.ColorBlue+fmt.Sprintf("managed destination %q: does not exist (file will be created)", fw.ManagedDest)+logger.ColorReset,
 		)
+		diff = append(diff, fmt.Sprintf("file %q: absent -> present (mode %#o)", fw.ManagedDest, desiredMode.Perm()))
+		diff = append(diff, renderFirewallContentDiff(fw.ManagedDest, "", desiredRendered, false)...)
 	} else {
 		details = append(details,
 			logger.ColorBlue+fmt.Sprintf("managed destination %q: exists (size=%d mode=%#o)", fw.ManagedDest, info.Size(), info.Mode().Perm())+logger.ColorReset,
 		)
+		if info.Mode().Perm() == desiredMode.Perm() {
+			details = append(details,
+				logger.ColorGreen+fmt.Sprintf("managed destination mode matches desired mode %#o", desiredMode.Perm())+logger.ColorReset,
+			)
+		} else {
+			details = append(details,
+				logger.ColorYellow+fmt.Sprintf("managed destination mode differs (current=%#o desired=%#o)", info.Mode().Perm(), desiredMode.Perm())+logger.ColorReset,
+			)
+			diff = append(diff,
+				fmt.Sprintf("file mode %q: %#o -> %#o", fw.ManagedDest, info.Mode().Perm(), desiredMode.Perm()),
+			)
+		}
+
+		currentContent, readErr := ctx.Host.ReadRootFile(fw.ManagedDest)
+		if readErr != nil {
+			highlights = append(highlights, fmt.Sprintf("cannot compare managed destination %q (%v)", fw.ManagedDest, readErr))
+			details = append(details,
+				logger.ColorRed+fmt.Sprintf("cannot compare managed destination %q (%v)", fw.ManagedDest, readErr)+logger.ColorReset,
+			)
+		} else if currentContent == desiredRendered {
+			details = append(details,
+				logger.ColorGreen+"managed destination content matches rendered firewall policy"+logger.ColorReset,
+			)
+			destinationMatches = info.Mode().Perm() == desiredMode.Perm()
+		} else {
+			details = append(details,
+				logger.ColorYellow+"managed destination content differs from rendered firewall policy"+logger.ColorReset,
+			)
+			diff = append(diff, renderFirewallContentDiff(fw.ManagedDest, currentContent, desiredRendered, true)...)
+		}
 	}
 
-	details = append(details, logger.ColorGreen+fmt.Sprintf("desired table: %s %s", fw.Family, fw.Table)+logger.ColorReset)
-	details = append(details, logger.ColorGreen+fmt.Sprintf("desired chain policies: %d", len(fw.Policies))+logger.ColorReset)
-	details = append(details, logger.ColorGreen+fmt.Sprintf("desired rules: %d", len(fw.Rules))+logger.ColorReset)
+	details = append(details, logger.ColorGreen+fmt.Sprintf("desired table: %s %s", desired.Family, desired.Table)+logger.ColorReset)
+	details = append(details, logger.ColorGreen+fmt.Sprintf("desired chain policies: %d", len(desired.Policies))+logger.ColorReset)
+	details = append(details, logger.ColorGreen+fmt.Sprintf("desired rules: %d", len(desired.Rules))+logger.ColorReset)
+
+	current, err := currentFirewallState(ctx.Host, desired.Family, desired.Table)
+	if err != nil {
+		highlights = append(highlights,
+			fmt.Sprintf("cannot inspect running nftables table %s %s (%v)", desired.Family, desired.Table, err),
+		)
+		details = append(details,
+			logger.ColorRed+fmt.Sprintf("cannot inspect running nftables table %s %s (%v)", desired.Family, desired.Table, err)+logger.ColorReset,
+		)
+	} else {
+		details = append(details,
+			logger.ColorBlue+fmt.Sprintf("current running table: %d chain policies, %d managed rules", len(current.Policies), len(current.Rules))+logger.ColorReset,
+		)
+		runtimeDiff := renderFirewallStateDiff(current, desired)
+		diff = append(diff, runtimeDiff...)
+		if len(runtimeDiff) == 0 {
+			details = append(details,
+				logger.ColorGreen+fmt.Sprintf("running nftables table %s %s already matches desired final state", desired.Family, desired.Table)+logger.ColorReset,
+			)
+		}
+	}
 
 	validateRes, err := ValidatePlan(ctx.Host)
 	if err != nil {
@@ -203,15 +266,59 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 
 	summary := fmt.Sprintf(
 		"firewall step (deterministic): backend=nftables table=%s %s, managed_dest=%q, policies=%d, rules=%d",
-		fw.Family, fw.Table, fw.ManagedDest, len(fw.Policies), len(fw.Rules),
+		desired.Family, desired.Table, fw.ManagedDest, len(desired.Policies), len(desired.Rules),
 	)
+	noop := 2
+	if destinationMatches && len(diff) == 0 && len(highlights) == 0 {
+		noop = 0
+	}
 	return pluginapi.PlanResult{
 		Summary:         summary,
 		Details:         details,
-		Noop:            2,
-		OperatorSummary: fmt.Sprintf("Manage nftables table %s %s in %q (%d policy entries, %d rules)", fw.Family, fw.Table, fw.ManagedDest, len(fw.Policies), len(fw.Rules)),
+		Diff:            diff,
+		Noop:            noop,
+		OperatorSummary: fmt.Sprintf("Manage nftables table %s %s in %q (%d policy entries, %d rules)", desired.Family, desired.Table, fw.ManagedDest, len(desired.Policies), len(desired.Rules)),
 		Highlights:      highlights,
 	}, nil
+}
+
+func currentFirewallState(host pluginapi.Host, family string, table string) (NormalizedSpec, error) {
+	if host == nil {
+		return NormalizedSpec{}, fmt.Errorf("host is required")
+	}
+
+	out, err := host.RunRootWithOutput("nft -j list ruleset 2>/dev/null")
+	if err != nil {
+		return NormalizedSpec{}, fmt.Errorf("query nftables ruleset: %w", err)
+	}
+	if strings.TrimSpace(out) == "" {
+		return NormalizedSpec{
+			Family:   family,
+			Table:    table,
+			Policies: make(map[string]string),
+		}, nil
+	}
+
+	state, err := NormalizeCurrentState(out, family, table)
+	if err != nil {
+		return NormalizedSpec{}, err
+	}
+	return state, nil
+}
+
+func renderFirewallStateDiff(current NormalizedSpec, desired NormalizedSpec) []string {
+	diff := DiffNormalized(current, desired)
+	lines := make([]string, 0, len(diff.PolicyChanges)+len(diff.RulesToAdd)+len(diff.RulesToRemove))
+	for _, change := range diff.PolicyChanges {
+		lines = append(lines, change)
+	}
+	for _, rule := range diff.RulesToRemove {
+		lines = append(lines, "- "+RenderNormalizedRule(desired.Family, rule))
+	}
+	for _, rule := range diff.RulesToAdd {
+		lines = append(lines, "+ "+RenderNormalizedRule(desired.Family, rule))
+	}
+	return lines
 }
 
 func ValidateApply(host pluginapi.Host) error {
@@ -720,7 +827,7 @@ func normalizeNftRuleExpr(r nftJSONRule) []NormalizedRule {
 						proto = "icmp"
 					}
 				case payload.Protocol == "ip6" && payload.Field == "nexthdr":
-					if s := strings.ToLower(strings.TrimSpace(DecodeNftStringValue(match.Right))); s == "icmpv6" {
+					if s := strings.ToLower(strings.TrimSpace(DecodeNftStringValue(match.Right))); s == "icmpv6" || s == "ipv6-icmp" {
 						proto = "icmpv6"
 					}
 				}
@@ -733,11 +840,11 @@ func normalizeNftRuleExpr(r nftJSONRule) []NormalizedRule {
 			}
 			if err := json.Unmarshal(rawMeta, &meta); err == nil {
 				switch meta.Key {
-				case "iifname":
+				case "iifname", "iif":
 					if s := DecodeNftStringValue(match.Right); s != "" {
 						iif = s
 					}
-				case "oifname":
+				case "oifname", "oif":
 					if s := DecodeNftStringValue(match.Right); s != "" {
 						oif = s
 					}
@@ -1071,6 +1178,125 @@ func RenderNormalizedRule(family string, r NormalizedRule) string {
 	}
 	parts = append(parts, r.Action)
 	return strings.Join(parts, " ")
+}
+
+const firewallDiffPreviewLimit = 40
+
+type firewallDiffEdit struct {
+	kind byte
+	line string
+}
+
+func renderFirewallContentDiff(dest string, current string, desired string, existed bool) []string {
+	edits := diffFirewallLines(current, desired)
+	changed := 0
+	for _, edit := range edits {
+		if edit.kind != ' ' {
+			changed++
+		}
+	}
+	if changed == 0 {
+		return nil
+	}
+
+	lines := []string{
+		fmt.Sprintf(`--- current %s%s`, dest, firewallCurrentSuffix(existed)),
+		fmt.Sprintf(`+++ desired %s`, dest),
+	}
+	emitted := 0
+	for _, edit := range edits {
+		if edit.kind == ' ' {
+			continue
+		}
+		lines = append(lines, formatFirewallDiffLine(edit.kind, edit.line))
+		emitted++
+		if emitted >= firewallDiffPreviewLimit {
+			break
+		}
+	}
+	if emitted < changed {
+		lines = append(lines, fmt.Sprintf("... %d more content diff line(s) omitted", changed-emitted))
+	}
+	return lines
+}
+
+func firewallCurrentSuffix(existed bool) string {
+	if existed {
+		return ""
+	}
+	return " (absent)"
+}
+
+func formatFirewallDiffLine(kind byte, line string) string {
+	if line == "" {
+		return fmt.Sprintf("%c<empty>", kind)
+	}
+	return fmt.Sprintf("%c%s", kind, line)
+}
+
+func diffFirewallLines(current string, desired string) []firewallDiffEdit {
+	currentLines := splitFirewallDiffLines(current)
+	desiredLines := splitFirewallDiffLines(desired)
+
+	dp := make([][]int, len(currentLines)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(desiredLines)+1)
+	}
+
+	for i := len(currentLines) - 1; i >= 0; i-- {
+		for j := len(desiredLines) - 1; j >= 0; j-- {
+			if currentLines[i] == desiredLines[j] {
+				dp[i][j] = dp[i+1][j+1] + 1
+				continue
+			}
+			if dp[i+1][j] >= dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+				continue
+			}
+			dp[i][j] = dp[i][j+1]
+		}
+	}
+
+	var edits []firewallDiffEdit
+	i := 0
+	j := 0
+	for i < len(currentLines) && j < len(desiredLines) {
+		if currentLines[i] == desiredLines[j] {
+			edits = append(edits, firewallDiffEdit{kind: ' ', line: currentLines[i]})
+			i++
+			j++
+			continue
+		}
+		if dp[i+1][j] >= dp[i][j+1] {
+			edits = append(edits, firewallDiffEdit{kind: '-', line: currentLines[i]})
+			i++
+			continue
+		}
+		edits = append(edits, firewallDiffEdit{kind: '+', line: desiredLines[j]})
+		j++
+	}
+	for i < len(currentLines) {
+		edits = append(edits, firewallDiffEdit{kind: '-', line: currentLines[i]})
+		i++
+	}
+	for j < len(desiredLines) {
+		edits = append(edits, firewallDiffEdit{kind: '+', line: desiredLines[j]})
+		j++
+	}
+	return edits
+}
+
+func splitFirewallDiffLines(text string) []string {
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	if normalized == "" {
+		return nil
+	}
+	lines := strings.Split(normalized, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func (r NormalizedRule) Key() string {

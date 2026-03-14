@@ -157,6 +157,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var details []string
+	var diff []string
 	var highlights []string
 
 	var installWillChange []string
@@ -167,6 +168,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 
 	if pk.Update {
 		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+logger.ColorReset)
+		diff = append(diff, "package index metadata: current -> refreshed from configured repositories")
 	}
 	if pk.Upgrade {
 		up, err := aptUpgradePreview(ctx.Host)
@@ -348,9 +350,26 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 		operatorSummary = packagesSentence(summaryParts)
 	}
 
+	for _, name := range upgradeWillChange {
+		diff = append(diff, fmt.Sprintf("package %q: installed -> upgraded", name))
+	}
+	for _, name := range installWillChange {
+		diff = append(diff, fmt.Sprintf("package %q: absent -> installed", name))
+	}
+	for _, name := range installDepsWillChange {
+		diff = append(diff, fmt.Sprintf("package %q: absent -> installed (dependency)", name))
+	}
+	for _, name := range purgeWillChange {
+		diff = append(diff, fmt.Sprintf("package %q: installed -> purged", name))
+	}
+	for _, name := range autoremoveWillChange {
+		diff = append(diff, fmt.Sprintf("package %q: installed -> removed by autoremove", name))
+	}
+
 	return pluginapi.PlanResult{
 		Summary:         summary,
 		Details:         details,
+		Diff:            diff,
 		Noop:            noop,
 		OperatorSummary: operatorSummary,
 		Highlights:      highlights,

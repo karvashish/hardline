@@ -62,6 +62,7 @@ type planFileStep struct {
 	Summary         string   `json:"summary" yaml:"summary"`
 	OperatorSummary string   `json:"operator_summary" yaml:"operator_summary"`
 	Details         []string `json:"details,omitempty" yaml:"details,omitempty"`
+	Diff            []string `json:"diff,omitempty" yaml:"diff,omitempty"`
 	Highlights      []string `json:"highlights,omitempty" yaml:"highlights,omitempty"`
 	Noop            int      `json:"noop" yaml:"noop"`
 }
@@ -205,6 +206,7 @@ func buildPlanReport(profile profile.Profile, steps []StepPlan, host string) pla
 			Summary:         normalizeLogText(step.Summary),
 			OperatorSummary: compactOperatorSummary(step),
 			Details:         normalizedReportLines(step.Details),
+			Diff:            normalizedReportLines(step.Diff),
 			Highlights:      normalizedReportLines(step.Highlights),
 			Noop:            step.Noop,
 		})
@@ -263,6 +265,12 @@ func renderPlanMarkdown(report planFileReport) string {
 			fmt.Fprintf(&b, "- Details:\n")
 			for _, detail := range step.Details {
 				fmt.Fprintf(&b, "  - %s\n", markdownValue(detail))
+			}
+		}
+		if len(step.Diff) > 0 {
+			fmt.Fprintf(&b, "- Final state diff:\n")
+			for _, line := range step.Diff {
+				fmt.Fprintf(&b, "  - %s\n", markdownValue(line))
 			}
 		}
 		if len(step.Highlights) > 0 {

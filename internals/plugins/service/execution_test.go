@@ -182,6 +182,9 @@ func TestPlan(t *testing.T) {
 	if len(res.Details) == 0 {
 		t.Fatal("expected plan details")
 	}
+	if len(res.Diff) != 1 || !strings.Contains(res.Diff[0], "restart requested") {
+		t.Fatalf("expected restart diff, got %+v", res.Diff)
+	}
 
 	cases := []struct {
 		name       string
@@ -205,6 +208,9 @@ func TestPlan(t *testing.T) {
 			}
 			if !strings.Contains(out.Summary, tc.wantSubstr) {
 				t.Fatalf("expected summary to contain %q, got %q", tc.wantSubstr, out.Summary)
+			}
+			if tc.name == "empty state" && len(out.Diff) != 0 {
+				t.Fatalf("expected empty state to have no diff, got %+v", out.Diff)
 			}
 		})
 	}

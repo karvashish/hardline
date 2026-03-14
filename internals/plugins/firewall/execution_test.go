@@ -276,6 +276,83 @@ func TestNormalizeNftRuleExprPaths(t *testing.T) {
 	}
 }
 
+func TestNormalizeCurrentStateAcceptsRuntimeNftAliases(t *testing.T) {
+	nftJSON := `{
+  "nftables": [
+    {"table":{"family":"inet","name":"filter"}},
+    {"chain":{"family":"inet","table":"filter","name":"input","type":"filter","hook":"input","policy":"drop"}},
+    {"chain":{"family":"inet","table":"filter","name":"forward","type":"filter","hook":"forward","policy":"accept"}},
+    {"chain":{"family":"inet","table":"filter","name":"output","type":"filter","hook":"output","policy":"accept"}},
+    {"rule":{"family":"inet","table":"filter","chain":"input","expr":[
+      {"match":{"left":{"payload":{"protocol":"ip6","field":"nexthdr"}},"op":"==","right":"ipv6-icmp"}},
+      {"accept":null}
+    ]}},
+    {"rule":{"family":"inet","table":"filter","chain":"input","expr":[
+      {"match":{"left":{"meta":{"key":"iif"}},"op":"==","right":"lo"}},
+      {"accept":null}
+    ]}}
+  ]
+}`
+
+	state, err := NormalizeCurrentState(nftJSON, "inet", "filter")
+	if err != nil {
+		t.Fatalf("NormalizeCurrentState failed: %v", err)
+	}
+	if len(state.Rules) != 2 {
+		t.Fatalf("expected 2 normalized rules, got %d (%#v)", len(state.Rules), state.Rules)
+	}
+
+	want := map[string]struct{}{
+		NormalizedRule{Chain: "input", Proto: "icmpv6", Action: "accept"}.Key():   {},
+		NormalizedRule{Chain: "input", InInterface: "lo", Action: "accept"}.Key(): {},
+	}
+	for _, rule := range state.Rules {
+		if _, ok := want[rule.Key()]; !ok {
+			t.Fatalf("unexpected normalized rule: %#v", rule)
+		}
+	}
+}
+
+func TestFirewallContentDiffHelpers(t *testing.T) {
+	if got := firewallCurrentSuffix(true); got != "" {
+		t.Fatalf("expected empty suffix for existing file, got %q", got)
+	}
+	if got := firewallCurrentSuffix(false); got != " (absent)" {
+		t.Fatalf("unexpected absent suffix: %q", got)
+	}
+	if got := formatFirewallDiffLine('+', ""); got != "+<empty>" {
+		t.Fatalf("unexpected empty diff line format: %q", got)
+	}
+
+	edits := diffFirewallLines("line1\nline2\n", "line1\nline3\n")
+	if len(edits) == 0 {
+		t.Fatalf("expected diff edits")
+	}
+
+	diff := renderFirewallContentDiff("/etc/nftables.d/99-hardline-firewall.nft", "line1\nline2\n", "line1\nline3\n", true)
+	if len(diff) == 0 {
+		t.Fatalf("expected rendered content diff")
+	}
+	joined := strings.Join(diff, "\n")
+	for _, want := range []string{
+		`--- current /etc/nftables.d/99-hardline-firewall.nft`,
+		`+++ desired /etc/nftables.d/99-hardline-firewall.nft`,
+		`-line2`,
+		`+line3`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected content diff %q, got %s", want, joined)
+		}
+	}
+
+	if out := renderFirewallContentDiff("/etc/example.nft", "same\n", "same\n", false); out != nil {
+		t.Fatalf("expected nil diff for identical content, got %#v", out)
+	}
+	if got := splitFirewallDiffLines("a\r\nb\r\n"); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("unexpected split lines: %#v", got)
+	}
+}
+
 func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 	t.Run("managed destination", func(t *testing.T) {
 		if got := ManagedDestination(nil); got != "" {
@@ -479,6 +556,86 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if len(res.Details) == 0 || !strings.Contains(res.Summary, "deterministic") {
 			t.Fatalf("unexpected plan output: %+v", res)
 		}
+		if len(res.Diff) == 0 {
+			t.Fatalf("expected runtime diff for firewall plan, got %+v", res)
+		}
+
+		want, err := NormalizeDesiredSpec(validDeterministicFirewallSpec())
+		if err != nil {
+			t.Fatalf("NormalizeDesiredSpec failed: %v", err)
+		}
+		wantRendered := RenderNormalized(want)
+		matchingJSON := `{
+  "nftables": [
+    {"table":{"family":"inet","name":"filter"}},
+    {"chain":{"family":"inet","table":"filter","name":"input","type":"filter","hook":"input","policy":"drop"}},
+    {"rule":{"family":"inet","table":"filter","chain":"input","expr":[
+      {"match":{"left":{"payload":{"protocol":"tcp","field":"dport"}},"op":"==","right":22}},
+      {"accept":null}
+    ]}}
+  ]
+}`
+		res, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{
+			statInfo:    fakeFileInfo{mode: 0o644, size: int64(len(wantRendered))},
+			include:     true,
+			rulesetJSON: matchingJSON,
+			readContent: wantRendered,
+		}}, validDeterministicFirewallSpec())
+		if err != nil {
+			t.Fatalf("Plan matched-state failed: %v", err)
+		}
+		if res.Noop != 0 {
+			t.Fatalf("expected noop=0 for matched firewall plan, got %+v", res)
+		}
+		if len(res.Diff) != 0 {
+			t.Fatalf("expected no diff for matched firewall plan, got %+v", res.Diff)
+		}
+
+		res, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{
+			statInfo:    fakeFileInfo{mode: 0o644, size: int64(len(wantRendered) + 8)},
+			include:     true,
+			rulesetJSON: matchingJSON,
+			readContent: wantRendered + "\n# drift",
+		}}, validDeterministicFirewallSpec())
+		if err != nil {
+			t.Fatalf("Plan drifted-file failed: %v", err)
+		}
+		if res.Noop != 2 {
+			t.Fatalf("expected noop=2 for drifted firewall file, got %+v", res)
+		}
+		joinedDiff := strings.Join(res.Diff, "\n")
+		if !strings.Contains(joinedDiff, `--- current /etc/nftables.d/99-hardline-firewall.nft`) || !strings.Contains(joinedDiff, `-# drift`) {
+			t.Fatalf("expected managed file diff, got %s", joinedDiff)
+		}
+
+		nftJSON := `{
+  "nftables": [
+    {"table":{"family":"inet","name":"filter"}},
+    {"chain":{"family":"inet","table":"filter","name":"input","type":"filter","hook":"input","policy":"accept"}},
+    {"rule":{"family":"inet","table":"filter","chain":"input","expr":[
+      {"match":{"left":{"payload":{"protocol":"tcp","field":"dport"}},"op":"==","right":53}},
+      {"accept":null}
+    ]}}
+  ]
+}`
+		res, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{
+			statInfo:    fakeFileInfo{mode: 0o644, size: 12},
+			include:     true,
+			rulesetJSON: nftJSON,
+		}}, validDeterministicFirewallSpec())
+		if err != nil {
+			t.Fatalf("Plan runtime diff failed: %v", err)
+		}
+		joinedDiff = strings.Join(res.Diff, "\n")
+		for _, want := range []string{
+			"chain input policy: accept -> drop",
+			"- tcp dport 53 accept",
+			"+ tcp dport 22 accept",
+		} {
+			if !strings.Contains(joinedDiff, want) {
+				t.Fatalf("expected runtime diff %q, got %s", want, joinedDiff)
+			}
+		}
 
 		if err := ValidateApply(firewallExecHostStub{runRoot: func(string) error { return nil }}); err != nil {
 			t.Fatalf("ValidateApply failed: %v", err)
@@ -546,6 +703,16 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
 	})
+
+	t.Run("current firewall state empty ruleset", func(t *testing.T) {
+		state, err := currentFirewallState(firewallRuntimeStub{}, "inet", "filter")
+		if err != nil {
+			t.Fatalf("currentFirewallState failed: %v", err)
+		}
+		if state.Family != "inet" || state.Table != "filter" || len(state.Policies) != 0 || len(state.Rules) != 0 {
+			t.Fatalf("unexpected empty state: %#v", state)
+		}
+	})
 }
 
 func TestExtraDecodeAndRenderBranches(t *testing.T) {
@@ -588,6 +755,22 @@ func TestExtraDecodeAndRenderBranches(t *testing.T) {
 	}
 	if len(out.Rules) != 1 || out.Rules[0].Proto != "icmpv6" || out.Rules[0].Action != "reject" {
 		t.Fatalf("unexpected ip6 normalized rules: %#v", out.Rules)
+	}
+
+	aliasJSON := `{
+  "nftables": [
+    {"rule":{"family":"ip6","table":"filter","chain":"input","expr":[
+      {"match":{"left":{"payload":{"protocol":"ip6","field":"nexthdr"}},"op":"==","right":"ipv6-icmp"}},
+      {"reject":null}
+    ]}}
+  ]
+}`
+	out, err = NormalizeCurrentState(aliasJSON, "ip6", "filter")
+	if err != nil {
+		t.Fatalf("NormalizeCurrentState ip6 alias failed: %v", err)
+	}
+	if len(out.Rules) != 1 || out.Rules[0].Proto != "icmpv6" || out.Rules[0].Action != "reject" {
+		t.Fatalf("unexpected ip6 alias normalized rules: %#v", out.Rules)
 	}
 }
 
@@ -713,9 +896,13 @@ func (f fakeFileInfo) IsDir() bool        { return false }
 func (f fakeFileInfo) Sys() any           { return nil }
 
 type firewallRuntimeStub struct {
-	statInfo  os.FileInfo
-	include   bool
-	configErr error
+	statInfo    os.FileInfo
+	include     bool
+	configErr   error
+	rulesetJSON string
+	rulesetErr  error
+	readContent string
+	readErr     error
 }
 
 func (s firewallRuntimeStub) RunRoot(cmd string) error {
@@ -732,7 +919,12 @@ func (s firewallRuntimeStub) RunRoot(cmd string) error {
 	}
 }
 
-func (firewallRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+func (s firewallRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if strings.Contains(cmd, "nft -j list ruleset") {
+		return s.rulesetJSON, s.rulesetErr
+	}
+	return "", nil
+}
 
 func (s firewallRuntimeStub) Stat(string) (os.FileInfo, error) {
 	if s.statInfo == nil {
@@ -740,7 +932,12 @@ func (s firewallRuntimeStub) Stat(string) (os.FileInfo, error) {
 	}
 	return s.statInfo, nil
 }
-func (firewallRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+func (s firewallRuntimeStub) ReadRootFile(string) (string, error) {
+	if s.readErr != nil {
+		return "", s.readErr
+	}
+	return s.readContent, nil
+}
 
 func (firewallRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
 

@@ -95,6 +95,18 @@ func TestPlan(t *testing.T) {
 		if len(res.Details) == 0 {
 			t.Fatalf("expected details")
 		}
+		joinedDiff := strings.Join(res.Diff, "\n")
+		for _, want := range []string{
+			`package index metadata: current -> refreshed from configured repositories`,
+			`package "b": absent -> installed`,
+			`package "dep1": absent -> installed (dependency)`,
+			`package "c": installed -> purged`,
+			`package "oldpkg": installed -> removed by autoremove`,
+		} {
+			if !strings.Contains(joinedDiff, want) {
+				t.Fatalf("expected diff %q, got %s", want, joinedDiff)
+			}
+		}
 	})
 
 	t.Run("full noop", func(t *testing.T) {
@@ -104,6 +116,9 @@ func TestPlan(t *testing.T) {
 		}
 		if res.Noop != 0 || !strings.Contains(res.Summary, "no-op") {
 			t.Fatalf("expected noop summary, got %+v", res)
+		}
+		if len(res.Diff) != 0 {
+			t.Fatalf("expected noop plan to have no diff, got %+v", res.Diff)
 		}
 	})
 

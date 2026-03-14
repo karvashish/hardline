@@ -33,18 +33,7 @@ func Plugin() pluginapi.Plugin {
 			if err := validateFirewallSpec(spec); err != nil {
 				return pluginapi.PlanResult{}, err
 			}
-
-			result, err := Plan(ctx, spec)
-			if err != nil {
-				return pluginapi.PlanResult{}, err
-			}
-
-			validateResult, err := ValidatePlan(ctx.Host)
-			if err != nil {
-				return pluginapi.PlanResult{}, err
-			}
-			result.Details = append(result.Details, validateResult.Details...)
-			return result, nil
+			return Plan(ctx, spec)
 		},
 		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.StepRecord, error) {
 			spec, err := decodeFirewallSpec(step)

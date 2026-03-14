@@ -25,7 +25,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 			if s.ID != "s1" {
 				t.Fatalf("unexpected step in plan handler: %+v", s)
 			}
-			return pluginapi.PlanResult{Summary: "fake summary", Details: []string{"detail"}, Noop: 1}, nil
+			return pluginapi.PlanResult{Summary: "fake summary", Details: []string{"detail"}, Diff: []string{"diff"}, Noop: 1}, nil
 		},
 		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
 			return pluginapi.StepRecord{}, nil
@@ -43,7 +43,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 	if !called {
 		t.Fatal("expected fake plan handler to be called")
 	}
-	if sp.Summary != "fake summary" || sp.Severity != "high" || len(sp.Details) != 1 || sp.Noop != 1 {
+	if sp.Summary != "fake summary" || sp.Severity != "high" || len(sp.Details) != 1 || len(sp.Diff) != 1 || sp.Noop != 1 {
 		t.Fatalf("unexpected step plan from fake: %+v", sp)
 	}
 }

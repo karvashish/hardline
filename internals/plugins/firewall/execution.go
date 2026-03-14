@@ -24,9 +24,11 @@ const (
 )
 
 type ApplyDeps struct {
-	RunRoot       func(*ssh.Client, string) error
-	NewSFTPClient func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
+	RunRoot           func(*ssh.Client, string) error
+	RunRootWithOutput func(*ssh.Client, string) (string, error)
+	ReadRootFile      func(*ssh.Client, string) (string, error)
+	NewSFTPClient     func(*ssh.Client) (*sftp.Client, error)
+	WriteRootFile     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
 }
 
 type RollbackDeps struct {
@@ -60,6 +62,33 @@ type NormalizedDiff struct {
 	RulesToRemove []NormalizedRule
 }
 
+type firewallStatRuntime interface {
+	RunRoot(cmd string) error
+	RunRootWithOutput(cmd string) (string, error)
+}
+
+type firewallCompareRuntime interface {
+	firewallStatRuntime
+	ReadRootFile(path string) (string, error)
+}
+
+type firewallApplyRuntime struct {
+	client *ssh.Client
+	deps   ApplyDeps
+}
+
+func (r firewallApplyRuntime) RunRoot(cmd string) error {
+	return r.deps.RunRoot(r.client, cmd)
+}
+
+func (r firewallApplyRuntime) RunRootWithOutput(cmd string) (string, error) {
+	return r.deps.RunRootWithOutput(r.client, cmd)
+}
+
+func (r firewallApplyRuntime) ReadRootFile(path string) (string, error) {
+	return r.deps.ReadRootFile(r.client, path)
+}
+
 func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 	logger.Debugf("handleFirewall: backend=%q policies=%d rules=%d\n", fw.Backend, len(fw.Policies), len(fw.Rules))
 
@@ -86,6 +115,18 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 		return err
 	}
 
+	desiredRendered := RenderNormalized(desired)
+	if canCompareFirewallDestination(deps) {
+		matches, err := firewallDestinationMatches(firewallApplyRuntime{client: ctx.Client, deps: deps}, destPath, desiredRendered, os.FileMode(0644))
+		if err != nil {
+			return fmt.Errorf("compare destination %s: %w", destPath, err)
+		}
+		if matches {
+			logger.Debugf("handleFirewall: destination %q already matches, skipping write\n", destPath)
+			return nil
+		}
+	}
+
 	sftpClient, err := deps.NewSFTPClient(ctx.Client)
 	if err != nil {
 		return fmt.Errorf("new sftp client: %w", err)
@@ -94,13 +135,62 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 		defer sftpClient.Close()
 	}
 
-	desiredRendered := RenderNormalized(desired)
 	if err := deps.WriteRootFile(ctx.Client, sftpClient, destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
 		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
 	}
 
 	logger.Debugf("handleFirewall: rendered deterministic firewall rules to %q\n", destPath)
 	return nil
+}
+
+func canCompareFirewallDestination(deps ApplyDeps) bool {
+	return deps.RunRoot != nil && deps.RunRootWithOutput != nil && deps.ReadRootFile != nil
+}
+
+func firewallDestinationMatches(rt firewallCompareRuntime, dest string, rendered string, mode os.FileMode) (bool, error) {
+	size, currentMode, err := statFirewallDestination(rt, dest)
+	if err != nil {
+		return false, err
+	}
+	if size < 0 || currentMode.Perm() != mode.Perm() {
+		return false, nil
+	}
+
+	current, err := rt.ReadRootFile(dest)
+	if err != nil {
+		return false, err
+	}
+	return current == rendered, nil
+}
+
+func statFirewallDestination(rt firewallStatRuntime, dest string) (int64, os.FileMode, error) {
+	if rt == nil {
+		return 0, 0, fmt.Errorf("runtime is required")
+	}
+	if err := rt.RunRoot(fmt.Sprintf("test -e %s", strconv.Quote(dest))); err != nil {
+		return -1, 0, nil
+	}
+
+	out, err := rt.RunRootWithOutput(fmt.Sprintf("stat -c '%%a %%s' -- %s", strconv.Quote(dest)))
+	if err != nil {
+		return 0, 0, err
+	}
+
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("parse stat output for %q: unexpected format %q", dest, strings.TrimSpace(out))
+	}
+
+	perm, err := strconv.ParseUint(fields[0], 8, 32)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse stat mode for %q: %w", dest, err)
+	}
+	size, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse stat size for %q: %w", dest, err)
+	}
+
+	return size, os.FileMode(perm), nil
 }
 
 func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {

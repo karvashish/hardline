@@ -43,9 +43,11 @@ func newDefaultRegistry(register func(*pluginapi.Registry, pluginapi.PluginBundl
 
 	bundle := builtin.DefaultBundle(
 		builtin.ApplyDeps{
-			RunRoot:       runRootCmd,
-			NewSFTPClient: newRegistrySFTPClient,
-			WriteRootFile: writeRootFile,
+			RunRoot:           runRootCmd,
+			RunRootWithOutput: runRootCmdWithOutput,
+			ReadRootFile:      readRootFile,
+			NewSFTPClient:     newRegistrySFTPClient,
+			WriteRootFile:     writeRootFile,
 		},
 		builtin.RollbackDeps{
 			RunRoot:           runRootCmd,

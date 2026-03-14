@@ -2,6 +2,7 @@ package template
 
 import (
 	"errors"
+	"fmt"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
@@ -32,6 +33,7 @@ func TestApply(t *testing.T) {
 	t.Run("new sftp error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
 		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"}, ApplyDeps{
+			RunRoot:       func(*ssh.Client, string) error { return nil },
 			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, errors.New("boom") },
 		})
 		if err == nil || !strings.Contains(err.Error(), "new sftp client") {
@@ -69,8 +71,10 @@ func TestApply(t *testing.T) {
 		var gotData string
 		var gotMode os.FileMode
 		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Mode: "0644"}, ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644 5", nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "hullo", nil },
+			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
 				gotDest, gotData, gotMode = dest, string(data), mode
 				return nil
@@ -81,6 +85,26 @@ func TestApply(t *testing.T) {
 		}
 		if gotDest != "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" || gotData != "hello" || gotMode != 0o644 {
 			t.Fatalf("unexpected write payload: dest=%q data=%q mode=%#o", gotDest, gotData, gotMode)
+		}
+	})
+
+	t.Run("skip write when destination already matches", func(t *testing.T) {
+		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
+		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf", Mode: "0644"}, ApplyDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644 5", nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "hello", nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) {
+				t.Fatalf("sftp client should not be created when destination already matches")
+				return nil, nil
+			},
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error {
+				t.Fatalf("write should be skipped when destination already matches")
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("Apply failed: %v", err)
 		}
 	})
 
@@ -150,6 +174,56 @@ func TestPlan(t *testing.T) {
 		}
 		if !strings.Contains(strings.Join(res.Details, "\n"), "cannot compare content") {
 			t.Fatalf("expected compare error detail, got %+v", res.Details)
+		}
+	})
+
+	t.Run("root stat error detail", func(t *testing.T) {
+		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
+		res, err := Plan(pluginapi.PlanContext{
+			Runtime: templateRuntimeHelperStub{runRootWithOutputErr: errors.New("boom")},
+			Profile: p,
+		}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/example.conf"})
+		if err != nil {
+			t.Fatalf("Plan failed: %v", err)
+		}
+		if !strings.Contains(strings.Join(res.Details, "\n"), "cannot stat destination") {
+			t.Fatalf("expected stat error detail, got %+v", res.Details)
+		}
+	})
+}
+
+func TestStatTemplateDestination(t *testing.T) {
+	t.Run("runtime required", func(t *testing.T) {
+		if _, _, err := statTemplateDestination(nil, "/etc/example.conf"); err == nil || !strings.Contains(err.Error(), "runtime is required") {
+			t.Fatalf("expected runtime error, got %v", err)
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		size, mode, err := statTemplateDestination(templateRuntimeHelperStub{runRootErr: errors.New("missing")}, "/etc/example.conf")
+		if err != nil || size != -1 || mode != 0 {
+			t.Fatalf("unexpected missing result size=%d mode=%#o err=%v", size, mode, err)
+		}
+	})
+
+	t.Run("stat command error", func(t *testing.T) {
+		if _, _, err := statTemplateDestination(templateRuntimeHelperStub{runRootWithOutputErr: errors.New("boom")}, "/etc/example.conf"); err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("expected stat command error, got %v", err)
+		}
+	})
+
+	t.Run("parse errors", func(t *testing.T) {
+		for _, raw := range []string{"bad", "xyz 5", "644 bad", "644 5 extra"} {
+			if _, _, err := statTemplateDestination(templateRuntimeHelperStub{runRootWithOutput: raw}, "/etc/example.conf"); err == nil {
+				t.Fatalf("expected parse error for %q", raw)
+			}
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		size, mode, err := statTemplateDestination(templateRuntimeHelperStub{runRootWithOutput: "640 1549"}, "/etc/example.conf")
+		if err != nil || size != 1549 || mode.Perm() != 0o640 {
+			t.Fatalf("unexpected success result size=%d mode=%#o err=%v", size, mode, err)
 		}
 	})
 }
@@ -245,9 +319,25 @@ type templateRuntimeStub struct {
 	readErr     error
 }
 
-func (templateRuntimeStub) RunRoot(string) error { return nil }
+func (s templateRuntimeStub) RunRoot(string) error {
+	if s.statErr != nil {
+		return s.statErr
+	}
+	if s.statInfo != nil {
+		return nil
+	}
+	return errors.New("missing")
+}
 
-func (templateRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+func (s templateRuntimeStub) RunRootWithOutput(string) (string, error) {
+	if s.statErr != nil {
+		return "", s.statErr
+	}
+	if s.statInfo != nil {
+		return fmt.Sprintf("%o %d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+	}
+	return "", errors.New("missing")
+}
 
 func (s templateRuntimeStub) Stat(string) (os.FileInfo, error) {
 	if s.statErr != nil {
@@ -264,3 +354,19 @@ func (s templateRuntimeStub) ReadRootFile(string) (string, error) {
 	}
 	return s.readContent, nil
 }
+
+type templateRuntimeHelperStub struct {
+	runRootErr           error
+	runRootWithOutput    string
+	runRootWithOutputErr error
+}
+
+func (s templateRuntimeHelperStub) RunRoot(string) error { return s.runRootErr }
+
+func (s templateRuntimeHelperStub) RunRootWithOutput(string) (string, error) {
+	return s.runRootWithOutput, s.runRootWithOutputErr
+}
+
+func (templateRuntimeHelperStub) Stat(string) (os.FileInfo, error) { return nil, nil }
+
+func (templateRuntimeHelperStub) ReadRootFile(string) (string, error) { return "", nil }

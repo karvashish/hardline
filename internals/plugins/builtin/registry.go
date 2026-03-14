@@ -14,9 +14,11 @@ import (
 )
 
 type ApplyDeps struct {
-	RunRoot       func(*ssh.Client, string) error
-	NewSFTPClient func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
+	RunRoot           func(*ssh.Client, string) error
+	RunRootWithOutput func(*ssh.Client, string) (string, error)
+	ReadRootFile      func(*ssh.Client, string) (string, error)
+	NewSFTPClient     func(*ssh.Client) (*sftp.Client, error)
+	WriteRootFile     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
 }
 
 type RollbackDeps struct {
@@ -33,9 +35,11 @@ func DefaultPlugins(applyDeps ApplyDeps, rollbackDeps RollbackDeps) []pluginapi.
 			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
 		}),
 		template.Plugin(template.ApplyDeps{
-			RunRoot:       applyDeps.RunRoot,
-			NewSFTPClient: applyDeps.NewSFTPClient,
-			WriteRootFile: applyDeps.WriteRootFile,
+			RunRoot:           applyDeps.RunRoot,
+			RunRootWithOutput: applyDeps.RunRootWithOutput,
+			ReadRootFile:      applyDeps.ReadRootFile,
+			NewSFTPClient:     applyDeps.NewSFTPClient,
+			WriteRootFile:     applyDeps.WriteRootFile,
 		}, template.RollbackDeps{
 			RunRoot:           rollbackDeps.RunRoot,
 			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
@@ -47,18 +51,22 @@ func DefaultPlugins(applyDeps ApplyDeps, rollbackDeps RollbackDeps) []pluginapi.
 			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
 		}),
 		firewall.Plugin(firewall.ApplyDeps{
-			RunRoot:       applyDeps.RunRoot,
-			NewSFTPClient: applyDeps.NewSFTPClient,
-			WriteRootFile: applyDeps.WriteRootFile,
+			RunRoot:           applyDeps.RunRoot,
+			RunRootWithOutput: applyDeps.RunRootWithOutput,
+			ReadRootFile:      applyDeps.ReadRootFile,
+			NewSFTPClient:     applyDeps.NewSFTPClient,
+			WriteRootFile:     applyDeps.WriteRootFile,
 		}, firewall.RollbackDeps{
 			RunRoot:           rollbackDeps.RunRoot,
 			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
 			ReadRootFile:      rollbackDeps.ReadRootFile,
 		}),
 		firewalltemplate.Plugin(firewalltemplate.ApplyDeps{
-			RunRoot:       applyDeps.RunRoot,
-			NewSFTPClient: applyDeps.NewSFTPClient,
-			WriteRootFile: applyDeps.WriteRootFile,
+			RunRoot:           applyDeps.RunRoot,
+			RunRootWithOutput: applyDeps.RunRootWithOutput,
+			ReadRootFile:      applyDeps.ReadRootFile,
+			NewSFTPClient:     applyDeps.NewSFTPClient,
+			WriteRootFile:     applyDeps.WriteRootFile,
 		}, firewalltemplate.RollbackDeps{
 			RunRoot:           rollbackDeps.RunRoot,
 			RunRootWithOutput: rollbackDeps.RunRootWithOutput,

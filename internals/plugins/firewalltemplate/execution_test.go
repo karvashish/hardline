@@ -2,6 +2,7 @@ package firewalltemplate
 
 import (
 	"errors"
+	"fmt"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
@@ -106,14 +107,39 @@ func TestApply(t *testing.T) {
 	t.Run("success renders rules", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}"})
 		var gotDest, gotText string
+		wantText := "table inet filter {\n# hardline: allow rules from profile\n    tcp dport 22 accept\n\n}"
 		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{
 			Backend: "nftables",
 			Allow: []AllowRule{
 				{Port: 22, Proto: "tcp"},
 			},
 		}, ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantText)), nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantText, nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) {
+				t.Fatalf("sftp client should not be created when firewall template output already matches")
+				return nil, nil
+			},
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error {
+				t.Fatalf("write should be skipped when firewall template output already matches")
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{
+			Backend: "nftables",
+			Allow: []AllowRule{
+				{Port: 22, Proto: "tcp"},
+			},
+		}, ApplyDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantText)), nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantText + "\n# drift", nil },
+			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
 				gotDest, gotText = dest, string(data)
 				if mode != 0o644 {
@@ -186,6 +212,89 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 	}
 }
 
+func TestDestinationHelpersAndPlugin(t *testing.T) {
+	t.Run("stat destination helper", func(t *testing.T) {
+		if _, _, err := statFirewallTemplateDestination(nil, "/etc/example.conf"); err == nil || !strings.Contains(err.Error(), "runtime is required") {
+			t.Fatalf("expected runtime error, got %v", err)
+		}
+
+		size, mode, err := statFirewallTemplateDestination(fwTemplateHelperRuntimeStub{runRootErr: errors.New("missing")}, "/etc/example.conf")
+		if err != nil || size != -1 || mode != 0 {
+			t.Fatalf("unexpected missing result size=%d mode=%#o err=%v", size, mode, err)
+		}
+
+		if _, _, err := statFirewallTemplateDestination(fwTemplateHelperRuntimeStub{runRootWithOutputErr: errors.New("boom")}, "/etc/example.conf"); err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("expected stat command error, got %v", err)
+		}
+
+		for _, raw := range []string{"bad", "xyz 5", "644 bad", "644 5 extra"} {
+			if _, _, err := statFirewallTemplateDestination(fwTemplateHelperRuntimeStub{runRootWithOutput: raw}, "/etc/example.conf"); err == nil {
+				t.Fatalf("expected parse error for %q", raw)
+			}
+		}
+
+		size, mode, err = statFirewallTemplateDestination(fwTemplateHelperRuntimeStub{runRootWithOutput: "644 10"}, "/etc/example.conf")
+		if err != nil || size != 10 || mode.Perm() != 0o644 {
+			t.Fatalf("unexpected success result size=%d mode=%#o err=%v", size, mode, err)
+		}
+	})
+
+	t.Run("destination matches helper", func(t *testing.T) {
+		matches, err := firewallTemplateDestinationMatches(
+			fwTemplateHelperRuntimeStub{runRootWithOutput: "644 5", readContent: "hello"},
+			"/etc/example.conf",
+			"hello",
+			0o644,
+		)
+		if err != nil || !matches {
+			t.Fatalf("expected matching destination, got matches=%v err=%v", matches, err)
+		}
+
+		matches, err = firewallTemplateDestinationMatches(
+			fwTemplateHelperRuntimeStub{runRootWithOutput: "600 5", readContent: "hello"},
+			"/etc/example.conf",
+			"hello",
+			0o644,
+		)
+		if err != nil || matches {
+			t.Fatalf("expected mode mismatch to skip compare result, got matches=%v err=%v", matches, err)
+		}
+
+		matches, err = firewallTemplateDestinationMatches(
+			fwTemplateHelperRuntimeStub{runRootWithOutput: "644 5", readErr: errors.New("boom")},
+			"/etc/example.conf",
+			"hello",
+			0o644,
+		)
+		if err == nil || !strings.Contains(err.Error(), "boom") || matches {
+			t.Fatalf("expected read error, got matches=%v err=%v", matches, err)
+		}
+	})
+
+	t.Run("plugin decode errors", func(t *testing.T) {
+		plugin := Plugin(ApplyDeps{
+			RunRoot:       func(*ssh.Client, string) error { return nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+		}, RollbackDeps{})
+		step := profile.Step{
+			ID:     "bad-firewall-template",
+			Plugin: "firewall_template",
+			Config: map[string]any{"backend": 1},
+		}
+
+		if err := plugin.Apply(pluginapi.ApplyContext{}, step); err == nil {
+			t.Fatalf("expected plugin apply decode error")
+		}
+		if _, err := plugin.Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{}}, step); err == nil {
+			t.Fatalf("expected plugin plan decode error")
+		}
+		if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
+			t.Fatalf("expected plugin rollback decode error")
+		}
+	})
+}
+
 func mustLoadProfileForFirewallTemplateTests(t *testing.T, templates map[string]string) *profile.Profile {
 	t.Helper()
 	dir := t.TempDir()
@@ -250,3 +359,24 @@ func (s fwTemplateRuntimeStub) Stat(string) (os.FileInfo, error) {
 	return s.statInfo, nil
 }
 func (fwTemplateRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+
+type fwTemplateHelperRuntimeStub struct {
+	runRootErr           error
+	runRootWithOutput    string
+	runRootWithOutputErr error
+	readContent          string
+	readErr              error
+}
+
+func (s fwTemplateHelperRuntimeStub) RunRoot(string) error { return s.runRootErr }
+
+func (s fwTemplateHelperRuntimeStub) RunRootWithOutput(string) (string, error) {
+	return s.runRootWithOutput, s.runRootWithOutputErr
+}
+
+func (s fwTemplateHelperRuntimeStub) ReadRootFile(string) (string, error) {
+	if s.readErr != nil {
+		return "", s.readErr
+	}
+	return s.readContent, nil
+}

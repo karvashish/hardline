@@ -3,7 +3,9 @@ package firewall
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/karvashish/hardline/pkg/pluginapi"
+	"github.com/karvashish/hardline/pkg/profile"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"os"
@@ -417,8 +419,27 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		}
 		wantRender := RenderNormalized(want)
 		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantRender, nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) {
+				t.Fatalf("sftp client should not be created when managed firewall file already matches")
+				return nil, nil
+			},
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error {
+				t.Fatalf("write should be skipped when managed firewall file already matches")
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
+			RunRoot:           func(*ssh.Client, string) error { return nil },
+			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
+			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantRender + "\n# drift", nil },
+			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
 			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
 				gotDest, gotData, gotMode = dest, string(data), mode
 				return nil
@@ -574,6 +595,104 @@ func TestExtraDecodeAndRenderBranches(t *testing.T) {
 	}
 }
 
+func TestDestinationHelpersAndPlugin(t *testing.T) {
+	t.Run("stat destination helper", func(t *testing.T) {
+		if _, _, err := statFirewallDestination(nil, "/etc/example.conf"); err == nil || !strings.Contains(err.Error(), "runtime is required") {
+			t.Fatalf("expected runtime error, got %v", err)
+		}
+
+		size, mode, err := statFirewallDestination(firewallHelperRuntimeStub{runRootErr: errors.New("missing")}, "/etc/example.conf")
+		if err != nil || size != -1 || mode != 0 {
+			t.Fatalf("unexpected missing result size=%d mode=%#o err=%v", size, mode, err)
+		}
+
+		if _, _, err := statFirewallDestination(firewallHelperRuntimeStub{runRootWithOutputErr: errors.New("boom")}, "/etc/example.conf"); err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("expected stat command error, got %v", err)
+		}
+
+		for _, raw := range []string{"bad", "xyz 5", "644 bad", "644 5 extra"} {
+			if _, _, err := statFirewallDestination(firewallHelperRuntimeStub{runRootWithOutput: raw}, "/etc/example.conf"); err == nil {
+				t.Fatalf("expected parse error for %q", raw)
+			}
+		}
+
+		size, mode, err = statFirewallDestination(firewallHelperRuntimeStub{runRootWithOutput: "644 12"}, "/etc/example.conf")
+		if err != nil || size != 12 || mode.Perm() != 0o644 {
+			t.Fatalf("unexpected success result size=%d mode=%#o err=%v", size, mode, err)
+		}
+	})
+
+	t.Run("destination matches helper", func(t *testing.T) {
+		matches, err := firewallDestinationMatches(
+			firewallHelperRuntimeStub{runRootWithOutput: "644 12", readContent: "hello world!"},
+			"/etc/example.conf",
+			"hello world!",
+			0o644,
+		)
+		if err != nil || !matches {
+			t.Fatalf("expected matching destination, got matches=%v err=%v", matches, err)
+		}
+
+		matches, err = firewallDestinationMatches(
+			firewallHelperRuntimeStub{runRootWithOutput: "600 12", readContent: "hello world!"},
+			"/etc/example.conf",
+			"hello world!",
+			0o644,
+		)
+		if err != nil || matches {
+			t.Fatalf("expected mode mismatch to skip compare result, got matches=%v err=%v", matches, err)
+		}
+
+		matches, err = firewallDestinationMatches(
+			firewallHelperRuntimeStub{runRootWithOutput: "644 12", readErr: errors.New("boom")},
+			"/etc/example.conf",
+			"hello world!",
+			0o644,
+		)
+		if err == nil || !strings.Contains(err.Error(), "boom") || matches {
+			t.Fatalf("expected read error, got matches=%v err=%v", matches, err)
+		}
+	})
+
+	t.Run("validate helper utilities", func(t *testing.T) {
+		if firewallIncludePresent(nil) {
+			t.Fatalf("nil runtime should report missing include")
+		}
+		if !firewallIncludePresent(firewallRuntimeStub{include: true}) {
+			t.Fatalf("expected include to be detected")
+		}
+		if err := firewallConfigTest(nil); err == nil || !strings.Contains(err.Error(), "runtime is required") {
+			t.Fatalf("expected runtime-required error, got %v", err)
+		}
+		if err := firewallConfigTest(firewallRuntimeStub{configErr: errors.New("bad")}); err == nil || !strings.Contains(err.Error(), "bad") {
+			t.Fatalf("expected nft config error, got %v", err)
+		}
+	})
+
+	t.Run("plugin decode errors", func(t *testing.T) {
+		plugin := Plugin(ApplyDeps{
+			RunRoot:       func(*ssh.Client, string) error { return nil },
+			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
+			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
+		}, RollbackDeps{})
+		step := profile.Step{
+			ID:     "bad-firewall",
+			Plugin: "firewall",
+			Config: map[string]any{"backend": 1},
+		}
+
+		if err := plugin.Apply(pluginapi.ApplyContext{}, step); err == nil {
+			t.Fatalf("expected plugin apply decode error")
+		}
+		if _, err := plugin.Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, step); err == nil {
+			t.Fatalf("expected plugin plan decode error")
+		}
+		if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
+			t.Fatalf("expected plugin rollback decode error")
+		}
+	})
+}
+
 func validDeterministicFirewallSpec() *Spec {
 	return &Spec{
 		Backend:     "nftables",
@@ -630,3 +749,24 @@ func (s firewallRuntimeStub) Stat(string) (os.FileInfo, error) {
 	return s.statInfo, nil
 }
 func (firewallRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+
+type firewallHelperRuntimeStub struct {
+	runRootErr           error
+	runRootWithOutput    string
+	runRootWithOutputErr error
+	readContent          string
+	readErr              error
+}
+
+func (s firewallHelperRuntimeStub) RunRoot(string) error { return s.runRootErr }
+
+func (s firewallHelperRuntimeStub) RunRootWithOutput(string) (string, error) {
+	return s.runRootWithOutput, s.runRootWithOutputErr
+}
+
+func (s firewallHelperRuntimeStub) ReadRootFile(string) (string, error) {
+	if s.readErr != nil {
+		return "", s.readErr
+	}
+	return s.readContent, nil
+}

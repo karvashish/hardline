@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 var debug bool
 var stderr io.Writer = os.Stderr
+var mirror io.Writer
+var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 const (
 	ColorTagDefault    = "\033[38;5;208m"
@@ -84,11 +88,9 @@ func Debugf(format string, args ...any) {
 		}
 	}
 
-	fmt.Fprintf(
-		stderr,
-		tagColor+"[debug] "+detailColor+format+ColorReset,
-		args...,
-	)
+	msg := fmt.Sprintf(format, args...)
+	fmt.Fprint(stderr, tagColor+"[debug] "+detailColor+msg+ColorReset)
+	writeMirror("[debug] " + msg)
 }
 
 func Infof(format string, args ...any) {
@@ -101,12 +103,16 @@ func Infof(format string, args ...any) {
 		}
 	}
 
+	msg := fmt.Sprintf(format, args...)
+
 	if color == "" {
-		fmt.Fprintf(stderr, format, args...)
+		fmt.Fprint(stderr, msg)
+		writeMirror(msg)
 		return
 	}
 
-	fmt.Fprintf(stderr, color+format+ColorReset, args...)
+	fmt.Fprint(stderr, color+msg+ColorReset)
+	writeMirror(msg)
 }
 
 func Warnf(format string, args ...any) {
@@ -115,4 +121,37 @@ func Warnf(format string, args ...any) {
 
 func Errorf(format string, args ...any) {
 	Infof("color="+ColorRed+" "+format, args...)
+}
+
+func UseLogFile(path string) (func(), error) {
+	if strings.TrimSpace(path) == "" {
+		return func() {}, nil
+	}
+
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return nil, err
+	}
+
+	prevMirror := mirror
+	mirror = f
+
+	return func() {
+		mirror = prevMirror
+		_ = f.Close()
+	}, nil
+}
+
+func writeMirror(msg string) {
+	if mirror == nil {
+		return
+	}
+	_, _ = io.WriteString(mirror, ansiPattern.ReplaceAllString(msg, ""))
 }

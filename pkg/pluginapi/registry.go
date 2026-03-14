@@ -85,9 +85,11 @@ type PlanContext = Context
 type CaptureContext = Context
 
 type PlanResult struct {
-	Summary string
-	Details []string
-	Noop    int
+	Summary         string
+	Details         []string
+	Noop            int
+	OperatorSummary string
+	Highlights      []string
 }
 
 type Plugin struct {

@@ -20,6 +20,7 @@ var (
 	runRollback   = rollback.Rollback
 	runVerify     = verify.Verify
 	setDebugMode  = logger.SetDebug
+	useLogFile    = logger.UseLogFile
 	resolveVerCmd = cli.VersionCmd
 	loadPlugins   = plugins.LoadFromBinaryDir
 	logInfof      = logger.Infof
@@ -42,6 +43,12 @@ func run(args []string) int {
 	case "plan":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		closeLog, err := useLogFile(c.LogFile)
+		if err != nil {
+			logErrorf("log file setup failed: %v\n", err)
+			return 1
+		}
+		defer closeLog()
 		if err := loadPlugins(); err != nil {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
@@ -51,6 +58,12 @@ func run(args []string) int {
 	case "apply":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		closeLog, err := useLogFile(c.LogFile)
+		if err != nil {
+			logErrorf("log file setup failed: %v\n", err)
+			return 1
+		}
+		defer closeLog()
 		if err := loadPlugins(); err != nil {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
@@ -62,11 +75,23 @@ func run(args []string) int {
 	case "rollback":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		closeLog, err := useLogFile(c.LogFile)
+		if err != nil {
+			logErrorf("log file setup failed: %v\n", err)
+			return 1
+		}
+		defer closeLog()
 		runRollback(c)
 		return 0
 	case "verify-profile", "vp":
 		c := parseCmd(cmd, args[2:])
 		setDebugMode(c.Debug)
+		closeLog, err := useLogFile(c.LogFile)
+		if err != nil {
+			logErrorf("log file setup failed: %v\n", err)
+			return 1
+		}
+		defer closeLog()
 		if err := loadPlugins(); err != nil {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1

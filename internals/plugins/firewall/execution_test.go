@@ -725,7 +725,7 @@ func (s firewallRuntimeStub) RunRoot(cmd string) error {
 			return nil
 		}
 		return errors.New("missing")
-	case "nft -c -f /etc/nftables.conf":
+	case "nft -c -f /etc/nftables.conf >/dev/null 2>&1":
 		return s.configErr
 	default:
 		return nil

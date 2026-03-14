@@ -43,7 +43,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 	if !called {
 		t.Fatal("expected fake plan handler to be called")
 	}
-	if sp.Summary != "fake summary" || sp.Severity != "high" || len(sp.Details) != 1 {
+	if sp.Summary != "fake summary" || sp.Severity != "high" || len(sp.Details) != 1 || sp.Noop != 1 {
 		t.Fatalf("unexpected step plan from fake: %+v", sp)
 	}
 }

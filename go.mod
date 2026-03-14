@@ -7,6 +7,7 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/pkg/sftp v1.13.10
 	golang.org/x/crypto v0.48.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -14,7 +15,6 @@ require (
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 require (

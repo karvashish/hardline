@@ -99,6 +99,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var details []string
+	var highlights []string
 
 	mode := os.FileMode(0600)
 	modeText := strings.TrimSpace(t.Mode)
@@ -118,6 +119,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 
 	size, currentMode, err := statTemplateDestination(ctx.Host, t.Dest)
 	if err != nil {
+		highlights = append(highlights, fmt.Sprintf("cannot inspect destination %q (%v)", t.Dest, err))
 		details = append(details,
 			logger.ColorRed+fmt.Sprintf("cannot stat destination %q (%v)", t.Dest, err)+logger.ColorReset,
 		)
@@ -149,6 +151,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 
 		current, readErr := ctx.Host.ReadRootFile(t.Dest)
 		if readErr != nil {
+			highlights = append(highlights, fmt.Sprintf("cannot compare rendered content for %q (%v)", t.Dest, readErr))
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("cannot compare content for %q (%v)", t.Dest, readErr)+logger.ColorReset,
 			)
@@ -172,17 +175,27 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 	)
 
 	summary := fmt.Sprintf("template step: render %q to %q (mode %s)", t.Src, t.Dest, modeText)
+	operatorSummary := fmt.Sprintf("Write rendered configuration from %q to %q with mode %s", t.Src, t.Dest, modeText)
+	noop := 2
 	if exists && compareReady && modeMatches && contentMatches {
 		summary = fmt.Sprintf("template step: no rewrite required for %q (content and mode already match)", t.Dest)
+		operatorSummary = fmt.Sprintf("%q already matches the desired content and mode", t.Dest)
 		details = append(details,
 			logger.ColorGreen+"rewrite decision: no rewrite required"+logger.ColorReset,
 		)
+		noop = 0
 	} else {
 		details = append(details,
 			logger.ColorYellow+"rewrite decision: rewrite required"+logger.ColorReset,
 		)
 	}
-	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
+	return pluginapi.PlanResult{
+		Summary:         summary,
+		Details:         details,
+		Noop:            noop,
+		OperatorSummary: operatorSummary,
+		Highlights:      highlights,
+	}, nil
 }
 
 func statTemplateDestination(rt templateStatRuntime, dest string) (int64, os.FileMode, error) {

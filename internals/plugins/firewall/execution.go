@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf 2>/dev/null`
 	NftablesMainConfigPath = "/etc/nftables.conf"
 	NftablesIncludeLine    = `include "/etc/nftables.d/*.nft"`
 )
@@ -154,10 +154,17 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var details []string
+	var highlights []string
 
 	if fw.Backend != "nftables" {
 		summary := fmt.Sprintf("firewall step: unsupported backend %q (no-op)", fw.Backend)
-		return pluginapi.PlanResult{Summary: summary, Details: []string{"only nftables backend is supported by executor"}, Noop: 2}, nil
+		return pluginapi.PlanResult{
+			Summary:         summary,
+			Details:         []string{"only nftables backend is supported by executor"},
+			Noop:            2,
+			OperatorSummary: fmt.Sprintf("Unsupported firewall backend %q requested", fw.Backend),
+			Highlights:      []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
+		}, nil
 	}
 	if strings.TrimSpace(fw.Family) == "" {
 		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: family is required")
@@ -187,17 +194,24 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	details = append(details, logger.ColorGreen+fmt.Sprintf("desired chain policies: %d", len(fw.Policies))+logger.ColorReset)
 	details = append(details, logger.ColorGreen+fmt.Sprintf("desired rules: %d", len(fw.Rules))+logger.ColorReset)
 
-	if firewallIncludePresent(ctx.Host) {
-		details = append(details, logger.ColorGreen+`nftables.conf include "/etc/nftables.d/*.nft" is present`+logger.ColorReset)
-	} else {
-		details = append(details, logger.ColorRed+`nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset)
+	validateRes, err := ValidatePlan(ctx.Host)
+	if err != nil {
+		return pluginapi.PlanResult{}, err
 	}
+	details = append(details, validateRes.Details...)
+	highlights = append(highlights, validateRes.Highlights...)
 
 	summary := fmt.Sprintf(
 		"firewall step (deterministic): backend=nftables table=%s %s, managed_dest=%q, policies=%d, rules=%d",
 		fw.Family, fw.Table, fw.ManagedDest, len(fw.Policies), len(fw.Rules),
 	)
-	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
+	return pluginapi.PlanResult{
+		Summary:         summary,
+		Details:         details,
+		Noop:            2,
+		OperatorSummary: fmt.Sprintf("Manage nftables table %s %s in %q (%d policy entries, %d rules)", fw.Family, fw.Table, fw.ManagedDest, len(fw.Policies), len(fw.Rules)),
+		Highlights:      highlights,
+	}, nil
 }
 
 func ValidateApply(host pluginapi.Host) error {
@@ -218,12 +232,14 @@ func ValidatePlan(host pluginapi.Host) (pluginapi.PlanResult, error) {
 	logger.Debugf("planValidate: kind=firewall\n")
 
 	var details []string
+	var highlights []string
 
 	if firewallIncludePresent(host) {
 		details = append(details,
 			logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
 		)
 	} else {
+		highlights = append(highlights, `nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`)
 		details = append(details,
 			logger.ColorRed+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset,
 		)
@@ -235,15 +251,18 @@ func ValidatePlan(host pluginapi.Host) (pluginapi.PlanResult, error) {
 			logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
 		)
 	} else {
+		highlights = append(highlights, fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr))
 		details = append(details,
 			logger.ColorRed+fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr)+logger.ColorReset,
 		)
 	}
 
 	return pluginapi.PlanResult{
-		Summary: "validate firewall: check include for /etc/nftables.d/*.nft and nft -c on /etc/nftables.conf",
-		Details: details,
-		Noop:    2,
+		Summary:         "validate firewall: check include for /etc/nftables.d/*.nft and nft -c on /etc/nftables.conf",
+		Details:         details,
+		Noop:            2,
+		OperatorSummary: "Validate nftables include wiring and current nftables syntax",
+		Highlights:      highlights,
 	}, nil
 }
 
@@ -317,7 +336,7 @@ func firewallConfigTest(host pluginapi.Host) error {
 	if host == nil {
 		return fmt.Errorf("host is required")
 	}
-	return host.RunRoot("nft -c -f /etc/nftables.conf")
+	return host.RunRoot("nft -c -f /etc/nftables.conf >/dev/null 2>&1")
 }
 
 func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {

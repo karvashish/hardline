@@ -144,6 +144,9 @@ func TestPlan(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
+		if res.Noop != 0 {
+			t.Fatalf("expected matching template to be noop, got %d", res.Noop)
+		}
 		if !strings.Contains(res.Summary, "no rewrite required") {
 			t.Fatalf("unexpected summary: %q", res.Summary)
 		}
@@ -154,6 +157,9 @@ func TestPlan(t *testing.T) {
 		res, err := Plan(pluginapi.PlanContext{Host: templateRuntimeStub{statErr: errors.New("missing")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
+		}
+		if res.Noop != 2 {
+			t.Fatalf("expected missing destination to require change, got %d", res.Noop)
 		}
 		if !strings.Contains(strings.Join(res.Details, "\n"), "does not exist") {
 			t.Fatalf("expected missing destination detail, got %+v", res.Details)

@@ -59,6 +59,11 @@ func TestRun_PlanDispatch(t *testing.T) {
 
 	var debugSet bool
 	setDebugMode = func(debug bool) { debugSet = debug }
+	var logFilePath string
+	useLogFile = func(path string) (func(), error) {
+		logFilePath = path
+		return func() {}, nil
+	}
 	loadPlugins = func() error { return nil }
 
 	var planCalled bool
@@ -81,6 +86,9 @@ func TestRun_PlanDispatch(t *testing.T) {
 	if !debugSet {
 		t.Fatal("expected debug mode to be set from parsed command")
 	}
+	if logFilePath != "" {
+		t.Fatalf("did not expect log file setup for empty path, got %q", logFilePath)
+	}
 	if !planCalled {
 		t.Fatal("expected plan handler to be called")
 	}
@@ -91,9 +99,14 @@ func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
 	defer restore()
 
 	parseCmd = func(command string, args []string) cli.Command {
-		return cli.Command{Name: command, Profile: "p"}
+		return cli.Command{Name: command, Profile: "p", LogFile: "/tmp/hardline.log"}
 	}
 	setDebugMode = func(bool) {}
+	var logFilePath string
+	useLogFile = func(path string) (func(), error) {
+		logFilePath = path
+		return func() {}, nil
+	}
 	loadPlugins = func() error { return nil }
 
 	var order []string
@@ -108,6 +121,9 @@ func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
 	if len(order) != 2 || order[0] != "plan" || order[1] != "apply" {
 		t.Fatalf("expected order [plan apply], got %#v", order)
 	}
+	if logFilePath != "/tmp/hardline.log" {
+		t.Fatalf("expected log file path to be forwarded, got %q", logFilePath)
+	}
 }
 
 func TestRun_VerifyDispatch(t *testing.T) {
@@ -115,9 +131,14 @@ func TestRun_VerifyDispatch(t *testing.T) {
 	defer restore()
 
 	parseCmd = func(command string, args []string) cli.Command {
-		return cli.Command{Name: command, Profile: "p"}
+		return cli.Command{Name: command, Profile: "p", LogFile: "/tmp/verify.log"}
 	}
 	setDebugMode = func(bool) {}
+	var logFilePath string
+	useLogFile = func(path string) (func(), error) {
+		logFilePath = path
+		return func() {}, nil
+	}
 	loadPlugins = func() error { return nil }
 
 	var verifyCalls int
@@ -134,6 +155,9 @@ func TestRun_VerifyDispatch(t *testing.T) {
 	}
 	if verifyCalls != 1 {
 		t.Fatalf("expected verify call once, got %d", verifyCalls)
+	}
+	if logFilePath != "/tmp/verify.log" {
+		t.Fatalf("expected verify log file path to be forwarded, got %q", logFilePath)
 	}
 }
 
@@ -171,9 +195,14 @@ func TestRun_RollbackDispatch(t *testing.T) {
 	defer restore()
 
 	parseCmd = func(command string, args []string) cli.Command {
-		return cli.Command{Name: command, Profile: "last"}
+		return cli.Command{Name: command, Profile: "last", LogFile: "/tmp/rollback.log"}
 	}
 	setDebugMode = func(bool) {}
+	var logFilePath string
+	useLogFile = func(path string) (func(), error) {
+		logFilePath = path
+		return func() {}, nil
+	}
 
 	var rollbackCalls int
 	runRollback = func(c cli.Command) {
@@ -191,6 +220,9 @@ func TestRun_RollbackDispatch(t *testing.T) {
 	}
 	if rollbackCalls != 1 {
 		t.Fatalf("expected rollback call once, got %d", rollbackCalls)
+	}
+	if logFilePath != "/tmp/rollback.log" {
+		t.Fatalf("expected rollback log file path to be forwarded, got %q", logFilePath)
 	}
 }
 
@@ -255,6 +287,7 @@ func TestRun_PlanPluginLoadFailure(t *testing.T) {
 		return cli.Command{Name: command, Profile: "p"}
 	}
 	setDebugMode = func(bool) {}
+	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
 
 	var planCalled bool
@@ -284,6 +317,7 @@ func TestRun_ApplyPluginLoadFailure(t *testing.T) {
 		return cli.Command{Name: command, Profile: "p"}
 	}
 	setDebugMode = func(bool) {}
+	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
 
 	var planCalled, applyCalled bool
@@ -306,6 +340,94 @@ func TestRun_ApplyPluginLoadFailure(t *testing.T) {
 	}
 }
 
+func TestRun_LogFileSetupFailure(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p", LogFile: "/tmp/hardline.log"}
+	}
+	setDebugMode = func(bool) {}
+	useLogFile = func(string) (func(), error) { return nil, fmt.Errorf("disk full") }
+	loadPlugins = func() error { t.Fatal("plugins should not load when log setup fails"); return nil }
+
+	var planCalled bool
+	runPlan = func(cli.Command) { planCalled = true }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+
+	code := run([]string{"hardline", "plan", "profile"})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if planCalled {
+		t.Fatal("plan should not run when log setup fails")
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("log file setup failed: disk full")) {
+		t.Fatalf("expected log setup error output, got %q", got)
+	}
+}
+
+func TestRun_VerifyLogFileSetupFailure(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "p", LogFile: "/tmp/verify.log"}
+	}
+	setDebugMode = func(bool) {}
+	useLogFile = func(string) (func(), error) { return nil, fmt.Errorf("readonly") }
+
+	var verifyCalled bool
+	runVerify = func(cli.Command) { verifyCalled = true }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+
+	code := run([]string{"hardline", "verify-profile", "profile"})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if verifyCalled {
+		t.Fatal("verify should not run when log setup fails")
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("log file setup failed: readonly")) {
+		t.Fatalf("expected verify log setup error output, got %q", got)
+	}
+}
+
+func TestRun_RollbackLogFileSetupFailure(t *testing.T) {
+	restore := stubHandlers()
+	defer restore()
+
+	parseCmd = func(command string, args []string) cli.Command {
+		return cli.Command{Name: command, Profile: "last", LogFile: "/tmp/rollback.log"}
+	}
+	setDebugMode = func(bool) {}
+	useLogFile = func(string) (func(), error) { return nil, fmt.Errorf("readonly") }
+
+	var rollbackCalled bool
+	runRollback = func(cli.Command) { rollbackCalled = true }
+	var errOut bytes.Buffer
+	logErrorf = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&errOut, format, args...)
+	}
+
+	code := run([]string{"hardline", "rollback", "last"})
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	if rollbackCalled {
+		t.Fatal("rollback should not run when log setup fails")
+	}
+	if got := errOut.String(); !bytes.Contains([]byte(got), []byte("log file setup failed: readonly")) {
+		t.Fatalf("expected rollback log setup error output, got %q", got)
+	}
+}
+
 func stubHandlers() func() {
 	prevParse := parseCmd
 	prevUsage := showUsage
@@ -314,6 +436,7 @@ func stubHandlers() func() {
 	prevRollback := runRollback
 	prevVerify := runVerify
 	prevSetDebug := setDebugMode
+	prevUseLogFile := useLogFile
 	prevVersion := resolveVerCmd
 	prevLoadPlugins := loadPlugins
 	prevInfo := logInfof
@@ -327,6 +450,7 @@ func stubHandlers() func() {
 		runRollback = prevRollback
 		runVerify = prevVerify
 		setDebugMode = prevSetDebug
+		useLogFile = prevUseLogFile
 		resolveVerCmd = prevVersion
 		loadPlugins = prevLoadPlugins
 		logInfof = prevInfo

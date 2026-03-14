@@ -77,17 +77,28 @@ func TestParse_SuccessPaths(t *testing.T) {
 		"--host", "example.com",
 		"--user", "deployer",
 		"--keypath", "/tmp/key",
+		"--log-file", "/tmp/hardline.log",
+		"--report-file", "/tmp/hardline-report.json",
+		"--report-format", "json",
 		"--debug",
 	})
-	if planCmd.Name != "plan" || planCmd.Profile != "prod" || planCmd.Host != "example.com" || planCmd.User != "deployer" || planCmd.KeyPath != "/tmp/key" || !planCmd.Debug {
+	if planCmd.Name != "plan" ||
+		planCmd.Profile != "prod" ||
+		planCmd.Host != "example.com" ||
+		planCmd.User != "deployer" ||
+		planCmd.KeyPath != "/tmp/key" ||
+		planCmd.LogFile != "/tmp/hardline.log" ||
+		planCmd.ReportFile != "/tmp/hardline-report.json" ||
+		planCmd.ReportFormat != "json" ||
+		!planCmd.Debug {
 		t.Fatalf("unexpected parsed plan command: %+v", planCmd)
 	}
 
-	verifyCmd := Parse("verify-profile", []string{"staging", "-d"})
+	verifyCmd := Parse("verify-profile", []string{"staging", "--log-file", "/tmp/verify.log", "-d"})
 	if verifyCmd.Name != "verify-profile" || verifyCmd.Profile != "staging" || !verifyCmd.Debug {
 		t.Fatalf("unexpected parsed verify command: %+v", verifyCmd)
 	}
-	if verifyCmd.Host != "" || verifyCmd.User != "" || verifyCmd.KeyPath != "" {
+	if verifyCmd.Host != "" || verifyCmd.User != "" || verifyCmd.KeyPath != "" || verifyCmd.LogFile != "/tmp/verify.log" {
 		t.Fatalf("verify command should not parse host/user/key fields: %+v", verifyCmd)
 	}
 
@@ -96,8 +107,9 @@ func TestParse_SuccessPaths(t *testing.T) {
 		"-h", "example.com",
 		"-u", "deployer",
 		"-k", "/tmp/key",
+		"--log-file", "/tmp/rollback.log",
 	})
-	if rollbackCmd.Name != "rollback" || rollbackCmd.Profile != "last" || rollbackCmd.Host != "example.com" || rollbackCmd.User != "deployer" || rollbackCmd.KeyPath != "/tmp/key" {
+	if rollbackCmd.Name != "rollback" || rollbackCmd.Profile != "last" || rollbackCmd.Host != "example.com" || rollbackCmd.User != "deployer" || rollbackCmd.KeyPath != "/tmp/key" || rollbackCmd.LogFile != "/tmp/rollback.log" {
 		t.Fatalf("unexpected parsed rollback command: %+v", rollbackCmd)
 	}
 }

@@ -16,7 +16,7 @@ import (
 const DefaultManagedDestination = "/etc/nftables.d/99-hardline-firewall.nft"
 
 const (
-	firewallTemplateIncludeCheckCmd = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+	firewallTemplateIncludeCheckCmd = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf 2>/dev/null`
 	firewallTemplateMainConfigPath  = "/etc/nftables.conf"
 	firewallTemplateIncludeLine     = `include "/etc/nftables.d/*.nft"`
 )
@@ -167,7 +167,13 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 
 	if fw.Backend != "nftables" {
 		summary := fmt.Sprintf("firewall_template step: unsupported backend %q (no-op)", fw.Backend)
-		return pluginapi.PlanResult{Summary: summary, Details: []string{"only nftables backend is supported by executor"}, Noop: 2}, nil
+		return pluginapi.PlanResult{
+			Summary:         summary,
+			Details:         []string{"only nftables backend is supported by executor"},
+			Noop:            2,
+			OperatorSummary: fmt.Sprintf("Unsupported firewall template backend %q requested", fw.Backend),
+			Highlights:      []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
+		}, nil
 	}
 
 	tmplPath := strings.TrimSpace(fw.TemplateSrc)
@@ -196,7 +202,12 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 		"firewall_template step (best-effort): backend=nftables template=%q -> %q allow_rules=%d",
 		tmplPath, destPath, len(fw.Allow),
 	)
-	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
+	return pluginapi.PlanResult{
+		Summary:         summary,
+		Details:         details,
+		Noop:            2,
+		OperatorSummary: fmt.Sprintf("Render firewall template %q to %q with %d allow rule(s)", tmplPath, destPath, len(fw.Allow)),
+	}, nil
 }
 
 func ManagedDestination(fw *Spec) string {

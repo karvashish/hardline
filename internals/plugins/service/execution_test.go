@@ -173,6 +173,9 @@ func TestPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
+	if res.Noop != 2 {
+		t.Fatalf("expected restart plan to require change, got noop=%d", res.Noop)
+	}
 	if !strings.Contains(res.Summary, "restart ssh") {
 		t.Fatalf("unexpected plan summary: %q", res.Summary)
 	}
@@ -196,6 +199,9 @@ func TestPlan(t *testing.T) {
 			out, err := Plan(pluginapi.PlanContext{Host: serviceRuntimeStub{}}, &tc.spec)
 			if err != nil {
 				t.Fatalf("Plan failed: %v", err)
+			}
+			if tc.name == "empty state" && out.Noop != 0 {
+				t.Fatalf("expected empty state to be noop, got %d", out.Noop)
 			}
 			if !strings.Contains(out.Summary, tc.wantSubstr) {
 				t.Fatalf("expected summary to contain %q, got %q", tc.wantSubstr, out.Summary)

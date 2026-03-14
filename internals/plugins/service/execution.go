@@ -82,6 +82,7 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	var details []string
+	var highlights []string
 
 	enabledState := "unknown"
 	if serviceIsEnabled(ctx.Host, unit) {
@@ -124,11 +125,30 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 		desiredState = "reloaded or restarted (active)"
 	default:
 		desiredState = fmt.Sprintf("unsupported (%q)", s.State)
+		highlights = append(highlights, fmt.Sprintf("unsupported service state %q requested for %s", s.State, unit))
 	}
 
 	details = append(details,
 		logger.ColorGreen+fmt.Sprintf("desired: enabled=%s, state=%s", desiredEnabled, desiredState)+logger.ColorReset,
 	)
+
+	willChange := false
+	if s.Enabled != nil {
+		if (*s.Enabled && enabledState != "enabled") || (!*s.Enabled && enabledState != "disabled or not-found") {
+			willChange = true
+		}
+	}
+	switch state {
+	case "":
+	case "started", "start":
+		willChange = willChange || activeState != "active"
+	case "stopped", "stop":
+		willChange = willChange || activeState != "inactive or not-found"
+	case "restarted", "restart", "reloaded", "reload":
+		willChange = true
+	default:
+		willChange = true
+	}
 
 	var summaryParts []string
 	if s.Enabled != nil {
@@ -154,13 +174,27 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var summary string
+	var operatorSummary string
 	if len(summaryParts) == 0 {
 		summary = fmt.Sprintf("service step: no-op for %s (no enable/state change requested)", unit)
+		operatorSummary = fmt.Sprintf("%s already matches the requested service state", unit)
 	} else {
 		summary = "service step: " + strings.Join(summaryParts, "; ")
+		operatorSummary = serviceSentence(summaryParts)
 	}
 
-	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
+	noop := 2
+	if !willChange {
+		noop = 0
+	}
+
+	return pluginapi.PlanResult{
+		Summary:         summary,
+		Details:         details,
+		Noop:            noop,
+		OperatorSummary: operatorSummary,
+		Highlights:      highlights,
+	}, nil
 }
 
 func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
@@ -210,4 +244,12 @@ func serviceIsActive(host pluginapi.Host, unit string) bool {
 	}
 	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
 	return host.RunRoot(cmd) == nil
+}
+
+func serviceSentence(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	text := strings.Join(parts, "; ")
+	return strings.ToUpper(text[:1]) + text[1:]
 }

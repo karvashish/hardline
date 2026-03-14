@@ -66,7 +66,7 @@ func TestApply(t *testing.T) {
 		checkCount := 0
 		err = Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
 			runRoot: func(cmd string) error {
-				if cmd == `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf` {
+				if cmd == firewallTemplateIncludeCheckCmd {
 					checkCount++
 					return errors.New("missing")
 				}

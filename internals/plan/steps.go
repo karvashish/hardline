@@ -12,9 +12,12 @@ type StepPlan struct {
 	StepType  string
 	Severity  string
 	RiskClass string
+	Noop      int
 
-	Summary string
-	Details []string
+	Summary         string
+	Details         []string
+	OperatorSummary string
+	Highlights      []string
 }
 
 func planStep(client *ssh.Client, p *profile.Profile, s profile.Step) (StepPlan, error) {
@@ -43,9 +46,13 @@ func planStepWithRegistry(reg *pluginapi.Registry, client *ssh.Client, p *profil
 	}
 	if !plugin.InternalValidation && s.AllowUnvalidated {
 		result.Details = append(result.Details, "validation: explicitly disabled for this step (allow_unvalidated=true)")
+		result.Highlights = append(result.Highlights, "validation is explicitly disabled for this step (allow_unvalidated=true)")
 	}
+	plan.Noop = result.Noop
 	plan.Summary = result.Summary
 	plan.Details = result.Details
+	plan.OperatorSummary = result.OperatorSummary
+	plan.Highlights = result.Highlights
 
 	return plan, nil
 }

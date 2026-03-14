@@ -157,6 +157,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var details []string
+	var highlights []string
 
 	var installWillChange []string
 	var installDepsWillChange []string
@@ -170,6 +171,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	if pk.Upgrade {
 		up, err := aptUpgradePreview(ctx.Host)
 		if err != nil {
+			highlights = append(highlights, fmt.Sprintf("cannot preview package upgrades (%v)", err))
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("upgrade: failed to preview upgrades (%v)", err)+logger.ColorReset,
 			)
@@ -209,6 +211,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	if len(pk.Install) > 0 {
 		all, err := aptInstallPreview(ctx.Host, pk.Install)
 		if err != nil {
+			highlights = append(highlights, fmt.Sprintf("cannot preview dependency installs (%v)", err))
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("install: failed to preview dependency installs (%v)", err)+logger.ColorReset,
 			)
@@ -255,6 +258,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	if pk.Autoremove {
 		pkgs, err := aptAutoremovePreview(ctx.Host)
 		if err != nil {
+			highlights = append(highlights, fmt.Sprintf("cannot preview autoremove packages (%v)", err))
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("autoremove: failed to preview packages to be removed (%v)", err)+logger.ColorReset,
 			)
@@ -275,6 +279,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	var summary string
+	var operatorSummary string
 	var noop int = 2
 	if !pk.Update &&
 		(!pk.Upgrade || len(upgradeWillChange) == 0) &&
@@ -284,6 +289,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
 		noop = 0
 		summary = "packages step: no-op (no update/upgrade/install/purge/autoremove specified or no changes required)"
+		operatorSummary = "Package state already matches the requested policy"
 	} else if pk.Update &&
 		len(upgradeWillChange) == 0 &&
 		len(installWillChange) == 0 &&
@@ -292,6 +298,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 		(!pk.Autoremove || len(autoremoveWillChange) == 0) {
 		summary = "packages step: update package index (install/upgrade/purge/autoremove currently no-op; may change after update)"
 		noop = 1
+		operatorSummary = "Refresh package metadata; install, upgrade, purge, and autoremove decisions may change after the update"
 	} else {
 		var summaryParts []string
 		if pk.Update {
@@ -338,9 +345,16 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 			}
 		}
 		summary = "packages step: " + strings.Join(summaryParts, "; ")
+		operatorSummary = packagesSentence(summaryParts)
 	}
 
-	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: noop}, nil
+	return pluginapi.PlanResult{
+		Summary:         summary,
+		Details:         details,
+		Noop:            noop,
+		OperatorSummary: operatorSummary,
+		Highlights:      highlights,
+	}, nil
 }
 
 func Capture(ctx pluginapi.CaptureContext, stepID string, pk *Spec) (pluginapi.StepRecord, error) {
@@ -435,4 +449,12 @@ func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]pluginapi.ObjectReco
 func inSet(set map[string]struct{}, name string) bool {
 	_, ok := set[name]
 	return ok
+}
+
+func packagesSentence(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	text := strings.Join(parts, "; ")
+	return strings.ToUpper(text[:1]) + text[1:]
 }

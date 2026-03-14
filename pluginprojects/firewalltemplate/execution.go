@@ -9,14 +9,17 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/karvashish/hardline/internals/plugins/firewall"
-	"github.com/karvashish/hardline/internals/plugins/rollbackutil"
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 const DefaultManagedDestination = "/etc/nftables.d/99-hardline-firewall.nft"
+
+const (
+	firewallTemplateIncludeCheckCmd = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
+	firewallTemplateMainConfigPath  = "/etc/nftables.conf"
+	firewallTemplateIncludeLine     = `include "/etc/nftables.d/*.nft"`
+)
 
 type firewallTemplateStatRuntime interface {
 	RunRoot(cmd string) error
@@ -89,7 +92,7 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec) error {
 		}
 	}
 
-	if err := firewall.EnsureNftablesInclude(ctx.Host); err != nil {
+	if err := ensureNftablesInclude(ctx.Host); err != nil {
 		return err
 	}
 
@@ -207,8 +210,8 @@ func ManagedDestination(fw *Spec) string {
 	return dest
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
-	record := rollback.StepRecord{
+func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
+	record := pluginapi.StepRecord{
 		ID:   stepID,
 		Type: "firewall_template",
 	}
@@ -220,18 +223,38 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (
 	}
 
 	dest := ManagedDestination(spec)
-	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
+	if err := pluginapi.EnforceManagedPath(dest); err != nil {
 		return record, fmt.Errorf("step %q (type=firewall_template): %w", stepID, err)
 	}
 
-	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Host, dest)
+	snap, err := pluginapi.SnapshotRemoteFile(ctx.Host, dest)
 	if err != nil {
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
-	record.RollbackMode = rollback.ModeDeterministic
-	record.Objects = []rollback.ObjectRecord{
-		{Kind: rollback.ObjectFile, File: &snap},
+	record.RollbackMode = pluginapi.ModeDeterministic
+	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectFile, File: &snap},
 	}
 	return record, nil
+}
+
+func ensureNftablesInclude(host pluginapi.Host) error {
+	if host == nil {
+		return fmt.Errorf("firewall_template step: host context is required")
+	}
+	if err := host.RunRoot(firewallTemplateIncludeCheckCmd); err == nil {
+		return nil
+	}
+
+	appendCmd := `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`
+	if err := host.RunRoot(appendCmd); err != nil {
+		return fmt.Errorf("ensure %q in %s: %w", firewallTemplateIncludeLine, firewallTemplateMainConfigPath, err)
+	}
+
+	if err := host.RunRoot(firewallTemplateIncludeCheckCmd); err != nil {
+		return fmt.Errorf("verify %q in %s: %w", firewallTemplateIncludeLine, firewallTemplateMainConfigPath, err)
+	}
+
+	return nil
 }

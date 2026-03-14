@@ -27,7 +27,7 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Rollback: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
+		Capture: func(pluginapi.CaptureContext, profile.Step) (rollback.StepRecord, error) {
 			called = true
 			return rollback.StepRecord{
 				ID:           "f1",
@@ -60,7 +60,7 @@ func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Rollback: func(pluginapi.RollbackContext, profile.Step) (rollback.StepRecord, error) {
+		Capture: func(pluginapi.CaptureContext, profile.Step) (rollback.StepRecord, error) {
 			return rollback.StepRecord{}, errors.New("capture boom")
 		},
 	})

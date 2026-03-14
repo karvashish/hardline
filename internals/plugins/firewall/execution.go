@@ -9,16 +9,14 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/karvashish/hardline/internals/plugins/rollbackutil"
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 const (
+	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
 	NftablesMainConfigPath = "/etc/nftables.conf"
 	NftablesIncludeLine    = `include "/etc/nftables.d/*.nft"`
-	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
 )
 
 type NormalizedSpec struct {
@@ -249,8 +247,8 @@ func ValidatePlan(host pluginapi.Host) (pluginapi.PlanResult, error) {
 	}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
-	record := rollback.StepRecord{
+func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
+	record := pluginapi.StepRecord{
 		ID:   stepID,
 		Type: "firewall",
 	}
@@ -262,18 +260,18 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (
 	}
 
 	dest := ManagedDestination(spec)
-	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
+	if err := pluginapi.EnforceManagedPath(dest); err != nil {
 		return record, fmt.Errorf("step %q (type=firewall): %w", stepID, err)
 	}
 
-	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Host, dest)
+	snap, err := pluginapi.SnapshotRemoteFile(ctx.Host, dest)
 	if err != nil {
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
-	record.RollbackMode = rollback.ModeDeterministic
-	record.Objects = []rollback.ObjectRecord{
-		{Kind: rollback.ObjectFile, File: &snap},
+	record.RollbackMode = pluginapi.ModeDeterministic
+	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectFile, File: &snap},
 	}
 	return record, nil
 }
@@ -296,7 +294,7 @@ func EnsureNftablesInclude(host pluginapi.Host) error {
 		return nil
 	}
 
-	appendCmd := "printf '\\ninclude \"/etc/nftables.d/*.nft\"\\n' >> /etc/nftables.conf"
+	appendCmd := `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`
 	if err := host.RunRoot(appendCmd); err != nil {
 		return fmt.Errorf("ensure %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
 	}

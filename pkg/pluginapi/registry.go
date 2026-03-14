@@ -82,7 +82,7 @@ type Context struct {
 
 type ApplyContext = Context
 type PlanContext = Context
-type RollbackContext = Context
+type CaptureContext = Context
 
 type PlanResult struct {
 	Summary string
@@ -95,7 +95,7 @@ type Plugin struct {
 	InternalValidation bool
 	Apply              func(ApplyContext, profile.Step) error
 	Plan               func(PlanContext, profile.Step) (PlanResult, error)
-	Rollback           func(RollbackContext, profile.Step) (StepRecord, error)
+	Capture            func(CaptureContext, profile.Step) (StepRecord, error)
 }
 
 type Registry struct {
@@ -121,8 +121,8 @@ func preparePlugin(p Plugin) (Plugin, error) {
 	if p.Plan == nil {
 		return Plugin{}, fmt.Errorf("plugin %q is missing Plan func", name)
 	}
-	if p.Rollback == nil {
-		return Plugin{}, fmt.Errorf("plugin %q is missing Rollback func", name)
+	if p.Capture == nil {
+		return Plugin{}, fmt.Errorf("plugin %q is missing Capture func", name)
 	}
 
 	p.Name = name

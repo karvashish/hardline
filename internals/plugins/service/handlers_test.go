@@ -27,7 +27,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 		t.Fatalf("expected service validation error, got %v", err)
 	}
 
-	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+	_, err = plugin.Capture(pluginapi.CaptureContext{}, profile.Step{
 		ID:     "svc",
 		Plugin: "service",
 		Config: map[string]any{
@@ -70,7 +70,7 @@ func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: serviceRuntimeStub{}}, step); err != nil {
+	if _, err := plugin.Capture(pluginapi.CaptureContext{Host: serviceRuntimeStub{}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestPlugin_DecodeErrors(t *testing.T) {
 	if _, err := plugin.Plan(pluginapi.PlanContext{Host: serviceRuntimeStub{}}, step); err == nil {
 		t.Fatal("expected plan decode error")
 	}
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
+	if _, err := plugin.Capture(pluginapi.CaptureContext{}, step); err == nil {
 		t.Fatal("expected rollback decode error")
 	}
 }

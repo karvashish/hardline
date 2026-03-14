@@ -204,16 +204,16 @@ func TestPlan(t *testing.T) {
 	}
 }
 
-func TestCaptureRollback(t *testing.T) {
+func TestCapture(t *testing.T) {
 	t.Run("missing spec", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "s", nil)
+		_, err := Capture(pluginapi.CaptureContext{}, "s", nil)
 		if err == nil || !strings.Contains(err.Error(), "service spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 	})
 
 	t.Run("query error", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{Host: serviceRuntimeStub{
+		_, err := Capture(pluginapi.CaptureContext{Host: serviceRuntimeStub{
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") },
 		}}, "s", &Spec{Name: "sshd"})
 		if err == nil || !strings.Contains(err.Error(), "capture service snapshot") {
@@ -223,7 +223,7 @@ func TestCaptureRollback(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		calls := 0
-		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: serviceRuntimeStub{
+		rec, err := Capture(pluginapi.CaptureContext{Host: serviceRuntimeStub{
 			runRootWithOutput: func(string) (string, error) {
 				calls++
 				if calls == 1 {
@@ -233,7 +233,7 @@ func TestCaptureRollback(t *testing.T) {
 			},
 		}}, "s", &Spec{Name: "sshd"})
 		if err != nil {
-			t.Fatalf("CaptureRollback failed: %v", err)
+			t.Fatalf("Capture failed: %v", err)
 		}
 		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].Service == nil {
 			t.Fatalf("unexpected rollback record: %+v", rec)

@@ -1,12 +1,10 @@
-package rollbackutil
+package pluginapi
 
 import (
 	"errors"
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 func TestEnforceManagedPath(t *testing.T) {
@@ -39,8 +37,15 @@ func TestEnforceManagedPath(t *testing.T) {
 }
 
 func TestSnapshotRemoteFile(t *testing.T) {
+	t.Run("host required", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(nil, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
+		if err == nil || !strings.Contains(err.Error(), "host is required") {
+			t.Fatalf("expected host-required error, got %v", err)
+		}
+	})
+
 	t.Run("missing file", func(t *testing.T) {
-		snap, err := SnapshotRemoteFile(rollbackHostStub{
+		snap, err := SnapshotRemoteFile(pluginAPIHostStub{
 			runRoot: func(string) error { return errors.New("not found") },
 		}, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
 		if err != nil {
@@ -51,15 +56,8 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
-	t.Run("host required", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(nil, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
-		if err == nil || !strings.Contains(err.Error(), "host is required") {
-			t.Fatalf("expected host-required error, got %v", err)
-		}
-	})
-
 	t.Run("existing file", func(t *testing.T) {
-		snap, err := SnapshotRemoteFile(rollbackHostStub{
+		snap, err := SnapshotRemoteFile(pluginAPIHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "644\n", nil },
 			readRootFile:      func(string) (string, error) { return "abc", nil },
@@ -73,10 +71,9 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("stat error", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(rollbackHostStub{
+		_, err := SnapshotRemoteFile(pluginAPIHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("stat boom") },
-			readRootFile:      func(string) (string, error) { return "", nil },
 		}, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
 		if err == nil || !strings.Contains(err.Error(), "stat boom") {
 			t.Fatalf("expected stat error, got %v", err)
@@ -84,7 +81,7 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("read error", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(rollbackHostStub{
+		_, err := SnapshotRemoteFile(pluginAPIHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "644", nil },
 			readRootFile:      func(string) (string, error) { return "", errors.New("read boom") },
@@ -105,7 +102,7 @@ func TestSnapshotServiceState(t *testing.T) {
 
 	t.Run("known state", func(t *testing.T) {
 		calls := 0
-		state, err := SnapshotServiceState(rollbackHostStub{
+		state, err := SnapshotServiceState(pluginAPIHostStub{
 			runRootWithOutput: func(string) (string, error) {
 				calls++
 				if calls == 1 {
@@ -123,7 +120,7 @@ func TestSnapshotServiceState(t *testing.T) {
 	})
 
 	t.Run("unknown state", func(t *testing.T) {
-		state, err := SnapshotServiceState(rollbackHostStub{
+		state, err := SnapshotServiceState(pluginAPIHostStub{
 			runRootWithOutput: func(string) (string, error) { return "\n", nil },
 		}, "ssh")
 		if err != nil {
@@ -135,7 +132,7 @@ func TestSnapshotServiceState(t *testing.T) {
 	})
 
 	t.Run("enabled query error", func(t *testing.T) {
-		_, err := SnapshotServiceState(rollbackHostStub{
+		_, err := SnapshotServiceState(pluginAPIHostStub{
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("enabled boom") },
 		}, "ssh")
 		if err == nil || !strings.Contains(err.Error(), "enabled boom") {
@@ -145,7 +142,7 @@ func TestSnapshotServiceState(t *testing.T) {
 
 	t.Run("active query error", func(t *testing.T) {
 		calls := 0
-		_, err := SnapshotServiceState(rollbackHostStub{
+		_, err := SnapshotServiceState(pluginAPIHostStub{
 			runRootWithOutput: func(string) (string, error) {
 				calls++
 				if calls == 1 {
@@ -160,35 +157,35 @@ func TestSnapshotServiceState(t *testing.T) {
 	})
 }
 
-type rollbackHostStub struct {
+type pluginAPIHostStub struct {
 	runRoot           func(string) error
 	runRootWithOutput func(string) (string, error)
 	readRootFile      func(string) (string, error)
 }
 
-func (s rollbackHostStub) RunRoot(cmd string) error {
+func (s pluginAPIHostStub) RunRoot(cmd string) error {
 	if s.runRoot == nil {
 		return nil
 	}
 	return s.runRoot(cmd)
 }
 
-func (s rollbackHostStub) RunRootWithOutput(cmd string) (string, error) {
+func (s pluginAPIHostStub) RunRootWithOutput(cmd string) (string, error) {
 	if s.runRootWithOutput == nil {
 		return "", nil
 	}
 	return s.runRootWithOutput(cmd)
 }
 
-func (rollbackHostStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not implemented") }
+func (pluginAPIHostStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not implemented") }
 
-func (s rollbackHostStub) ReadRootFile(path string) (string, error) {
+func (s pluginAPIHostStub) ReadRootFile(path string) (string, error) {
 	if s.readRootFile == nil {
 		return "", nil
 	}
 	return s.readRootFile(path)
 }
 
-func (rollbackHostStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
+func (pluginAPIHostStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
 
-var _ pluginapi.Host = rollbackHostStub{}
+var _ Host = pluginAPIHostStub{}

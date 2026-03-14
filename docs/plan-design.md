@@ -78,7 +78,7 @@ Relevant files:
 
 - apply orchestration: [`internals/apply/apply.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/apply.go)
 - apply step dispatch: [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go)
-- rollback capture helpers: [`internals/plugins/rollbackutil/capture.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/rollbackutil/capture.go)
+- rollback capture helpers: [`pkg/pluginapi/helpers.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/helpers.go)
 
 ## Desired `rollback`
 

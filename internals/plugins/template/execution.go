@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/karvashish/hardline/internals/plugins/rollbackutil"
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -217,8 +215,8 @@ func statTemplateDestination(rt templateStatRuntime, dest string) (int64, os.Fil
 	return size, os.FileMode(perm), nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
-	record := rollback.StepRecord{
+func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
+	record := pluginapi.StepRecord{
 		ID:   stepID,
 		Type: "template",
 	}
@@ -230,18 +228,18 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (
 	}
 
 	dest := strings.TrimSpace(spec.Dest)
-	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
+	if err := pluginapi.EnforceManagedPath(dest); err != nil {
 		return record, fmt.Errorf("step %q (type=template): %w", stepID, err)
 	}
 
-	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Host, dest)
+	snap, err := pluginapi.SnapshotRemoteFile(ctx.Host, dest)
 	if err != nil {
 		return record, fmt.Errorf("capture template snapshot for %q: %w", dest, err)
 	}
 
-	record.RollbackMode = rollback.ModeDeterministic
-	record.Objects = []rollback.ObjectRecord{
-		{Kind: rollback.ObjectFile, File: &snap},
+	record.RollbackMode = pluginapi.ModeDeterministic
+	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectFile, File: &snap},
 	}
 	return record, nil
 }

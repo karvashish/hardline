@@ -254,7 +254,7 @@ func validLoaderPlugin(name string) pluginapi.Plugin {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
 			return pluginapi.StepRecord{}, nil
 		},
 	}

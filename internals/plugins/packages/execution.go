@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -344,8 +343,8 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: noop}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec) (rollback.StepRecord, error) {
-	record := rollback.StepRecord{
+func Capture(ctx pluginapi.CaptureContext, stepID string, pk *Spec) (pluginapi.StepRecord, error) {
+	record := pluginapi.StepRecord{
 		ID:   stepID,
 		Type: "packages",
 	}
@@ -361,7 +360,7 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec) (ro
 		return record, err
 	}
 
-	record.RollbackMode = rollback.ModeBestEffort
+	record.RollbackMode = pluginapi.ModeBestEffort
 	record.Objects = pkgs
 	if pk.Update {
 		record.Notes = append(record.Notes, "apt update is not directly reversible")
@@ -375,7 +374,7 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec) (ro
 	return record, nil
 }
 
-func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]rollback.ObjectRecord, error) {
+func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]pluginapi.ObjectRecord, error) {
 	pkgSet := map[string]struct{}{}
 	installSet := map[string]struct{}{}
 	purgeSet := map[string]struct{}{}
@@ -403,7 +402,7 @@ func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]rollback.ObjectRecor
 	}
 	sort.Strings(names)
 
-	records := make([]rollback.ObjectRecord, 0, len(names))
+	records := make([]pluginapi.ObjectRecord, 0, len(names))
 	for _, name := range names {
 		cmd := "dpkg-query -W -f='${Status}\\t${Version}' " + strconv.Quote(name) + " 2>/dev/null || true"
 		out, err := host.RunRootWithOutput(cmd)
@@ -412,7 +411,7 @@ func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]rollback.ObjectRecor
 		}
 
 		raw := strings.TrimSpace(out)
-		state := rollback.PackageState{
+		state := pluginapi.PackageState{
 			Name:             name,
 			RequestedInstall: inSet(installSet, name),
 			RequestedPurge:   inSet(purgeSet, name),
@@ -425,8 +424,8 @@ func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]rollback.ObjectRecor
 			state.WasInstalled = true
 		}
 
-		records = append(records, rollback.ObjectRecord{
-			Kind:    rollback.ObjectPackage,
+		records = append(records, pluginapi.ObjectRecord{
+			Kind:    pluginapi.ObjectPackage,
 			Package: &state,
 		})
 	}

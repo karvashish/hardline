@@ -18,12 +18,12 @@ func applyActionContext(client *ssh.Client, p *profile.Profile) pluginapi.ApplyC
 	}
 }
 
-func applyRollbackContext(client *ssh.Client, p *profile.Profile) pluginapi.RollbackContext {
+func applyCaptureContext(client *ssh.Client, p *profile.Profile) pluginapi.CaptureContext {
 	var host pluginapi.Host
 	if client != nil {
 		host = runtime.NewSSHRuntime(client)
 	}
-	return pluginapi.RollbackContext{
+	return pluginapi.CaptureContext{
 		Host:    host,
 		Profile: p,
 	}

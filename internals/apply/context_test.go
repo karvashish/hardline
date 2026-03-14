@@ -13,8 +13,8 @@ func TestRegistryContextHelpers(t *testing.T) {
 		t.Fatalf("unexpected apply action context: %+v", actx)
 	}
 
-	rctx := applyRollbackContext(nil, p)
-	if rctx.Profile != p || rctx.Host != nil {
-		t.Fatalf("unexpected rollback context: %+v", rctx)
+	cctx := applyCaptureContext(nil, p)
+	if cctx.Profile != p || cctx.Host != nil {
+		t.Fatalf("unexpected capture context: %+v", cctx)
 	}
 }

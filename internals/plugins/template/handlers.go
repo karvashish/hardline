@@ -41,7 +41,7 @@ func Plugin() pluginapi.Plugin {
 
 			return result, nil
 		},
-		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.StepRecord, error) {
 			spec, err := decodeTemplateSpec(step)
 			if err != nil {
 				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
@@ -50,7 +50,7 @@ func Plugin() pluginapi.Plugin {
 				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
 			}
 
-			return CaptureRollback(ctx, step.ID, spec)
+			return Capture(ctx, step.ID, spec)
 		},
 	}
 }

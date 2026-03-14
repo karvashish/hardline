@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/karvashish/hardline/internals/plugins/rollbackutil"
-	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -165,8 +163,8 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
-	record := rollback.StepRecord{
+func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
+	record := pluginapi.StepRecord{
 		ID:   stepID,
 		Type: "service",
 	}
@@ -178,14 +176,14 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (
 	}
 
 	unit := normalizeServiceUnit(spec.Name)
-	state, err := rollbackutil.SnapshotServiceState(ctx.Host, unit)
+	state, err := pluginapi.SnapshotServiceState(ctx.Host, unit)
 	if err != nil {
 		return record, fmt.Errorf("capture service snapshot for %q: %w", unit, err)
 	}
 
-	record.RollbackMode = rollback.ModeDeterministic
-	record.Objects = []rollback.ObjectRecord{
-		{Kind: rollback.ObjectService, Service: &state},
+	record.RollbackMode = pluginapi.ModeDeterministic
+	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectService, Service: &state},
 	}
 	return record, nil
 }

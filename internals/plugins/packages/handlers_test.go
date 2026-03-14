@@ -31,7 +31,7 @@ func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: packagesRuntimeStub{}}, step); err != nil {
+	if _, err := plugin.Capture(pluginapi.CaptureContext{Host: packagesRuntimeStub{}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }
@@ -50,7 +50,7 @@ func TestPlugin_Validation(t *testing.T) {
 		t.Fatalf("expected duplicate package validation error, got %v", err)
 	}
 
-	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+	_, err = plugin.Capture(pluginapi.CaptureContext{}, profile.Step{
 		ID:     "pkg",
 		Plugin: "packages",
 		Config: map[string]any{

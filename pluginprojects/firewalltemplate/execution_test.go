@@ -182,23 +182,23 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("unexpected plan result: %+v", res)
 	}
 
-	_, err = CaptureRollback(pluginapi.RollbackContext{}, "ft", nil)
+	_, err = Capture(pluginapi.CaptureContext{}, "ft", nil)
 	if err == nil || !strings.Contains(err.Error(), "firewall_template spec missing") {
 		t.Fatalf("expected missing spec error, got %v", err)
 	}
 
-	_, err = CaptureRollback(pluginapi.RollbackContext{Host: fwTemplateExecHostStub{}}, "ft", &Spec{TemplateDest: "/tmp/nope.nft"})
+	_, err = Capture(pluginapi.CaptureContext{Host: fwTemplateExecHostStub{}}, "ft", &Spec{TemplateDest: "/tmp/nope.nft"})
 	if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 		t.Fatalf("expected managed path error, got %v", err)
 	}
 
-	rec, err := CaptureRollback(pluginapi.RollbackContext{Host: fwTemplateExecHostStub{
+	rec, err := Capture(pluginapi.CaptureContext{Host: fwTemplateExecHostStub{
 		runRoot:           func(string) error { return nil },
 		runRootWithOutput: func(string) (string, error) { return "644", nil },
 		readRootFile:      func(string) (string, error) { return "abc", nil },
 	}}, "ft", &Spec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 	if err != nil {
-		t.Fatalf("CaptureRollback failed: %v", err)
+		t.Fatalf("Capture failed: %v", err)
 	}
 	if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].File == nil {
 		t.Fatalf("unexpected rollback record: %+v", rec)
@@ -278,7 +278,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 		if _, err := plugin.Plan(pluginapi.PlanContext{Host: fwTemplateRuntimeStub{}}, step); err == nil {
 			t.Fatalf("expected plugin plan decode error")
 		}
-		if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
+		if _, err := plugin.Capture(pluginapi.CaptureContext{}, step); err == nil {
 			t.Fatalf("expected plugin rollback decode error")
 		}
 	})

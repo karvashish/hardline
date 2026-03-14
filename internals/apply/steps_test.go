@@ -30,7 +30,7 @@ func TestHandleStepDispatch(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
 			return pluginapi.StepRecord{}, nil
 		},
 	})
@@ -60,7 +60,7 @@ func TestHandleStepValidationPolicy(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
 			return pluginapi.StepRecord{}, nil
 		},
 	})
@@ -113,7 +113,7 @@ func TestRegisterPlugin(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
 			return rollback.StepRecord{ID: "rb", Type: "rb", RollbackMode: rollback.ModeNoop}, nil
 		},
 	})
@@ -125,7 +125,7 @@ func TestRegisterPlugin(t *testing.T) {
 	if !ok {
 		t.Fatal("expected plugin lookup to succeed")
 	}
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{ID: "x", Plugin: "rb"}); err != nil {
+	if _, err := plugin.Capture(pluginapi.CaptureContext{}, profile.Step{ID: "x", Plugin: "rb"}); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }

@@ -32,7 +32,7 @@ func Plugin() pluginapi.Plugin {
 			}
 			return Plan(ctx, spec)
 		},
-		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.StepRecord, error) {
 			spec, err := decodePackageSpec(step)
 			if err != nil {
 				return pluginapi.StepRecord{ID: step.ID, Type: "packages"}, err
@@ -41,7 +41,7 @@ func Plugin() pluginapi.Plugin {
 				return pluginapi.StepRecord{ID: step.ID, Type: "packages"}, err
 			}
 
-			return CaptureRollback(ctx, step.ID, spec)
+			return Capture(ctx, step.ID, spec)
 		},
 	}
 }

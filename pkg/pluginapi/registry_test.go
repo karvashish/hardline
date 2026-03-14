@@ -17,7 +17,7 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 		Plan: func(PlanContext, profile.Step) (PlanResult, error) {
 			return PlanResult{Summary: "ok"}, nil
 		},
-		Rollback: func(RollbackContext, profile.Step) (StepRecord, error) {
+		Capture: func(CaptureContext, profile.Step) (StepRecord, error) {
 			return StepRecord{Type: "template"}, nil
 		},
 	})
@@ -55,7 +55,7 @@ func TestRegistryRegisterErrors(t *testing.T) {
 		Plan: func(PlanContext, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},
-		Rollback: func(RollbackContext, profile.Step) (StepRecord, error) {
+		Capture: func(CaptureContext, profile.Step) (StepRecord, error) {
 			return StepRecord{}, nil
 		},
 	})
@@ -192,7 +192,7 @@ func validPlugin(name string) Plugin {
 		Plan: func(PlanContext, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},
-		Rollback: func(RollbackContext, profile.Step) (StepRecord, error) {
+		Capture: func(CaptureContext, profile.Step) (StepRecord, error) {
 			return StepRecord{}, nil
 		},
 	}

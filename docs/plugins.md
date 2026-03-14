@@ -21,7 +21,7 @@ A plugin must provide:
 - `Name`
 - `Apply`
 - `Plan`
-- `Rollback`
+- `Capture`
 
 Optional behavior flags:
 
@@ -31,7 +31,7 @@ Important contract types:
 
 - `pluginapi.ApplyContext`
 - `pluginapi.PlanContext`
-- `pluginapi.RollbackContext`
+- `pluginapi.CaptureContext`
 - `pluginapi.Host`
 - `pluginapi.PlanResult`
 - `pluginapi.StepRecord`
@@ -70,7 +70,7 @@ Relevant files:
 
 - spec: [`internals/plugins/packages/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/spec.go)
 - validation wiring: [`internals/plugins/packages/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/handlers.go)
-- plan/apply/rollback capture: [`internals/plugins/packages/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/execution.go)
+- plan/apply/capture: [`internals/plugins/packages/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/execution.go)
 
 Behavior:
 
@@ -86,7 +86,7 @@ Relevant files:
 
 - spec: [`internals/plugins/template/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/spec.go)
 - validation wiring: [`internals/plugins/template/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/handlers.go)
-- plan/apply/rollback capture: [`internals/plugins/template/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/execution.go)
+- plan/apply/capture: [`internals/plugins/template/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/execution.go)
 
 Behavior:
 
@@ -101,7 +101,7 @@ Relevant files:
 
 - spec: [`internals/plugins/service/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/spec.go)
 - validation wiring: [`internals/plugins/service/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/handlers.go)
-- plan/apply/rollback capture: [`internals/plugins/service/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/execution.go)
+- plan/apply/capture: [`internals/plugins/service/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/execution.go)
 
 Behavior:
 
@@ -115,7 +115,7 @@ Relevant files:
 
 - spec: [`internals/plugins/firewall/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/spec.go)
 - validation wiring: [`internals/plugins/firewall/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/handlers.go)
-- plan/apply/rollback capture: [`internals/plugins/firewall/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/execution.go)
+- plan/apply/capture: [`internals/plugins/firewall/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/execution.go)
 
 Behavior:
 
@@ -138,7 +138,7 @@ Relevant files:
 - export: [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go)
 - spec: [`pluginprojects/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/spec.go)
 - validation wiring: [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go)
-- plan/apply/rollback capture: [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
+- plan/apply/capture: [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
 
 Behavior:
 

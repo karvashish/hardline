@@ -518,15 +518,15 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected include-present detail, got %+v", vres.Details)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", nil)
+		_, err = Capture(pluginapi.CaptureContext{}, "f", nil)
 		if err == nil || !strings.Contains(err.Error(), "firewall spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
-		_, err = CaptureRollback(pluginapi.RollbackContext{Host: firewallExecHostStub{}}, "f", &Spec{ManagedDest: "/tmp/nope.nft"})
+		_, err = Capture(pluginapi.CaptureContext{Host: firewallExecHostStub{}}, "f", &Spec{ManagedDest: "/tmp/nope.nft"})
 		if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 			t.Fatalf("expected managed path error, got %v", err)
 		}
-		_, err = CaptureRollback(pluginapi.RollbackContext{Host: firewallExecHostStub{
+		_, err = Capture(pluginapi.CaptureContext{Host: firewallExecHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("stat bad") },
 			readRootFile:      func(string) (string, error) { return "", nil },
@@ -534,13 +534,13 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "capture firewall snapshot") {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
-		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: firewallExecHostStub{
+		rec, err := Capture(pluginapi.CaptureContext{Host: firewallExecHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "644", nil },
 			readRootFile:      func(string) (string, error) { return "abc", nil },
 		}}, "f", validDeterministicFirewallSpec())
 		if err != nil {
-			t.Fatalf("CaptureRollback failed: %v", err)
+			t.Fatalf("Capture failed: %v", err)
 		}
 		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].File == nil {
 			t.Fatalf("unexpected rollback record: %+v", rec)
@@ -679,7 +679,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 		if _, err := plugin.Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, step); err == nil {
 			t.Fatalf("expected plugin plan decode error")
 		}
-		if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
+		if _, err := plugin.Capture(pluginapi.CaptureContext{}, step); err == nil {
 			t.Fatalf("expected plugin rollback decode error")
 		}
 	})

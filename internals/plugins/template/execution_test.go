@@ -222,19 +222,19 @@ func TestStatTemplateDestination(t *testing.T) {
 	})
 }
 
-func TestCaptureRollback(t *testing.T) {
+func TestCapture(t *testing.T) {
 	t.Run("capture rollback", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "t", nil)
+		_, err := Capture(pluginapi.CaptureContext{}, "t", nil)
 		if err == nil || !strings.Contains(err.Error(), "template spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{Host: templateExecHostStub{}}, "t", &Spec{Dest: "/tmp/nope.conf"})
+		_, err = Capture(pluginapi.CaptureContext{Host: templateExecHostStub{}}, "t", &Spec{Dest: "/tmp/nope.conf"})
 		if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 			t.Fatalf("expected managed path error, got %v", err)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{Host: templateExecHostStub{
+		_, err = Capture(pluginapi.CaptureContext{Host: templateExecHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("stat boom") },
 			readRootFile:      func(string) (string, error) { return "", nil },
@@ -243,13 +243,13 @@ func TestCaptureRollback(t *testing.T) {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
 
-		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: templateExecHostStub{
+		rec, err := Capture(pluginapi.CaptureContext{Host: templateExecHostStub{
 			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "644", nil },
 			readRootFile:      func(string) (string, error) { return "content", nil },
 		}}, "t", &Spec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"})
 		if err != nil {
-			t.Fatalf("CaptureRollback failed: %v", err)
+			t.Fatalf("Capture failed: %v", err)
 		}
 		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].File == nil {
 			t.Fatalf("unexpected rollback record: %+v", rec)

@@ -28,7 +28,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 		t.Fatalf("expected template validation error, got %v", err)
 	}
 
-	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+	_, err = plugin.Capture(pluginapi.CaptureContext{}, profile.Step{
 		ID:     "tmpl",
 		Plugin: "template",
 		Config: map[string]any{
@@ -79,7 +79,7 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 		t.Fatalf("plan failed: %v", err)
 	}
 
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello"}}, step); err != nil {
+	if _, err := plugin.Capture(pluginapi.CaptureContext{Host: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello"}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }

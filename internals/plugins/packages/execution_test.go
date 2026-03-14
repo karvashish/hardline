@@ -139,16 +139,16 @@ func TestPlan(t *testing.T) {
 	})
 }
 
-func TestCaptureRollbackAndSnapshot(t *testing.T) {
+func TestCaptureAndSnapshot(t *testing.T) {
 	t.Run("missing spec", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "p", nil)
+		_, err := Capture(pluginapi.CaptureContext{}, "p", nil)
 		if err == nil || !strings.Contains(err.Error(), "packages spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 	})
 
 	t.Run("query error", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{Host: packagesRuntimeStub{
+		_, err := Capture(pluginapi.CaptureContext{Host: packagesRuntimeStub{
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") },
 		}}, "p", &Spec{Install: []string{"x"}})
 		if err == nil || !strings.Contains(err.Error(), "capture package state") {
@@ -157,7 +157,7 @@ func TestCaptureRollbackAndSnapshot(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
-		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: packagesRuntimeStub{
+		rec, err := Capture(pluginapi.CaptureContext{Host: packagesRuntimeStub{
 			runRootWithOutput: func(cmd string) (string, error) {
 				if strings.Contains(cmd, "curl") {
 					return "install ok installed\t1.0", nil
@@ -172,7 +172,7 @@ func TestCaptureRollbackAndSnapshot(t *testing.T) {
 			Purge:      []string{"vim"},
 		})
 		if err != nil {
-			t.Fatalf("CaptureRollback failed: %v", err)
+			t.Fatalf("Capture failed: %v", err)
 		}
 		if rec.RollbackMode != rollback.ModeBestEffort {
 			t.Fatalf("expected best-effort rollback mode, got %q", rec.RollbackMode)

@@ -145,7 +145,7 @@ Implemented:
 - [`internals/rollback/journal.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/journal.go) persists host-scoped journals under `.hardline/runs` by default.
 - [`internals/rollback/rollback.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/rollback.go) replays rollback records in reverse order.
 - Current rollback object types cover files, services, packages, and validation markers.
-- [`internals/plugins/rollbackutil/capture.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/rollbackutil/capture.go) constrains managed file rollback to normalized `/etc/99-hardline*` destinations with specific extensions.
+- [`pkg/pluginapi/helpers.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/helpers.go) constrains managed file rollback to normalized `/etc/99-hardline*` destinations with specific extensions.
 
 Missing:
 
@@ -167,7 +167,7 @@ Implemented:
 - [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go) defines the plugin contract and registry.
 - [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go) assembles the built-in plugin table.
 - [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go) exports the shipped external `firewall_template` plugin.
-- Each shipped plugin validates its own config before plan/apply/rollback capture.
+- Each shipped plugin validates its own config before plan/apply/capture.
 
 Divergence:
 

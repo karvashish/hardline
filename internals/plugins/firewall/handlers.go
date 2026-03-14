@@ -46,7 +46,7 @@ func Plugin() pluginapi.Plugin {
 			result.Details = append(result.Details, validateResult.Details...)
 			return result, nil
 		},
-		Rollback: func(ctx pluginapi.RollbackContext, step profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.StepRecord, error) {
 			spec, err := decodeFirewallSpec(step)
 			if err != nil {
 				return pluginapi.StepRecord{ID: step.ID, Type: "firewall"}, err
@@ -55,7 +55,7 @@ func Plugin() pluginapi.Plugin {
 				return pluginapi.StepRecord{ID: step.ID, Type: "firewall"}, err
 			}
 
-			return CaptureRollback(ctx, step.ID, spec)
+			return Capture(ctx, step.ID, spec)
 		},
 	}
 }

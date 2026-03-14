@@ -30,7 +30,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 		t.Fatalf("expected firewall_template validation error, got %v", err)
 	}
 
-	_, err = plugin.Rollback(pluginapi.RollbackContext{}, profile.Step{
+	_, err = plugin.Capture(pluginapi.CaptureContext{}, profile.Step{
 		ID:     "ft",
 		Plugin: "firewall_template",
 		Config: map[string]any{
@@ -80,7 +80,7 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 		t.Fatalf("plan failed: %v", err)
 	}
 
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, step); err != nil {
+	if _, err := plugin.Capture(pluginapi.CaptureContext{Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }

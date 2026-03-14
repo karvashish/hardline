@@ -1,4 +1,4 @@
-package rollbackutil
+package pluginapi
 
 import (
 	"encoding/base64"
@@ -6,9 +6,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-
-	"github.com/karvashish/hardline/internals/rollback"
-	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 func EnforceManagedPath(dest string) error {
@@ -38,12 +35,12 @@ func EnforceManagedPath(dest string) error {
 	}
 }
 
-func SnapshotRemoteFile(host pluginapi.Host, remotePath string) (rollback.FileSnapshot, error) {
+func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if host == nil {
-		return rollback.FileSnapshot{}, fmt.Errorf("host is required")
+		return FileSnapshot{}, fmt.Errorf("host is required")
 	}
 
-	snap := rollback.FileSnapshot{Path: remotePath}
+	snap := FileSnapshot{Path: remotePath}
 
 	testCmd := "test -e " + strconv.Quote(remotePath)
 	if err := host.RunRoot(testCmd); err != nil {
@@ -67,24 +64,24 @@ func SnapshotRemoteFile(host pluginapi.Host, remotePath string) (rollback.FileSn
 	return snap, nil
 }
 
-func SnapshotServiceState(host pluginapi.Host, unit string) (rollback.ServiceState, error) {
+func SnapshotServiceState(host Host, unit string) (ServiceState, error) {
 	if host == nil {
-		return rollback.ServiceState{}, fmt.Errorf("host is required")
+		return ServiceState{}, fmt.Errorf("host is required")
 	}
 
 	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + strconv.Quote(unit) + " 2>/dev/null || true")
 	if err != nil {
-		return rollback.ServiceState{}, err
+		return ServiceState{}, err
 	}
 
 	activeOut, err := host.RunRootWithOutput("systemctl is-active " + strconv.Quote(unit) + " 2>/dev/null || true")
 	if err != nil {
-		return rollback.ServiceState{}, err
+		return ServiceState{}, err
 	}
 
 	enabledVal := strings.TrimSpace(enabledOut)
 	activeVal := strings.TrimSpace(activeOut)
-	return rollback.ServiceState{
+	return ServiceState{
 		Unit:    unit,
 		Enabled: enabledVal == "enabled",
 		Active:  activeVal == "active",

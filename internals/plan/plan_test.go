@@ -64,7 +64,7 @@ func TestPlanProfile(t *testing.T) {
 			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, errors.New("plan boom")
 			},
-			Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+			Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
 				return pluginapi.StepRecord{}, nil
 			},
 		}); err != nil {

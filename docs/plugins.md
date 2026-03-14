@@ -53,7 +53,6 @@ Current built-ins:
 - `template`
 - `service`
 - `firewall`
-- `firewall_template`
 
 ### `packages`
 
@@ -116,13 +115,20 @@ Behavior:
 - validates current nftables configuration during planning and apply
 - snapshots the managed firewall file for rollback
 
+## Bundled External Plugins
+
+This repository currently ships one external Go plugin project:
+
+- `firewall_template`
+
 ### `firewall_template`
 
 Relevant files:
 
-- spec: [`internals/plugins/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewalltemplate/spec.go)
-- validation wiring: [`internals/plugins/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewalltemplate/handlers.go)
-- plan/apply/rollback capture: [`internals/plugins/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewalltemplate/execution.go)
+- bundle export: [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go)
+- spec: [`pluginprojects/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/spec.go)
+- validation wiring: [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go)
+- plan/apply/rollback capture: [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
 
 Behavior:
 
@@ -140,7 +146,7 @@ Validation policy is enforced by:
 
 If `InternalValidation` is `false`, the step must opt in with `allow_unvalidated=true`.
 
-All current built-in plugins set `InternalValidation=true`.
+All shipped plugins currently set `InternalValidation=true`.
 
 ## External Plugins
 
@@ -154,6 +160,9 @@ Requirements:
 - placed in `plugins/` next to the built binary
 - export the symbol `HardlinePluginV1`
 - provide a `*pluginapi.PluginBundle`
+- built with a C compiler available in `PATH` because plugin builds and plugin-loading binaries both require cgo-enabled linking
+
+`make build` currently emits the bundled `firewall_template` plugin to `tmp/plugins/firewall_template.so`.
 
 Relevant registry files:
 

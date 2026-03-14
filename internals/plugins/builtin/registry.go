@@ -4,7 +4,6 @@ import (
 	"os"
 
 	"github.com/karvashish/hardline/internals/plugins/firewall"
-	"github.com/karvashish/hardline/internals/plugins/firewalltemplate"
 	"github.com/karvashish/hardline/internals/plugins/packages"
 	"github.com/karvashish/hardline/internals/plugins/service"
 	"github.com/karvashish/hardline/internals/plugins/template"
@@ -57,17 +56,6 @@ func DefaultPlugins(applyDeps ApplyDeps, rollbackDeps RollbackDeps) []pluginapi.
 			NewSFTPClient:     applyDeps.NewSFTPClient,
 			WriteRootFile:     applyDeps.WriteRootFile,
 		}, firewall.RollbackDeps{
-			RunRoot:           rollbackDeps.RunRoot,
-			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
-			ReadRootFile:      rollbackDeps.ReadRootFile,
-		}),
-		firewalltemplate.Plugin(firewalltemplate.ApplyDeps{
-			RunRoot:           applyDeps.RunRoot,
-			RunRootWithOutput: applyDeps.RunRootWithOutput,
-			ReadRootFile:      applyDeps.ReadRootFile,
-			NewSFTPClient:     applyDeps.NewSFTPClient,
-			WriteRootFile:     applyDeps.WriteRootFile,
-		}, firewalltemplate.RollbackDeps{
 			RunRoot:           rollbackDeps.RunRoot,
 			RunRootWithOutput: rollbackDeps.RunRootWithOutput,
 			ReadRootFile:      rollbackDeps.ReadRootFile,

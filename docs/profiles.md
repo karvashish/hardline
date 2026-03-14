@@ -89,17 +89,17 @@ Core step fields owned by the profile package:
 
 Plugin-specific data is always nested under `config`.
 
-## Built-in Step Types
+## Shipped Step Types
 
-Built-in plugins and their `config` structs come from:
+Built-in plugins and the bundled external firewall template plugin expose these `config` structs:
 
 - [`internals/plugins/packages/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/spec.go)
 - [`internals/plugins/template/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/spec.go)
 - [`internals/plugins/service/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/spec.go)
 - [`internals/plugins/firewall/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/spec.go)
-- [`internals/plugins/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewalltemplate/spec.go)
+- [`pluginprojects/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/spec.go)
 
-Current built-ins:
+Built-ins:
 
 - `packages`
   Uses `update`, `upgrade`, `autoremove`, `install`, and `purge`.
@@ -109,6 +109,9 @@ Current built-ins:
   Uses `name`, optional `enabled`, and optional `state`.
 - `firewall`
   Manages nftables rules written to a managed destination.
+
+Bundled external plugin:
+
 - `firewall_template`
   Renders an nftables template with an allowlist.
 

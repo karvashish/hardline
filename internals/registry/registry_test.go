@@ -23,7 +23,7 @@ func TestNewDefaultRegistryIncludesBuiltins(t *testing.T) {
 		t.Fatal("expected default registry")
 	}
 
-	for _, name := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
+	for _, name := range []string{"packages", "template", "service", "firewall"} {
 		plugin, ok := reg.Lookup(name)
 		if !ok {
 			t.Fatalf("missing builtin plugin %q", name)

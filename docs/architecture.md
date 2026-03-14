@@ -4,7 +4,7 @@ This page is the fastest route from a concept to the files that implement it.
 
 ## Top-Level Shape
 
-The repository is split into four main layers:
+The repository is split into five main layers:
 
 - `cmd/`
   Binary entry points.
@@ -12,6 +12,8 @@ The repository is split into four main layers:
   Runtime orchestration, SSH/remote helpers, built-in plugins, and command implementations.
 - `pkg/`
   Reusable domain packages such as profile loading, plugin contracts, and logging.
+- `pluginprojects/`
+  Standalone Go plugin projects that compile to loadable `.so` bundles.
 - profile directories such as [`base-secure-ubuntu-24.04-lts`](/home/kartikeya_vashishtha/hardline-try2/base-secure-ubuntu-24.04-lts)
   Declarative hardening content shipped with the repo.
 
@@ -83,6 +85,10 @@ Built-in plugin assembly lives in:
 
 - [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go)
 
+Bundled external plugin projects live in:
+
+- [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go)
+
 External shared-object loading lives in:
 
 - [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
@@ -93,7 +99,10 @@ Built-in plugin implementations:
 - template: [`internals/plugins/template/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/handlers.go), [`internals/plugins/template/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/execution.go)
 - service: [`internals/plugins/service/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/handlers.go), [`internals/plugins/service/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/execution.go)
 - firewall: [`internals/plugins/firewall/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/handlers.go), [`internals/plugins/firewall/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/execution.go)
-- firewall_template: [`internals/plugins/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewalltemplate/handlers.go), [`internals/plugins/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewalltemplate/execution.go)
+
+Bundled external plugin project:
+
+- firewall_template: [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go), [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go), [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
 
 ## SSH And Remote Mutation
 

@@ -1,4 +1,4 @@
-package firewalltemplate
+package main
 
 import (
 	"errors"

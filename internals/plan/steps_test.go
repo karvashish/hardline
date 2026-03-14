@@ -92,7 +92,7 @@ func TestPlanStepValidationPolicy(t *testing.T) {
 
 func TestPlanUsesSharedRegistry(t *testing.T) {
 	r := registry.Shared()
-	for _, name := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
+	for _, name := range []string{"packages", "template", "service", "firewall"} {
 		plugin, ok := r.Lookup(name)
 		if !ok {
 			t.Fatalf("missing shared plugin %q", name)

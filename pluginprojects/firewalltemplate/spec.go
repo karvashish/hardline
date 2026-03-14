@@ -1,4 +1,4 @@
-package firewalltemplate
+package main
 
 type AllowRule struct {
 	Port  int    `json:"port"`

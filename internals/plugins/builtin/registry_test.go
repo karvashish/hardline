@@ -28,8 +28,8 @@ func TestDefaultPlugins(t *testing.T) {
 		},
 	)
 
-	if len(plugins) != 5 {
-		t.Fatalf("expected 5 builtin plugins, got %d", len(plugins))
+	if len(plugins) != 4 {
+		t.Fatalf("expected 4 builtin plugins, got %d", len(plugins))
 	}
 
 	byName := map[string]pluginapi.Plugin{}
@@ -40,7 +40,7 @@ func TestDefaultPlugins(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"packages", "template", "service", "firewall", "firewall_template"} {
+	for _, name := range []string{"packages", "template", "service", "firewall"} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("missing plugin %q", name)
 		}
@@ -64,7 +64,7 @@ func TestDefaultBundle(t *testing.T) {
 	if bundle.Name != "builtin" {
 		t.Fatalf("unexpected bundle name %q", bundle.Name)
 	}
-	if len(bundle.Plugins) != 5 {
-		t.Fatalf("expected 5 plugins in bundle, got %d", len(bundle.Plugins))
+	if len(bundle.Plugins) != 4 {
+		t.Fatalf("expected 4 plugins in bundle, got %d", len(bundle.Plugins))
 	}
 }

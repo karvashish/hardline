@@ -14,7 +14,8 @@ If a reader wants to know whether something is implemented, missing, or currentl
 The current implementation is centered on:
 
 - JSON profiles and JSON action files
-- built-in step plugins for packages, templates, services, firewall rules, and firewall templates
+- built-in step plugins for packages, templates, services, and firewall rules
+- a shipped external `firewall_template` plugin project that builds to a loadable `.so`
 - signed profile integrity verification
 - automatic rollback capture during `apply`
 
@@ -72,6 +73,7 @@ For a new engineer, the fastest reading order is:
 - Plugin contract: [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
 - Shared plugin registry owner: [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
 - Built-in plugin registration: [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go)
+- Bundled external plugin project: [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go)
 - External plugin loading: [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
 - SSH and remote execution: [`internals/connection/connection.go`](/home/kartikeya_vashishtha/hardline-try2/internals/connection/connection.go), [`internals/remote/exec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/exec.go), [`internals/remote/fs.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/fs.go)
 - Verification and signing: [`internals/verify/integrity.go`](/home/kartikeya_vashishtha/hardline-try2/internals/verify/integrity.go), [`cmd/profiletool/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/profiletool/main.go)
@@ -118,7 +120,12 @@ Supported built-in plugins:
 - `template`
 - `service`
 - `firewall`
+
+Bundled external plugin:
+
 - `firewall_template`
+  Built from [`pluginprojects/firewalltemplate`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate) into `tmp/plugins/firewall_template.so` by `make build`.
+  Building and loading the shared object requires a C compiler in `PATH` because Go plugins use cgo-enabled linking.
 
 Before `plan` and `apply`, the binary attempts to load external Go plugins from a `plugins/` directory next to the compiled binary. Shared objects must export `HardlinePluginV1`.
 

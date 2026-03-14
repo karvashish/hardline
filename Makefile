@@ -1,6 +1,8 @@
 BINARY := hardline
 OUTDIR := tmp
 CMD := ./cmd/$(BINARY)
+PLUGIN_OUTDIR := $(OUTDIR)/plugins
+FIREWALL_TEMPLATE_PLUGIN := $(PLUGIN_OUTDIR)/firewall_template.so
 SCHEMA_BIN := $(OUTDIR)/genschema
 PROFILE_TOOL_BIN := $(OUTDIR)/profiletool
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -20,7 +22,7 @@ PROFILE_DIR ?= base-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= profile_signing.key
 SIGNING_PUB ?= profile_signing_pub.pem
 
-.PHONY: all test build profiletool ensure-embedded-pubkey keygen sign-profile genschema tidy clean itest itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+.PHONY: all test build build-plugins build-firewall-template-plugin profiletool ensure-embedded-pubkey keygen sign-profile genschema tidy clean itest itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -49,13 +51,23 @@ test:
 	awk "BEGIN { if ($$cov < $(MIN_COVERAGE)) exit 1 }" || \
 		{ echo "repo-wide coverage $$cov% is below minimum $(MIN_COVERAGE)%"; exit 1; }
 
-build: tidy checkversion ensure-embedded-pubkey genschema
+build: tidy checkversion ensure-embedded-pubkey genschema build-plugins
 	@echo "== building $(BINARY) ($(VERSION)) =="
 	@mkdir -p $(OUTDIR)
-	GO111MODULE=on CGO_ENABLED=0 go build \
+	GO111MODULE=on CGO_ENABLED=1 go build \
 		-ldflags "$(LDFLAGS)" \
 		-o $(OUTDIR)/$(BINARY) \
 		$(CMD)
+
+build-plugins: build-firewall-template-plugin
+
+build-firewall-template-plugin:
+	@echo "== building firewall_template plugin =="
+	@mkdir -p $(PLUGIN_OUTDIR)
+	GO111MODULE=on CGO_ENABLED=1 go build \
+		-buildmode=plugin \
+		-o $(FIREWALL_TEMPLATE_PLUGIN) \
+		./pluginprojects/firewalltemplate
 
 profiletool:
 	@echo "== building profiletool =="

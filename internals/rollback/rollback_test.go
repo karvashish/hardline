@@ -24,9 +24,9 @@ func TestRollbackCommand_TargetValidationAndLoadError(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 
-		stateDir := t.TempDir()
-		resolveStateDir = func() (string, error) { return stateDir, nil }
 		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, nil }
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+		loadRemoteJournal = func(_ *ssh.Client) (*Journal, error) { return nil, errors.New("read remote rollback state") }
 
 		err := rollbackCommand(cli.Command{
 			Profile: "last",
@@ -35,7 +35,7 @@ func TestRollbackCommand_TargetValidationAndLoadError(t *testing.T) {
 			KeyPath: "/tmp/key",
 			Debug:   true,
 		})
-		if err == nil || !strings.Contains(err.Error(), "read rollback state") {
+		if err == nil || !strings.Contains(err.Error(), "read remote rollback state") {
 			t.Fatalf("expected read state error, got %v", err)
 		}
 	})
@@ -45,9 +45,6 @@ func TestRollbackCommand_Success(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
 
-	stateDir := t.TempDir()
-	resolveStateDir = func() (string, error) { return stateDir, nil }
-
 	j := NewJournal("example.com", "profile", "profile-dir")
 	j.Status = "success"
 	j.Steps = []StepRecord{
@@ -55,7 +52,7 @@ func TestRollbackCommand_Success(t *testing.T) {
 			ID:           "template-step",
 			Type:         "template",
 			RollbackMode: ModeDeterministic,
-			Objects: []ObjectRecord{
+			Before: []ObjectRecord{
 				{
 					Kind: ObjectFile,
 					File: &FileSnapshot{
@@ -66,16 +63,13 @@ func TestRollbackCommand_Success(t *testing.T) {
 			},
 		},
 	}
-	if err := j.SaveLast(); err != nil {
-		t.Fatalf("SaveLast failed: %v", err)
-	}
-
 	var seenCfg connection.Config
 	newSSHClient = func(cfg connection.Config) (*ssh.Client, error) {
 		seenCfg = cfg
 		return nil, nil
 	}
 	ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+	loadRemoteJournal = func(_ *ssh.Client) (*Journal, error) { return j, nil }
 	var cmds []string
 	runRootCmd = func(_ *ssh.Client, cmd string) error {
 		cmds = append(cmds, cmd)
@@ -104,20 +98,13 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("journal status not success", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		stateDir := t.TempDir()
-		resolveStateDir = func() (string, error) { return stateDir, nil }
 
 		j := NewJournal("example.com", "profile", "profile-dir")
 		j.Status = "failed"
-		if err := j.SaveLast(); err != nil {
-			t.Fatalf("SaveLast failed: %v", err)
-		}
 
-		newSSHClient = func(connection.Config) (*ssh.Client, error) {
-			t.Fatal("newSSHClient should not be called when status is not success")
-			return nil, nil
-		}
+		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+		loadRemoteJournal = func(_ *ssh.Client) (*Journal, error) { return j, nil }
 		err := rollbackCommand(cli.Command{
 			Profile: "last",
 			Host:    "example.com",
@@ -133,14 +120,6 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("connect failed", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		stateDir := t.TempDir()
-		resolveStateDir = func() (string, error) { return stateDir, nil }
-
-		j := NewJournal("example.com", "profile", "profile-dir")
-		j.Status = "success"
-		if err := j.SaveLast(); err != nil {
-			t.Fatalf("SaveLast failed: %v", err)
-		}
 
 		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, errors.New("dial") }
 		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
@@ -159,8 +138,6 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("step rollback error", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		stateDir := t.TempDir()
-		resolveStateDir = func() (string, error) { return stateDir, nil }
 
 		j := NewJournal("example.com", "profile", "profile-dir")
 		j.Status = "success"
@@ -169,17 +146,14 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 				ID:           "bad",
 				Type:         "template",
 				RollbackMode: ModeDeterministic,
-				Objects: []ObjectRecord{
+				Before: []ObjectRecord{
 					{Kind: ObjectFile, File: nil},
 				},
 			},
 		}
-		if err := j.SaveLast(); err != nil {
-			t.Fatalf("SaveLast failed: %v", err)
-		}
-
 		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+		loadRemoteJournal = func(_ *ssh.Client) (*Journal, error) { return j, nil }
 		err := rollbackCommand(cli.Command{
 			Profile: "last",
 			Host:    "example.com",
@@ -195,14 +169,6 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("sudo preflight failed", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		stateDir := t.TempDir()
-		resolveStateDir = func() (string, error) { return stateDir, nil }
-
-		j := NewJournal("example.com", "profile", "profile-dir")
-		j.Status = "success"
-		if err := j.SaveLast(); err != nil {
-			t.Fatalf("SaveLast failed: %v", err)
-		}
 
 		newSSHClient = func(connection.Config) (*ssh.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *ssh.Client) error { return errors.New("sudo denied") }
@@ -241,7 +207,7 @@ func TestRollbackSteps(t *testing.T) {
 				ID:           "bad",
 				Type:         "template",
 				RollbackMode: ModeDeterministic,
-				Objects: []ObjectRecord{
+				Before: []ObjectRecord{
 					{Kind: ObjectFile, File: nil},
 				},
 			},
@@ -273,7 +239,7 @@ func TestRollbackStepsStrict(t *testing.T) {
 				ID:           "pkg",
 				Type:         "packages",
 				RollbackMode: ModeBestEffort,
-				Objects: []ObjectRecord{
+				Before: []ObjectRecord{
 					{Kind: ObjectPackage, Package: &PackageState{Name: " "}},
 				},
 			},
@@ -299,7 +265,7 @@ func TestRollbackStepModes(t *testing.T) {
 		step := StepRecord{
 			ID:           "pkg",
 			RollbackMode: ModeBestEffort,
-			Objects: []ObjectRecord{
+			Before: []ObjectRecord{
 				{Kind: ObjectPackage, Package: &PackageState{Name: ""}},
 			},
 		}
@@ -312,7 +278,7 @@ func TestRollbackStepModes(t *testing.T) {
 		step := StepRecord{
 			ID:           "file",
 			RollbackMode: ModeDeterministic,
-			Objects: []ObjectRecord{
+			Before: []ObjectRecord{
 				{Kind: ObjectFile, File: nil},
 			},
 		}
@@ -325,6 +291,22 @@ func TestRollbackStepModes(t *testing.T) {
 		step := StepRecord{ID: "v", RollbackMode: ModeNoop}
 		if err := rollbackStep(nil, step); err != nil {
 			t.Fatalf("expected noop success, got %v", err)
+		}
+	})
+
+	t.Run("after snapshots are ignored", func(t *testing.T) {
+		step := StepRecord{
+			ID:           "validate",
+			RollbackMode: ModeDeterministic,
+			Before: []ObjectRecord{
+				{Kind: ObjectValidate, Message: "noop"},
+			},
+			After: []ObjectRecord{
+				{Kind: ObjectFile, File: nil},
+			},
+		}
+		if err := rollbackStep(nil, step); err != nil {
+			t.Fatalf("expected rollback to use before snapshots only, got %v", err)
 		}
 	})
 }
@@ -688,9 +670,9 @@ func stubRollbackHooks() func() {
 	prevWriteRoot := writeRootFile
 	prevNewSFTP := newSFTPClient
 	prevEnsureSudo := ensureRollbackSudo
+	prevLoadRemoteJournal := loadRemoteJournal
 	prevRunRollbackCommand := runRollbackCommand
 	prevExit := exitProcess
-	prevStateDir := resolveStateDir
 
 	return func() {
 		newSSHClient = prevNewSSH
@@ -698,8 +680,8 @@ func stubRollbackHooks() func() {
 		writeRootFile = prevWriteRoot
 		newSFTPClient = prevNewSFTP
 		ensureRollbackSudo = prevEnsureSudo
+		loadRemoteJournal = prevLoadRemoteJournal
 		runRollbackCommand = prevRunRollbackCommand
 		exitProcess = prevExit
-		resolveStateDir = prevStateDir
 	}
 }

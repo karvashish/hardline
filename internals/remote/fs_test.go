@@ -87,7 +87,7 @@ func TestReadRootFile(t *testing.T) {
 	if err != nil || out != "content" {
 		t.Fatalf("unexpected ReadRootFile result out=%q err=%v", out, err)
 	}
-	if !strings.Contains(sess.cmd, `sudo -n sh -lc "cat /etc/example"`) {
+	if !strings.Contains(sess.cmd, `sudo -n sh -lc 'cat /etc/example'`) {
 		t.Fatalf("unexpected read cmd %q", sess.cmd)
 	}
 

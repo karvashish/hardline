@@ -172,8 +172,10 @@ func TestCaptureAndSnapshot(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
+		var seen []string
 		rec, err := Capture(pluginapi.CaptureContext{Host: packagesRuntimeStub{
 			runRootWithOutput: func(cmd string) (string, error) {
+				seen = append(seen, cmd)
 				if strings.Contains(cmd, "curl") {
 					return "install ok installed\t1.0", nil
 				}
@@ -195,6 +197,24 @@ func TestCaptureAndSnapshot(t *testing.T) {
 		if len(rec.Objects) != 2 {
 			t.Fatalf("expected 2 package objects, got %d", len(rec.Objects))
 		}
+		if !strings.Contains(strings.Join(seen, "\n"), `-f='${Status}\t${Version}'`) {
+			t.Fatalf("expected dpkg-query format string, got %q", seen)
+		}
+
+		states := map[string]pluginapi.PackageState{}
+		for _, object := range rec.Objects {
+			if object.Package == nil {
+				t.Fatalf("expected package object, got %+v", object)
+			}
+			states[object.Package.Name] = *object.Package
+		}
+		if !states["curl"].WasInstalled || states["curl"].Version != "1.0" || !states["curl"].RequestedInstall {
+			t.Fatalf("unexpected curl state: %+v", states["curl"])
+		}
+		if states["vim"].WasInstalled || states["vim"].Version != "" || !states["vim"].RequestedPurge {
+			t.Fatalf("unexpected vim state: %+v", states["vim"])
+		}
+
 		joinedNotes := strings.Join(rec.Notes, " | ")
 		for _, want := range []string{"apt update is not directly reversible", "apt upgrade rollback is best-effort", "apt autoremove rollback is best-effort"} {
 			if !strings.Contains(joinedNotes, want) {

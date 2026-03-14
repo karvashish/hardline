@@ -49,9 +49,7 @@ type ObjectRecord struct {
 	Message string        `json:"message,omitempty"`
 }
 
-type StepRecord struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"`
+type CaptureResult struct {
 	RollbackMode string         `json:"rollback_mode"`
 	Objects      []ObjectRecord `json:"objects"`
 	Notes        []string       `json:"notes,omitempty"`
@@ -98,7 +96,7 @@ type Plugin struct {
 	InternalValidation bool
 	Apply              func(ApplyContext, profile.Step) error
 	Plan               func(PlanContext, profile.Step) (PlanResult, error)
-	Capture            func(CaptureContext, profile.Step) (StepRecord, error)
+	Capture            func(CaptureContext, profile.Step) (CaptureResult, error)
 }
 
 type Registry struct {
@@ -196,10 +194,8 @@ func EnsureProfilePlugins(r *Registry, p *profile.Profile) error {
 	return nil
 }
 
-func NoopRecord(step profile.Step, message string) StepRecord {
-	return StepRecord{
-		ID:           step.ID,
-		Type:         step.PluginName(),
+func NoopCapture(_ profile.Step, message string) CaptureResult {
+	return CaptureResult{
 		RollbackMode: ModeNoop,
 		Objects: []ObjectRecord{
 			{

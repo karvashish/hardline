@@ -17,8 +17,8 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 		Plan: func(PlanContext, profile.Step) (PlanResult, error) {
 			return PlanResult{Summary: "ok"}, nil
 		},
-		Capture: func(CaptureContext, profile.Step) (StepRecord, error) {
-			return StepRecord{Type: "template"}, nil
+		Capture: func(CaptureContext, profile.Step) (CaptureResult, error) {
+			return CaptureResult{}, nil
 		},
 	})
 	if err != nil {
@@ -55,8 +55,8 @@ func TestRegistryRegisterErrors(t *testing.T) {
 		Plan: func(PlanContext, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},
-		Capture: func(CaptureContext, profile.Step) (StepRecord, error) {
-			return StepRecord{}, nil
+		Capture: func(CaptureContext, profile.Step) (CaptureResult, error) {
+			return CaptureResult{}, nil
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "missing Apply func") {
@@ -174,13 +174,13 @@ func TestEnsureProfilePlugins(t *testing.T) {
 	}
 }
 
-func TestNoopRecord(t *testing.T) {
-	record := NoopRecord(profile.Step{ID: "s1", Plugin: "template"}, "noop")
-	if record.ID != "s1" || record.Type != "template" || record.RollbackMode != ModeNoop {
-		t.Fatalf("unexpected noop record: %+v", record)
+func TestNoopCapture(t *testing.T) {
+	record := NoopCapture(profile.Step{ID: "s1", Plugin: "template"}, "noop")
+	if record.RollbackMode != ModeNoop {
+		t.Fatalf("unexpected noop capture: %+v", record)
 	}
 	if len(record.Objects) != 1 || record.Objects[0].Message != "noop" {
-		t.Fatalf("unexpected noop record objects: %+v", record.Objects)
+		t.Fatalf("unexpected noop capture objects: %+v", record.Objects)
 	}
 }
 
@@ -192,8 +192,8 @@ func validPlugin(name string) Plugin {
 		Plan: func(PlanContext, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},
-		Capture: func(CaptureContext, profile.Step) (StepRecord, error) {
-			return StepRecord{}, nil
+		Capture: func(CaptureContext, profile.Step) (CaptureResult, error) {
+			return CaptureResult{}, nil
 		},
 	}
 }

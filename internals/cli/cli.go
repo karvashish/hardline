@@ -21,7 +21,7 @@ func Usage() {
 Commands:
   plan <profile> [--host HOST| -h HOST] [--user USER| -u USER] [--keypath PATH| -k PATH] [--log-file PATH] [--report-file PATH] [--report-format json|yaml|md] [--debug| -d]
                          run plan with profile
-  apply <profile> [--host HOST| -h HOST] [--user USER| -u USER] [--keypath PATH| -k PATH] [--log-file PATH] [--report-file PATH] [--report-format json|yaml|md] [--debug| -d]
+  apply <profile> [--host HOST| -h HOST] [--user USER| -u USER] [--keypath PATH| -k PATH] [--log-file PATH] [--report-file PATH] [--report-format json|yaml|md] [--keep-local-rollback] [--debug| -d]
                          run apply with profile
   rollback last [--host HOST| -h HOST] [--user USER| -u USER] [--keypath PATH| -k PATH] [--log-file PATH] [--debug| -d]
                          rollback the last successful apply run
@@ -35,7 +35,7 @@ Commands:
 Examples:
   hardline plan dev --host example.com --user deploy --keypath ~/.ssh/id_rsa
   hardline plan dev --report-file ./reports/dev-plan.yaml
-  hardline apply prod -h example.com -u deploy -k ~/.ssh/id_rsa -d
+  hardline apply prod -h example.com -u deploy -k ~/.ssh/id_rsa --keep-local-rollback -d
   hardline rollback last -h example.com -u deploy -k ~/.ssh/id_rsa
   hardline vp staging --debug
   hardline -v
@@ -53,13 +53,14 @@ func Parse(command string, args []string) Command {
 	rest := args[1:]
 
 	var (
-		host         string
-		user         string
-		keypath      string
-		logFile      string
-		reportFile   string
-		reportFormat string
-		debug        bool
+		host              string
+		user              string
+		keypath           string
+		logFile           string
+		reportFile        string
+		reportFormat      string
+		keepLocalRollback bool
+		debug             bool
 	)
 
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -80,6 +81,9 @@ func Parse(command string, args []string) Command {
 			fs.StringVar(&reportFile, "report-file", "", "write plan report to file")
 			fs.StringVar(&reportFormat, "report-format", "", "report format: json, yaml, or md")
 		}
+		if command == "apply" {
+			fs.BoolVar(&keepLocalRollback, "keep-local-rollback", false, "keep the runner-side rollback journal after a successful apply")
+		}
 	default:
 		fs.BoolVar(&debug, "debug", false, "enable debug output")
 		fs.BoolVar(&debug, "d", false, "enable debug output (shorthand)")
@@ -92,19 +96,20 @@ func Parse(command string, args []string) Command {
 	}
 
 	if debug {
-		logger.Debugf("cli: name=%s profile=%s host=%s user=%s key=%s log_file=%s report_file=%s report_format=%s debug=%t",
-			command, profile, host, user, keypath, logFile, reportFile, reportFormat, debug)
+		logger.Debugf("cli: name=%s profile=%s host=%s user=%s key=%s log_file=%s report_file=%s report_format=%s keep_local_rollback=%t debug=%t",
+			command, profile, host, user, keypath, logFile, reportFile, reportFormat, keepLocalRollback, debug)
 	}
 
 	return Command{
-		Name:         command,
-		Profile:      profile,
-		Host:         host,
-		User:         user,
-		KeyPath:      keypath,
-		LogFile:      logFile,
-		ReportFile:   reportFile,
-		ReportFormat: reportFormat,
-		Debug:        debug,
+		Name:              command,
+		Profile:           profile,
+		Host:              host,
+		User:              user,
+		KeyPath:           keypath,
+		LogFile:           logFile,
+		ReportFile:        reportFile,
+		ReportFormat:      reportFormat,
+		KeepLocalRollback: keepLocalRollback,
+		Debug:             debug,
 	}
 }

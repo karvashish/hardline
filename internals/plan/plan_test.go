@@ -65,8 +65,8 @@ func TestPlanProfile(t *testing.T) {
 			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, errors.New("plan boom")
 			},
-			Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
-				return pluginapi.StepRecord{}, nil
+			Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+				return pluginapi.CaptureResult{}, nil
 			},
 		}); err != nil {
 			t.Fatalf("register plugin: %v", err)

@@ -376,11 +376,8 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}, nil
 }
 
-func Capture(ctx pluginapi.CaptureContext, stepID string, pk *Spec) (pluginapi.StepRecord, error) {
-	record := pluginapi.StepRecord{
-		ID:   stepID,
-		Type: "packages",
-	}
+func Capture(ctx pluginapi.CaptureContext, stepID string, pk *Spec) (pluginapi.CaptureResult, error) {
+	record := pluginapi.CaptureResult{}
 	if pk == nil {
 		return record, fmt.Errorf("step %q (type=packages): packages spec missing", stepID)
 	}

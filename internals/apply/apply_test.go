@@ -184,7 +184,7 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("rollback journal save failed", func(t *testing.T) {
+	t.Run("local rollback journal save failed", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
@@ -205,8 +205,8 @@ func TestApplyCommand_ErrorPaths(t *testing.T) {
 			Debug:   true,
 		}
 		err := applyCommand(bad)
-		if err == nil || !strings.Contains(err.Error(), "persist rollback journal failed") {
-			t.Fatalf("expected rollback journal persist error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "persist local rollback journal failed") {
+			t.Fatalf("expected local rollback journal persist error, got %v", err)
 		}
 	})
 
@@ -250,6 +250,13 @@ func TestApplyCommand_Success(t *testing.T) {
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	saveTargetJournal = func(client *ssh.Client, journal *rollback.Journal) error { return nil }
+
+	removedLocalJournal := false
+	removeRunnerJournal = func(journal *rollback.Journal) error {
+		removedLocalJournal = true
+		return nil
+	}
 
 	called := false
 	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -268,6 +275,191 @@ func TestApplyCommand_Success(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected runApply to be called")
+	}
+	if !removedLocalJournal {
+		t.Fatal("expected local rollback journal cleanup on successful apply")
+	}
+}
+
+func TestApplyCommand_KeepLocalRollback(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
+	restore := stubApplyDeps()
+	defer restore()
+
+	c := cli.Command{
+		Profile:           "profile",
+		Host:              "host",
+		User:              "user",
+		KeyPath:           "/tmp/key",
+		KeepLocalRollback: true,
+		Debug:             true,
+	}
+
+	newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+	ensureApplySudo = func(_ *ssh.Client) error { return nil }
+	loadProfile = func(string) (*profile.Profile, error) {
+		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
+	}
+	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	saveTargetJournal = func(client *ssh.Client, journal *rollback.Journal) error { return nil }
+
+	saveCalls := 0
+	saveRunnerJournal = func(journal *rollback.Journal) error {
+		saveCalls++
+		return nil
+	}
+	removeRunnerJournal = func(journal *rollback.Journal) error {
+		t.Fatal("removeRunnerJournal should not be called when keep flag is set")
+		return nil
+	}
+
+	if err := applyCommand(c); err != nil {
+		t.Fatalf("applyCommand failed: %v", err)
+	}
+	if saveCalls < 2 {
+		t.Fatalf("expected local rollback journal to be saved at least twice, got %d", saveCalls)
+	}
+}
+
+func TestApplyCommand_TargetJournalSaveFailed(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
+	restore := stubApplyDeps()
+	defer restore()
+
+	c := cli.Command{
+		Profile: "profile",
+		Host:    "host",
+		User:    "user",
+		KeyPath: "/tmp/key",
+		Debug:   true,
+	}
+
+	newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+	ensureApplySudo = func(_ *ssh.Client) error { return nil }
+	loadProfile = func(string) (*profile.Profile, error) {
+		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
+	}
+	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	saveTargetJournal = func(client *ssh.Client, journal *rollback.Journal) error { return errors.New("remote boom") }
+
+	err := applyCommand(c)
+	if err == nil || !strings.Contains(err.Error(), "persist target rollback journal failed") {
+		t.Fatalf("expected target rollback journal save error, got %v", err)
+	}
+}
+
+func TestApplyCommand_ApplyFailureAndLocalJournalSaveFailure(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
+	restore := stubApplyDeps()
+	defer restore()
+
+	c := cli.Command{
+		Profile: "profile",
+		Host:    "host",
+		User:    "user",
+		KeyPath: "/tmp/key",
+		Debug:   true,
+	}
+
+	newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+	ensureApplySudo = func(_ *ssh.Client) error { return nil }
+	loadProfile = func(string) (*profile.Profile, error) {
+		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
+	}
+	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error {
+		return errors.New("apply boom")
+	}
+
+	saveCalls := 0
+	saveRunnerJournal = func(journal *rollback.Journal) error {
+		saveCalls++
+		if saveCalls == 2 {
+			return errors.New("save boom")
+		}
+		return nil
+	}
+
+	err := applyCommand(c)
+	if err == nil || !strings.Contains(err.Error(), "apply failed: apply boom; persist local rollback journal failed: save boom") {
+		t.Fatalf("expected combined apply/save failure, got %v", err)
+	}
+}
+
+func TestApplyCommand_SuccessNonDebugCleanupWarning(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
+	restore := stubApplyDeps()
+	defer restore()
+
+	c := cli.Command{
+		Profile: "profile",
+		Host:    "host",
+		User:    "user",
+		KeyPath: "/tmp/key",
+		Debug:   false,
+	}
+
+	newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+	ensureApplySudo = func(_ *ssh.Client) error { return nil }
+	loadProfile = func(string) (*profile.Profile, error) {
+		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
+	}
+	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	saveTargetJournal = func(client *ssh.Client, journal *rollback.Journal) error { return nil }
+	removeRunnerJournal = func(journal *rollback.Journal) error { return errors.New("cleanup boom") }
+
+	if err := applyCommand(c); err != nil {
+		t.Fatalf("expected success with cleanup warning, got %v", err)
+	}
+}
+
+func TestApplyCommand_KeepLocalRollbackWarning(t *testing.T) {
+	t.Setenv("HARDLINE_STATE_DIR", t.TempDir())
+
+	restore := stubApplyDeps()
+	defer restore()
+
+	c := cli.Command{
+		Profile:           "profile",
+		Host:              "host",
+		User:              "user",
+		KeyPath:           "/tmp/key",
+		KeepLocalRollback: true,
+		Debug:             true,
+	}
+
+	newSSHClient = func(cfg connection.Config) (*ssh.Client, error) { return nil, nil }
+	ensureApplySudo = func(_ *ssh.Client) error { return nil }
+	loadProfile = func(string) (*profile.Profile, error) {
+		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
+	}
+	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	runApplyProfile = func(client *ssh.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	saveTargetJournal = func(client *ssh.Client, journal *rollback.Journal) error { return nil }
+
+	saveCalls := 0
+	saveRunnerJournal = func(journal *rollback.Journal) error {
+		saveCalls++
+		if saveCalls == 2 {
+			return errors.New("keep boom")
+		}
+		return nil
+	}
+
+	if err := applyCommand(c); err != nil {
+		t.Fatalf("expected success with keep warning, got %v", err)
 	}
 }
 
@@ -319,8 +511,27 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		defer restore()
 
 		seen := []string{}
-		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
-			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		captureCalls := 0
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (pluginapi.CaptureResult, error) {
+			captureCalls++
+			message := "before:" + step.ID
+			if captureCalls%2 == 0 {
+				message = "after:" + step.ID
+			}
+			return pluginapi.CaptureResult{
+				RollbackMode: rollback.ModeDeterministic,
+				Objects: []pluginapi.ObjectRecord{
+					{
+						Kind:    rollback.ObjectValidate,
+						Message: message,
+					},
+				},
+			}, nil
+		}
+		saveCalls := 0
+		saveRunnerJournal = func(journal *rollback.Journal) error {
+			saveCalls++
+			return nil
 		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) error {
 			seen = append(seen, step.ID)
@@ -344,14 +555,29 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		if len(journal.Steps) != 2 {
 			t.Fatalf("expected 2 journal steps, got %d", len(journal.Steps))
 		}
+		if saveCalls != 4 {
+			t.Fatalf("expected rollback journal to be persisted before and after each captured step, got %d", saveCalls)
+		}
+		if got := journal.Steps[0].Before[0].Message; got != "before:s1" {
+			t.Fatalf("unexpected first step before snapshot: %+v", journal.Steps[0].Before)
+		}
+		if got := journal.Steps[0].After[0].Message; got != "after:s1" {
+			t.Fatalf("unexpected first step after snapshot: %+v", journal.Steps[0].After)
+		}
+		if got := journal.Steps[1].Before[0].Message; got != "before:s2" {
+			t.Fatalf("unexpected second step before snapshot: %+v", journal.Steps[1].Before)
+		}
+		if got := journal.Steps[1].After[0].Message; got != "after:s2" {
+			t.Fatalf("unexpected second step after snapshot: %+v", journal.Steps[1].After)
+		}
 	})
 
 	t.Run("step error bubbles", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
-		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
-			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
 			return errors.New("step boom")
@@ -368,12 +594,36 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 	})
 
+	t.Run("journal save failure during capture", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
+		}
+		saveRunnerJournal = func(journal *rollback.Journal) error { return errors.New("journal boom") }
+		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
+			t.Fatal("runStep should not be reached when journal persistence fails")
+			return nil
+		}
+		p := &profile.Profile{
+			ActionFiles: []profile.ActionFile{
+				{Steps: []profile.Step{{ID: "s1", Plugin: "unknown"}}},
+			},
+		}
+
+		err := applyProfile(nil, p, rollback.NewJournal("example.com", "p", "profile"))
+		if err == nil || !strings.Contains(err.Error(), "persist local rollback journal failed") {
+			t.Fatalf("expected journal save error, got %v", err)
+		}
+	})
+
 	t.Run("step error triggers automatic rollback", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
-		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
-			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
 			return errors.New("step boom")
@@ -405,8 +655,8 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
-		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (rollback.StepRecord, error) {
-			return rollback.StepRecord{ID: step.ID, Type: step.PluginName()}, nil
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, step profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		}
 		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
 			return errors.New("step boom")
@@ -426,6 +676,55 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		}
 	})
 
+	t.Run("post-apply capture failure triggers automatic rollback", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		captureCalls := 0
+		runCaptureStepRecord = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) (pluginapi.CaptureResult, error) {
+			captureCalls++
+			if captureCalls == 1 {
+				return pluginapi.CaptureResult{
+					RollbackMode: rollback.ModeDeterministic,
+					Objects: []pluginapi.ObjectRecord{
+						{Kind: rollback.ObjectValidate, Message: "before"},
+					},
+				}, nil
+			}
+			return pluginapi.CaptureResult{}, errors.New("post capture boom")
+		}
+		runStep = func(_ *ssh.Client, _ *profile.Profile, _ profile.Step) error {
+			return nil
+		}
+		rollbackCalled := false
+		runRollbackStep = func(_ *ssh.Client, steps []rollback.StepRecord) error {
+			rollbackCalled = true
+			if len(steps) != 1 {
+				t.Fatalf("expected one step in rollback, got %d", len(steps))
+			}
+			if len(steps[0].Before) != 1 || steps[0].Before[0].Message != "before" {
+				t.Fatalf("unexpected rollback before snapshot: %+v", steps[0].Before)
+			}
+			if len(steps[0].After) != 0 {
+				t.Fatalf("expected no post-apply snapshot after capture failure, got %+v", steps[0].After)
+			}
+			return nil
+		}
+		p := &profile.Profile{
+			ActionFiles: []profile.ActionFile{
+				{Steps: []profile.Step{{ID: "s1", Plugin: "unknown"}}},
+			},
+		}
+
+		err := applyProfile(nil, p, rollback.NewJournal("example.com", "p", "profile"))
+		if err == nil || !strings.Contains(err.Error(), "capture post-apply state") || !strings.Contains(err.Error(), "automatic rollback completed") {
+			t.Fatalf("expected post-capture rollback error, got %v", err)
+		}
+		if !rollbackCalled {
+			t.Fatal("expected rollback after post-apply capture failure")
+		}
+	})
+
 	t.Run("snapshot capture error bubbles", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
@@ -438,8 +737,8 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, nil
 			},
-			Capture: func(pluginapi.CaptureContext, profile.Step) (rollback.StepRecord, error) {
-				return rollback.StepRecord{}, errors.New("capture failed")
+			Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+				return pluginapi.CaptureResult{}, errors.New("capture failed")
 			},
 		}); err != nil {
 			t.Fatalf("register plugin failed: %v", err)
@@ -448,7 +747,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		defer func() {
 			runCaptureStepRecord = prevCapture
 		}()
-		runCaptureStepRecord = func(client *ssh.Client, p *profile.Profile, s profile.Step) (rollback.StepRecord, error) {
+		runCaptureStepRecord = func(client *ssh.Client, p *profile.Profile, s profile.Step) (pluginapi.CaptureResult, error) {
 			return captureStepRecordWithRegistry(registry, client, p, s)
 		}
 
@@ -483,6 +782,9 @@ func stubApplyDeps() func() {
 	prevRunCapture := runCaptureStepRecord
 	prevRunRollbackStep := runRollbackStep
 	prevRunApplyCommand := runApplyCommand
+	prevSaveRunnerJournal := saveRunnerJournal
+	prevRemoveRunnerJournal := removeRunnerJournal
+	prevSaveTargetJournal := saveTargetJournal
 	prevExit := exitProcess
 	prevRunStep := runStep
 	return func() {
@@ -496,6 +798,9 @@ func stubApplyDeps() func() {
 		runCaptureStepRecord = prevRunCapture
 		runRollbackStep = prevRunRollbackStep
 		runApplyCommand = prevRunApplyCommand
+		saveRunnerJournal = prevSaveRunnerJournal
+		removeRunnerJournal = prevRemoveRunnerJournal
+		saveTargetJournal = prevSaveTargetJournal
 		exitProcess = prevExit
 		runStep = prevRunStep
 	}

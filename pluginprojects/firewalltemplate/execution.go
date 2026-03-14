@@ -221,11 +221,8 @@ func ManagedDestination(fw *Spec) string {
 	return dest
 }
 
-func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
-	record := pluginapi.StepRecord{
-		ID:   stepID,
-		Type: "firewall_template",
-	}
+func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.CaptureResult, error) {
+	record := pluginapi.CaptureResult{}
 	if spec == nil {
 		return record, fmt.Errorf("step %q (type=firewall_template): firewall_template spec missing", stepID)
 	}

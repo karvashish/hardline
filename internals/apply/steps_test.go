@@ -30,8 +30,8 @@ func TestHandleStepDispatch(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
-			return pluginapi.StepRecord{}, nil
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		},
 	})
 	if err != nil {
@@ -51,6 +51,19 @@ func TestHandleStepDispatch(t *testing.T) {
 	}
 }
 
+func TestHandleStepWrapperAndReset(t *testing.T) {
+	resetApplyStepState()
+
+	err := handleStep(nil, nil, profile.Step{
+		ID:     "pkg",
+		Plugin: "packages",
+		Config: map[string]any{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "host context is required") {
+		t.Fatalf("expected shared-registry handleStep error, got %v", err)
+	}
+}
+
 func TestHandleStepValidationPolicy(t *testing.T) {
 	reg := pluginapi.NewRegistry()
 	err := reg.Register(pluginapi.Plugin{
@@ -60,8 +73,8 @@ func TestHandleStepValidationPolicy(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
-			return pluginapi.StepRecord{}, nil
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		},
 	})
 	if err != nil {
@@ -113,8 +126,8 @@ func TestRegisterPlugin(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
-			return rollback.StepRecord{ID: "rb", Type: "rb", RollbackMode: rollback.ModeNoop}, nil
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{RollbackMode: rollback.ModeNoop}, nil
 		},
 	})
 	if err != nil {

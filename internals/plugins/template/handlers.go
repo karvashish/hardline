@@ -41,13 +41,13 @@ func Plugin() pluginapi.Plugin {
 
 			return result, nil
 		},
-		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.CaptureResult, error) {
 			spec, err := decodeTemplateSpec(step)
 			if err != nil {
-				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
+				return pluginapi.CaptureResult{}, err
 			}
 			if err := validateTemplateSpec(spec); err != nil {
-				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
+				return pluginapi.CaptureResult{}, err
 			}
 
 			return Capture(ctx, step.ID, spec)

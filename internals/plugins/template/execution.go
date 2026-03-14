@@ -362,11 +362,8 @@ func statTemplateDestination(rt templateStatRuntime, dest string) (int64, os.Fil
 	return size, os.FileMode(perm), nil
 }
 
-func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.StepRecord, error) {
-	record := pluginapi.StepRecord{
-		ID:   stepID,
-		Type: "template",
-	}
+func Capture(ctx pluginapi.CaptureContext, stepID string, spec *Spec) (pluginapi.CaptureResult, error) {
+	record := pluginapi.CaptureResult{}
 	if spec == nil {
 		return record, fmt.Errorf("step %q (type=template): template spec missing", stepID)
 	}

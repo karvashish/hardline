@@ -103,7 +103,7 @@ func ReadRootFile(client *ssh.Client, path string) (string, error) {
 	logger.Debugf("readRootFile: path=%q\n", path)
 
 	cmd := "cat " + path
-	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
+	wrapped := "sudo -n sh -lc " + shellQuote(cmd)
 
 	session, err := newFileSession(client)
 	if err != nil {

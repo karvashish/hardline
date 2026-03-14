@@ -130,6 +130,15 @@ func TestRunRootVariants(t *testing.T) {
 	}
 }
 
+func TestShellQuote(t *testing.T) {
+	if got := shellQuote("echo $HOME"); got != "'echo $HOME'" {
+		t.Fatalf("unexpected shellQuote result %q", got)
+	}
+	if got := shellQuote("printf '%s' $HOME"); got != `'printf '"'"'%s'"'"' $HOME'` {
+		t.Fatalf("unexpected shellQuote result %q", got)
+	}
+}
+
 type fakeSession struct {
 	cmd        string
 	runErr     error

@@ -2,19 +2,9 @@ package apply
 
 import (
 	"github.com/karvashish/hardline/internals/registry"
-	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
-)
-
-var (
-	runRootCmd           = remote.RunRoot
-	runRootCmdWithOutput = remote.RunRootWithOutput
-	readRootFile         = remote.ReadRootFile
-	newSFTPClient        = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
-	writeRootFile        = remote.WriteRootFile
 )
 
 func resetApplyStepState() {}

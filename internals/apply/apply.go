@@ -25,6 +25,9 @@ var (
 	runCaptureStepRecord = captureStepRecord
 	runRollbackStep      = rollback.RollbackSteps
 	runApplyCommand      = applyCommand
+	saveRunnerJournal    = func(j *rollback.Journal) error { return j.SaveLast() }
+	removeRunnerJournal  = func(j *rollback.Journal) error { return j.RemoveLast() }
+	saveTargetJournal    = rollback.SaveRemoteLast
 	exitProcess          = os.Exit
 	runStep              = handleStep
 )
@@ -116,16 +119,33 @@ func applyCommand(c cli.Command) error {
 	}
 
 	journal := rollback.NewJournal(c.Host, p.ID, c.Profile)
+	if err := saveRunnerJournal(journal); err != nil {
+		logger.Errorf("persist local rollback journal failed: %v\n", err)
+		return fmt.Errorf("persist local rollback journal failed: %w", err)
+	}
 
 	if err := runApplyProfile(sshClient, p, journal); err != nil {
+		journal.Status = "failed"
+		if saveErr := saveRunnerJournal(journal); saveErr != nil {
+			logger.Errorf("persist local rollback journal failed: %v\n", saveErr)
+			return fmt.Errorf("apply failed: %w; persist local rollback journal failed: %v", err, saveErr)
+		}
 		logger.Errorf("apply failed: %v\n", err)
 		return fmt.Errorf("apply failed: %w", err)
 	}
 
 	journal.Status = "success"
-	if err := journal.SaveLast(); err != nil {
-		logger.Errorf("persist rollback journal failed: %v\n", err)
-		return fmt.Errorf("persist rollback journal failed: %w", err)
+	if err := saveTargetJournal(sshClient, journal); err != nil {
+		_ = saveRunnerJournal(journal)
+		logger.Errorf("persist target rollback journal failed: %v\n", err)
+		return fmt.Errorf("persist target rollback journal failed: %w", err)
+	}
+	if c.KeepLocalRollback {
+		if err := saveRunnerJournal(journal); err != nil {
+			logger.Warnf("keep local rollback journal failed: %v\n", err)
+		}
+	} else if err := removeRunnerJournal(journal); err != nil {
+		logger.Warnf("remove local rollback journal failed: %v\n", err)
 	}
 
 	if !c.Debug {
@@ -152,7 +172,7 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 				stop = utils.Throbber()
 			}
 
-			stepRecord, err := runCaptureStepRecord(client, p, step)
+			capture, err := runCaptureStepRecord(client, p, step)
 			if err != nil {
 				if stop != nil {
 					stop()
@@ -161,16 +181,33 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 			}
 
 			if journal != nil {
+				stepRecord := rollback.NewStepRecordFromCapture(step.ID, step.PluginName(), capture)
 				journal.Steps = append(journal.Steps, stepRecord)
+				if err := saveRunnerJournal(journal); err != nil {
+					if stop != nil {
+						stop()
+					}
+					return fmt.Errorf("persist local rollback journal failed: %w", err)
+				}
 			}
 
 			err = runStep(client, p, step)
-
-			if stop != nil {
-				stop()
+			if err == nil && journal != nil {
+				capture, captureErr := runCaptureStepRecord(client, p, step)
+				if captureErr != nil {
+					err = fmt.Errorf("capture post-apply state for step %q: %w", step.ID, captureErr)
+				} else {
+					journal.Steps[len(journal.Steps)-1].SetAfterFromCapture(capture)
+					if saveErr := saveRunnerJournal(journal); saveErr != nil {
+						err = fmt.Errorf("persist local rollback journal failed: %w", saveErr)
+					}
+				}
 			}
 
 			if err != nil {
+				if stop != nil {
+					stop()
+				}
 				if journal != nil {
 					rbErr := runRollbackStep(client, journal.Steps)
 					if rbErr != nil {
@@ -179,6 +216,9 @@ func applyProfile(client *ssh.Client, p *profile.Profile, journal *rollback.Jour
 					return fmt.Errorf("step %q failed: %w; automatic rollback completed", step.ID, err)
 				}
 				return err
+			}
+			if stop != nil {
+				stop()
 			}
 
 			if !logger.DebugMode() {

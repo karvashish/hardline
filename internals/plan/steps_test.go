@@ -27,8 +27,8 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 			}
 			return pluginapi.PlanResult{Summary: "fake summary", Details: []string{"detail"}, Diff: []string{"diff"}, Noop: 1}, nil
 		},
-		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
-			return pluginapi.StepRecord{}, nil
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		},
 	})
 	if err != nil {
@@ -64,8 +64,8 @@ func TestPlanStepValidationPolicy(t *testing.T) {
 		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
-		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.StepRecord, error) {
-			return pluginapi.StepRecord{}, nil
+		Capture: func(pluginapi.CaptureContext, profile.Step) (pluginapi.CaptureResult, error) {
+			return pluginapi.CaptureResult{}, nil
 		},
 	})
 	if err != nil {

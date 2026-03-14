@@ -32,13 +32,13 @@ func Plugin() pluginapi.Plugin {
 			}
 			return Plan(ctx, spec)
 		},
-		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.StepRecord, error) {
+		Capture: func(ctx pluginapi.CaptureContext, step profile.Step) (pluginapi.CaptureResult, error) {
 			spec, err := decodeServiceSpec(step)
 			if err != nil {
-				return pluginapi.StepRecord{ID: step.ID, Type: "service"}, err
+				return pluginapi.CaptureResult{}, err
 			}
 			if err := validateServiceSpec(spec); err != nil {
-				return pluginapi.StepRecord{ID: step.ID, Type: "service"}, err
+				return pluginapi.CaptureResult{}, err
 			}
 
 			return Capture(ctx, step.ID, spec)

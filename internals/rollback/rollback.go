@@ -23,6 +23,7 @@ var (
 	newSFTPClient      = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
 	ensureRollbackSudo = connection.EnsureNonInteractiveSudo
 	runRollbackCommand = rollbackCommand
+	loadRemoteJournal  = LoadRemoteLast
 	exitProcess        = os.Exit
 )
 
@@ -46,14 +47,6 @@ func rollbackCommand(c cli.Command) error {
 		logger.Infof("rollback %s\n", target)
 	}
 
-	journal, err := LoadLast(c.Host)
-	if err != nil {
-		return err
-	}
-	if journal.Status != "success" {
-		return fmt.Errorf("last run is not marked successful (status=%q)", journal.Status)
-	}
-
 	cfg := connection.Config{
 		User:    c.User,
 		KeyPath: c.KeyPath,
@@ -69,6 +62,14 @@ func rollbackCommand(c cli.Command) error {
 
 	if err := ensureRollbackSudo(client); err != nil {
 		return fmt.Errorf("sudo preflight failed: %w", err)
+	}
+
+	journal, err := loadRemoteJournal(client)
+	if err != nil {
+		return err
+	}
+	if journal.Status != "success" {
+		return fmt.Errorf("last run is not marked successful (status=%q)", journal.Status)
 	}
 
 	if err := executeRollbackSteps(client, journal.Steps, !c.Debug, false); err != nil {
@@ -120,8 +121,8 @@ func rollbackStepWithMode(client *ssh.Client, step StepRecord, strictBestEffort 
 		return nil
 	}
 
-	for i := len(step.Objects) - 1; i >= 0; i-- {
-		obj := step.Objects[i]
+	for i := len(step.Before) - 1; i >= 0; i-- {
+		obj := step.Before[i]
 		err := rollbackObject(client, obj)
 		if err == nil {
 			continue

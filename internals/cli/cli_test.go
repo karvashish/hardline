@@ -94,6 +94,22 @@ func TestParse_SuccessPaths(t *testing.T) {
 		t.Fatalf("unexpected parsed plan command: %+v", planCmd)
 	}
 
+	applyCmd := Parse("apply", []string{
+		"prod",
+		"--host", "example.com",
+		"--user", "deployer",
+		"--keypath", "/tmp/key",
+		"--keep-local-rollback",
+	})
+	if applyCmd.Name != "apply" ||
+		applyCmd.Profile != "prod" ||
+		applyCmd.Host != "example.com" ||
+		applyCmd.User != "deployer" ||
+		applyCmd.KeyPath != "/tmp/key" ||
+		!applyCmd.KeepLocalRollback {
+		t.Fatalf("unexpected parsed apply command: %+v", applyCmd)
+	}
+
 	verifyCmd := Parse("verify-profile", []string{"staging", "--log-file", "/tmp/verify.log", "-d"})
 	if verifyCmd.Name != "verify-profile" || verifyCmd.Profile != "staging" || !verifyCmd.Debug {
 		t.Fatalf("unexpected parsed verify command: %+v", verifyCmd)

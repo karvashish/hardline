@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"strconv"
 
 	"github.com/karvashish/hardline/pkg/logger"
 	"golang.org/x/crypto/ssh"
@@ -67,7 +66,7 @@ func Run(client *ssh.Client, cmd string) error {
 }
 
 func RunRoot(client *ssh.Client, cmd string) error {
-	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
+	wrapped := "sudo -n sh -lc " + shellQuote(cmd)
 	return Run(client, wrapped)
 }
 
@@ -95,6 +94,6 @@ func RunWithOutput(client *ssh.Client, cmd string) (string, error) {
 }
 
 func RunRootWithOutput(client *ssh.Client, cmd string) (string, error) {
-	wrapped := "sudo -n sh -lc " + strconv.Quote(cmd)
+	wrapped := "sudo -n sh -lc " + shellQuote(cmd)
 	return RunWithOutput(client, wrapped)
 }

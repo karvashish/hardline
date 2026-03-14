@@ -8,14 +8,8 @@ import (
 	"strings"
 
 	"github.com/karvashish/hardline/internals/rollback"
-	"golang.org/x/crypto/ssh"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 )
-
-type Deps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-}
 
 func EnforceManagedPath(dest string) error {
 	p := strings.TrimSpace(dest)
@@ -44,24 +38,28 @@ func EnforceManagedPath(dest string) error {
 	}
 }
 
-func SnapshotRemoteFile(client *ssh.Client, remotePath string, deps Deps) (rollback.FileSnapshot, error) {
+func SnapshotRemoteFile(host pluginapi.Host, remotePath string) (rollback.FileSnapshot, error) {
+	if host == nil {
+		return rollback.FileSnapshot{}, fmt.Errorf("host is required")
+	}
+
 	snap := rollback.FileSnapshot{Path: remotePath}
 
 	testCmd := "test -e " + strconv.Quote(remotePath)
-	if err := deps.RunRoot(client, testCmd); err != nil {
+	if err := host.RunRoot(testCmd); err != nil {
 		snap.Existed = false
 		return snap, nil
 	}
 	snap.Existed = true
 
 	modeCmd := "stat -c %a " + strconv.Quote(remotePath)
-	modeOut, err := deps.RunRootWithOutput(client, modeCmd)
+	modeOut, err := host.RunRootWithOutput(modeCmd)
 	if err != nil {
 		return snap, err
 	}
 	snap.Mode = strings.TrimSpace(modeOut)
 
-	content, err := deps.ReadRootFile(client, remotePath)
+	content, err := host.ReadRootFile(remotePath)
 	if err != nil {
 		return snap, err
 	}
@@ -69,13 +67,17 @@ func SnapshotRemoteFile(client *ssh.Client, remotePath string, deps Deps) (rollb
 	return snap, nil
 }
 
-func SnapshotServiceState(client *ssh.Client, unit string, deps Deps) (rollback.ServiceState, error) {
-	enabledOut, err := deps.RunRootWithOutput(client, "systemctl is-enabled "+strconv.Quote(unit)+" 2>/dev/null || true")
+func SnapshotServiceState(host pluginapi.Host, unit string) (rollback.ServiceState, error) {
+	if host == nil {
+		return rollback.ServiceState{}, fmt.Errorf("host is required")
+	}
+
+	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + strconv.Quote(unit) + " 2>/dev/null || true")
 	if err != nil {
 		return rollback.ServiceState{}, err
 	}
 
-	activeOut, err := deps.RunRootWithOutput(client, "systemctl is-active "+strconv.Quote(unit)+" 2>/dev/null || true")
+	activeOut, err := host.RunRootWithOutput("systemctl is-active " + strconv.Quote(unit) + " 2>/dev/null || true")
 	if err != nil {
 		return rollback.ServiceState{}, err
 	}

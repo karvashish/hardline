@@ -8,12 +8,12 @@ import (
 )
 
 func planActionContext(client *ssh.Client, p *profile.Profile) pluginapi.PlanContext {
-	var hostRuntime pluginapi.Runtime
+	var host pluginapi.Host
 	if client != nil {
-		hostRuntime = runtime.NewSSHRuntime(client)
+		host = runtime.NewSSHRuntime(client)
 	}
 	return pluginapi.PlanContext{
-		Runtime: hostRuntime,
+		Host:    host,
 		Profile: p,
 	}
 }

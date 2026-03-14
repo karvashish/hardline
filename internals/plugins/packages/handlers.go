@@ -8,7 +8,7 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "packages",
 		InternalValidation: true,
@@ -20,7 +20,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 			if err := validatePackageSpec(spec); err != nil {
 				return err
 			}
-			return Apply(ctx, spec, applyDeps)
+			return Apply(ctx, spec)
 		},
 		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
 			spec, err := decodePackageSpec(step)
@@ -41,7 +41,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 				return pluginapi.StepRecord{ID: step.ID, Type: "packages"}, err
 			}
 
-			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
+			return CaptureRollback(ctx, step.ID, spec)
 		},
 	}
 }

@@ -102,9 +102,8 @@ func TestLoadFromDir(t *testing.T) {
 		var opened []string
 		openSharedObject = func(path string) (pluginLookup, error) {
 			opened = append(opened, filepath.Base(path))
-			bundle := pluginapi.PluginBundle{Name: filepath.Base(path)}
 			return fakePlugin{symbols: map[string]any{
-				pluginSymbolV1: &bundle,
+				pluginSymbolV1: &pluginapi.Plugin{Name: filepath.Base(path)},
 			}}, nil
 		}
 
@@ -151,8 +150,8 @@ func TestLoadFromDir(t *testing.T) {
 	})
 }
 
-func TestResolvePluginBundle(t *testing.T) {
-	base := pluginapi.PluginBundle{Name: "x"}
+func TestResolvePlugin(t *testing.T) {
+	base := pluginapi.Plugin{Name: "x"}
 
 	cases := []struct {
 		name    string
@@ -160,15 +159,15 @@ func TestResolvePluginBundle(t *testing.T) {
 		wantErr string
 	}{
 		{name: "pointer", symbol: &base},
-		{name: "nil pointer", symbol: (*pluginapi.PluginBundle)(nil), wantErr: "is nil"},
+		{name: "nil pointer", symbol: (*pluginapi.Plugin)(nil), wantErr: "is nil"},
 		{name: "value unsupported", symbol: base, wantErr: "unsupported type"},
-		{name: "func unsupported", symbol: func() pluginapi.PluginBundle { return base }, wantErr: "unsupported type"},
+		{name: "func unsupported", symbol: func() pluginapi.Plugin { return base }, wantErr: "unsupported type"},
 		{name: "unsupported", symbol: 123, wantErr: "unsupported type"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolvePluginBundle(tc.symbol, "/tmp/x.so")
+			got, err := resolvePlugin(tc.symbol, "/tmp/x.so")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("expected error containing %q, got %v", tc.wantErr, err)
@@ -176,37 +175,24 @@ func TestResolvePluginBundle(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolvePluginBundle failed: %v", err)
+				t.Fatalf("resolvePlugin failed: %v", err)
 			}
 			if got.Name != base.Name {
-				t.Fatalf("unexpected bundle: %+v", got)
+				t.Fatalf("unexpected plugin: %+v", got)
 			}
 		})
 	}
 }
 
-func TestRegisterPluginBundle(t *testing.T) {
-	t.Run("bundle registration error", func(t *testing.T) {
+func TestRegisterPlugin(t *testing.T) {
+	t.Run("plugin registration error", func(t *testing.T) {
 		restore := stubLoaderDeps()
 		defer restore()
 
-		registerPluginBundleAction = func(pluginapi.PluginBundle) error { return errors.New("register fail") }
-		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name: "p",
-			Plugins: []pluginapi.Plugin{{
-				Name:               "x",
-				InternalValidation: true,
-				Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
-				Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
-					return pluginapi.PlanResult{}, nil
-				},
-				Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
-					return pluginapi.StepRecord{}, nil
-				},
-			}},
-		}, "/tmp/p.so")
+		registerPluginAction = func(pluginapi.Plugin) error { return errors.New("register fail") }
+		err := registerPlugin(validLoaderPlugin("x"), "/tmp/p.so")
 		if err == nil || !strings.Contains(err.Error(), "register fail") {
-			t.Fatalf("expected bundle registration error, got %v", err)
+			t.Fatalf("expected plugin registration error, got %v", err)
 		}
 	})
 
@@ -214,25 +200,18 @@ func TestRegisterPluginBundle(t *testing.T) {
 		restore := stubLoaderDeps()
 		defer restore()
 
-		var got pluginapi.PluginBundle
-		registerPluginBundleAction = func(bundle pluginapi.PluginBundle) error {
-			got = bundle
+		var got pluginapi.Plugin
+		registerPluginAction = func(plugin pluginapi.Plugin) error {
+			got = plugin
 			return nil
 		}
 
-		err := registerPluginBundle(pluginapi.PluginBundle{
-			Name: "ok",
-			Plugins: []pluginapi.Plugin{
-				validLoaderPlugin("a1"),
-				validLoaderPlugin("a2"),
-				validLoaderPlugin("p1"),
-			},
-		}, "/tmp/ok.so")
+		err := registerPlugin(validLoaderPlugin("ok"), "/tmp/ok.so")
 		if err != nil {
-			t.Fatalf("registerPluginBundle failed: %v", err)
+			t.Fatalf("registerPlugin failed: %v", err)
 		}
-		if len(got.Plugins) != 3 {
-			t.Fatalf("unexpected bundle passed to registrar: %+v", got)
+		if got.Name != "ok" {
+			t.Fatalf("unexpected plugin passed to registrar: %+v", got)
 		}
 	})
 }
@@ -241,15 +220,14 @@ func stubLoaderDeps() func() {
 	prevExec := executablePath
 	prevReadDir := readDirEntries
 	prevOpen := openSharedObject
-	prevRegisterBundle := registerPluginBundleAction
+	prevRegister := registerPluginAction
 
 	executablePath = os.Executable
 	readDirEntries = os.ReadDir
-	registerPluginBundleAction = func(pluginapi.PluginBundle) error { return nil }
+	registerPluginAction = func(pluginapi.Plugin) error { return nil }
 	openSharedObject = func(path string) (pluginLookup, error) {
-		bundle := pluginapi.PluginBundle{Name: filepath.Base(path)}
 		return fakePlugin{symbols: map[string]any{
-			pluginSymbolV1: &bundle,
+			pluginSymbolV1: &pluginapi.Plugin{Name: filepath.Base(path)},
 		}}, nil
 	}
 
@@ -257,7 +235,7 @@ func stubLoaderDeps() func() {
 		executablePath = prevExec
 		readDirEntries = prevReadDir
 		openSharedObject = prevOpen
-		registerPluginBundleAction = prevRegisterBundle
+		registerPluginAction = prevRegister
 	}
 }
 

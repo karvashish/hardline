@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 	"os"
 	"strings"
 	"testing"
@@ -289,7 +288,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 
 	t.Run("ensure include direct", func(t *testing.T) {
 		calls := 0
-		err := EnsureNftablesInclude(nil, func(_ *ssh.Client, cmd string) error {
+		err := EnsureNftablesInclude(firewallExecHostStub{runRoot: func(cmd string) error {
 			if cmd == IncludeCheckCmd {
 				calls++
 				if calls == 1 {
@@ -297,7 +296,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				}
 			}
 			return nil
-		})
+		}})
 		if err != nil {
 			t.Fatalf("EnsureNftablesInclude failed: %v", err)
 		}
@@ -305,7 +304,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected 2 include checks, got %d", calls)
 		}
 
-		err = EnsureNftablesInclude(nil, func(_ *ssh.Client, cmd string) error {
+		err = EnsureNftablesInclude(firewallExecHostStub{runRoot: func(cmd string) error {
 			if cmd == IncludeCheckCmd {
 				return errors.New("missing")
 			}
@@ -313,18 +312,18 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				return errors.New("append fail")
 			}
 			return nil
-		})
+		}})
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure error, got %v", err)
 		}
 
 		calledAppend := false
-		err = EnsureNftablesInclude(nil, func(_ *ssh.Client, cmd string) error {
+		err = EnsureNftablesInclude(firewallExecHostStub{runRoot: func(cmd string) error {
 			if strings.Contains(cmd, ">> /etc/nftables.conf") {
 				calledAppend = true
 			}
 			return nil
-		})
+		}})
 		if err != nil {
 			t.Fatalf("EnsureNftablesInclude present-include path failed: %v", err)
 		}
@@ -334,29 +333,34 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 	})
 
 	t.Run("apply paths", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Backend: "ufw"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Backend: "ufw"})
 		if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
 			t.Fatalf("expected unsupported backend error, got %v", err)
 		}
 
+		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec())
+		if err == nil || !strings.Contains(err.Error(), "host context is required") {
+			t.Fatalf("expected host context error, got %v", err)
+		}
+
 		spec := validDeterministicFirewallSpec()
 		spec.ManagedDest = ""
-		err = Apply(pluginapi.ApplyContext{}, spec, ApplyDeps{})
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{}}, spec)
 		if err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
 			t.Fatalf("expected managed dest error, got %v", err)
 		}
 
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot: func(*ssh.Client, string) error { return errors.New("mkdir fail") },
-		})
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{
+			runRoot: func(string) error { return errors.New("mkdir fail") },
+		}}, validDeterministicFirewallSpec())
 		if err == nil || !strings.Contains(err.Error(), "mkdir -p") {
 			t.Fatalf("expected mkdir error, got %v", err)
 		}
 
 		checkCount := 0
 		cmds := []string{}
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				if cmd == IncludeCheckCmd {
 					checkCount++
@@ -364,11 +368,13 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 						return errors.New("missing")
 					}
 				}
+				if strings.HasPrefix(cmd, "test -e ") {
+					return errors.New("missing")
+				}
 				return nil
 			},
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		})
+			writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+		}}, validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -376,8 +382,8 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected include append command, got %v", cmds)
 		}
 
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{
+			runRoot: func(cmd string) error {
 				if cmd == IncludeCheckCmd {
 					return errors.New("missing")
 				}
@@ -386,27 +392,22 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				}
 				return nil
 			},
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		})
+			writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+		}}, validDeterministicFirewallSpec())
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure include error, got %v", err)
 		}
 
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, errors.New("sftp failed") },
-		})
-		if err == nil || !strings.Contains(err.Error(), "new sftp client") {
-			t.Fatalf("expected sftp error, got %v", err)
-		}
-
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return errors.New("write failed") },
-		})
-		if err == nil || !strings.Contains(err.Error(), "remote.WriteRootFile") {
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{
+			runRoot: func(cmd string) error {
+				if strings.HasPrefix(cmd, "test -e ") {
+					return errors.New("missing")
+				}
+				return nil
+			},
+			writeRootFile: func(string, []byte, os.FileMode) error { return errors.New("write failed") },
+		}}, validDeterministicFirewallSpec())
+		if err == nil || !strings.Contains(err.Error(), "write root file") {
 			t.Fatalf("expected write error, got %v", err)
 		}
 
@@ -418,33 +419,28 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("NormalizeDesiredSpec failed: %v", err)
 		}
 		wantRender := RenderNormalized(want)
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantRender, nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) {
-				t.Fatalf("sftp client should not be created when managed firewall file already matches")
-				return nil, nil
-			},
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error {
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{
+			runRoot:           func(string) error { return nil },
+			runRootWithOutput: func(string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
+			readRootFile:      func(string) (string, error) { return wantRender, nil },
+			writeRootFile: func(string, []byte, os.FileMode) error {
 				t.Fatalf("write should be skipped when managed firewall file already matches")
 				return nil
 			},
-		})
+		}}, validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		err = Apply(pluginapi.ApplyContext{}, validDeterministicFirewallSpec(), ApplyDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantRender + "\n# drift", nil },
-			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
+		err = Apply(pluginapi.ApplyContext{Host: firewallExecHostStub{
+			runRoot:           func(string) error { return nil },
+			runRootWithOutput: func(string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
+			readRootFile:      func(string) (string, error) { return wantRender + "\n# drift", nil },
+			writeRootFile: func(dest string, data []byte, mode os.FileMode) error {
 				gotDest, gotData, gotMode = dest, string(data), mode
 				return nil
 			},
-		})
+		}}, validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -454,29 +450,29 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 	})
 
 	t.Run("plan validate capture", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "ufw"})
+		res, err := Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, &Spec{Backend: "ufw"})
 		if err != nil || !strings.Contains(res.Summary, "unsupported backend") {
 			t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 		}
 
-		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables"})
+		_, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "family is required") {
 			t.Fatalf("expected family required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet"})
+		_, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet"})
 		if err == nil || !strings.Contains(err.Error(), "table is required") {
 			t.Fatalf("expected table required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter"})
+		_, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter"})
 		if err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
 			t.Fatalf("expected managed_dest required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+		_, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err == nil || !strings.Contains(err.Error(), "policies are required") {
 			t.Fatalf("expected policies required error, got %v", err)
 		}
 
-		res, err = Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 12}, include: true}}, validDeterministicFirewallSpec())
+		res, err = Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 12}, include: true}}, validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -484,29 +480,29 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("unexpected plan output: %+v", res)
 		}
 
-		if err := ValidateApply(pluginapi.ApplyContext{}, func(*ssh.Client, string) error { return nil }); err != nil {
+		if err := ValidateApply(firewallExecHostStub{runRoot: func(string) error { return nil }}); err != nil {
 			t.Fatalf("ValidateApply failed: %v", err)
 		}
-		err = ValidateApply(pluginapi.ApplyContext{}, func(_ *ssh.Client, cmd string) error {
+		err = ValidateApply(firewallExecHostStub{runRoot: func(cmd string) error {
 			if cmd == IncludeCheckCmd {
 				return errors.New("missing")
 			}
 			return nil
-		})
+		}})
 		if err == nil || !strings.Contains(err.Error(), "missing include") {
 			t.Fatalf("expected include error, got %v", err)
 		}
-		err = ValidateApply(pluginapi.ApplyContext{}, func(_ *ssh.Client, cmd string) error {
+		err = ValidateApply(firewallExecHostStub{runRoot: func(cmd string) error {
 			if strings.Contains(cmd, "nft -c") {
 				return errors.New("bad")
 			}
 			return nil
-		})
+		}})
 		if err == nil || !strings.Contains(err.Error(), "config check failed") {
 			t.Fatalf("expected config check error, got %v", err)
 		}
 
-		vres, err := ValidatePlan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{include: false, configErr: errors.New("bad")}})
+		vres, err := ValidatePlan(firewallRuntimeStub{include: false, configErr: errors.New("bad")})
 		if err != nil {
 			t.Fatalf("ValidatePlan failed: %v", err)
 		}
@@ -514,7 +510,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if !strings.Contains(joined, "missing") || !strings.Contains(joined, "reports errors") {
 			t.Fatalf("unexpected validate plan details: %s", joined)
 		}
-		vres, err = ValidatePlan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{include: true}})
+		vres, err = ValidatePlan(firewallRuntimeStub{include: true})
 		if err != nil {
 			t.Fatalf("ValidatePlan success path failed: %v", err)
 		}
@@ -522,27 +518,27 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected include-present detail, got %+v", vres.Details)
 		}
 
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", nil, RollbackDeps{})
+		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", nil)
 		if err == nil || !strings.Contains(err.Error(), "firewall spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", &Spec{ManagedDest: "/tmp/nope.nft"}, RollbackDeps{})
+		_, err = CaptureRollback(pluginapi.RollbackContext{Host: firewallExecHostStub{}}, "f", &Spec{ManagedDest: "/tmp/nope.nft"})
 		if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 			t.Fatalf("expected managed path error, got %v", err)
 		}
-		_, err = CaptureRollback(pluginapi.RollbackContext{}, "f", validDeterministicFirewallSpec(), RollbackDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("stat bad") },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
-		})
+		_, err = CaptureRollback(pluginapi.RollbackContext{Host: firewallExecHostStub{
+			runRoot:           func(string) error { return nil },
+			runRootWithOutput: func(string) (string, error) { return "", errors.New("stat bad") },
+			readRootFile:      func(string) (string, error) { return "", nil },
+		}}, "f", validDeterministicFirewallSpec())
 		if err == nil || !strings.Contains(err.Error(), "capture firewall snapshot") {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "f", validDeterministicFirewallSpec(), RollbackDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644", nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "abc", nil },
-		})
+		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: firewallExecHostStub{
+			runRoot:           func(string) error { return nil },
+			runRootWithOutput: func(string) (string, error) { return "644", nil },
+			readRootFile:      func(string) (string, error) { return "abc", nil },
+		}}, "f", validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("CaptureRollback failed: %v", err)
 		}
@@ -661,7 +657,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 		if !firewallIncludePresent(firewallRuntimeStub{include: true}) {
 			t.Fatalf("expected include to be detected")
 		}
-		if err := firewallConfigTest(nil); err == nil || !strings.Contains(err.Error(), "runtime is required") {
+		if err := firewallConfigTest(nil); err == nil || !strings.Contains(err.Error(), "host is required") {
 			t.Fatalf("expected runtime-required error, got %v", err)
 		}
 		if err := firewallConfigTest(firewallRuntimeStub{configErr: errors.New("bad")}); err == nil || !strings.Contains(err.Error(), "bad") {
@@ -670,11 +666,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 	})
 
 	t.Run("plugin decode errors", func(t *testing.T) {
-		plugin := Plugin(ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		}, RollbackDeps{})
+		plugin := Plugin()
 		step := profile.Step{
 			ID:     "bad-firewall",
 			Plugin: "firewall",
@@ -684,7 +676,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 		if err := plugin.Apply(pluginapi.ApplyContext{}, step); err == nil {
 			t.Fatalf("expected plugin apply decode error")
 		}
-		if _, err := plugin.Plan(pluginapi.PlanContext{Runtime: firewallRuntimeStub{}}, step); err == nil {
+		if _, err := plugin.Plan(pluginapi.PlanContext{Host: firewallRuntimeStub{}}, step); err == nil {
 			t.Fatalf("expected plugin plan decode error")
 		}
 		if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
@@ -750,6 +742,8 @@ func (s firewallRuntimeStub) Stat(string) (os.FileInfo, error) {
 }
 func (firewallRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
 
+func (firewallRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
+
 type firewallHelperRuntimeStub struct {
 	runRootErr           error
 	runRootWithOutput    string
@@ -764,9 +758,50 @@ func (s firewallHelperRuntimeStub) RunRootWithOutput(string) (string, error) {
 	return s.runRootWithOutput, s.runRootWithOutputErr
 }
 
+func (firewallHelperRuntimeStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("missing") }
+
 func (s firewallHelperRuntimeStub) ReadRootFile(string) (string, error) {
 	if s.readErr != nil {
 		return "", s.readErr
 	}
 	return s.readContent, nil
+}
+
+func (firewallHelperRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
+
+type firewallExecHostStub struct {
+	runRoot           func(string) error
+	runRootWithOutput func(string) (string, error)
+	readRootFile      func(string) (string, error)
+	writeRootFile     func(string, []byte, os.FileMode) error
+}
+
+func (s firewallExecHostStub) RunRoot(cmd string) error {
+	if s.runRoot == nil {
+		return nil
+	}
+	return s.runRoot(cmd)
+}
+
+func (s firewallExecHostStub) RunRootWithOutput(cmd string) (string, error) {
+	if s.runRootWithOutput == nil {
+		return "", nil
+	}
+	return s.runRootWithOutput(cmd)
+}
+
+func (firewallExecHostStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("missing") }
+
+func (s firewallExecHostStub) ReadRootFile(path string) (string, error) {
+	if s.readRootFile == nil {
+		return "", nil
+	}
+	return s.readRootFile(path)
+}
+
+func (s firewallExecHostStub) WriteRootFile(path string, data []byte, mode os.FileMode) error {
+	if s.writeRootFile == nil {
+		return nil
+	}
+	return s.writeRootFile(path, data, mode)
 }

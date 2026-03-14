@@ -13,7 +13,7 @@ The repository is split into five main layers:
 - `pkg/`
   Reusable domain packages such as profile loading, plugin contracts, and logging.
 - `pluginprojects/`
-  Standalone Go plugin projects that compile to loadable `.so` bundles.
+  Standalone Go plugin projects that compile to loadable `.so` plugins.
 - profile directories such as [`base-secure-ubuntu-24.04-lts`](/home/kartikeya_vashishtha/hardline-try2/base-secure-ubuntu-24.04-lts)
   Declarative hardening content shipped with the repo.
 
@@ -77,17 +77,25 @@ The plugin contract is defined in:
 
 - [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
 
+The intended boundary is:
+
+- host = hardware
+- hardline core = kernel
+- plugins = userspace
+
+In that model, the core owns scheduling and lifecycle, while plugins talk to the host through the kernel-owned `pluginapi.Host` ABI.
+
 The command-independent shared registry owner lives in:
 
 - [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
 
 Built-in plugin assembly lives in:
 
-- [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go)
+- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
 
 Bundled external plugin projects live in:
 
-- [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go)
+- [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go)
 
 External shared-object loading lives in:
 
@@ -102,7 +110,7 @@ Built-in plugin implementations:
 
 Bundled external plugin project:
 
-- firewall_template: [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go), [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go), [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
+- firewall_template: [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go), [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go), [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
 
 ## SSH And Remote Mutation
 

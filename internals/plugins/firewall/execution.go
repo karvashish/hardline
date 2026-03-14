@@ -13,8 +13,6 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -22,20 +20,6 @@ const (
 	NftablesIncludeLine    = `include "/etc/nftables.d/*.nft"`
 	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf`
 )
-
-type ApplyDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-	NewSFTPClient     func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
-}
-
-type RollbackDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-}
 
 type NormalizedSpec struct {
 	Family   string
@@ -72,28 +56,14 @@ type firewallCompareRuntime interface {
 	ReadRootFile(path string) (string, error)
 }
 
-type firewallApplyRuntime struct {
-	client *ssh.Client
-	deps   ApplyDeps
-}
-
-func (r firewallApplyRuntime) RunRoot(cmd string) error {
-	return r.deps.RunRoot(r.client, cmd)
-}
-
-func (r firewallApplyRuntime) RunRootWithOutput(cmd string) (string, error) {
-	return r.deps.RunRootWithOutput(r.client, cmd)
-}
-
-func (r firewallApplyRuntime) ReadRootFile(path string) (string, error) {
-	return r.deps.ReadRootFile(r.client, path)
-}
-
-func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, fw *Spec) error {
 	logger.Debugf("handleFirewall: backend=%q policies=%d rules=%d\n", fw.Backend, len(fw.Policies), len(fw.Rules))
 
 	if fw.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", fw.Backend)
+	}
+	if ctx.Host == nil {
+		return fmt.Errorf("firewall step: host context is required")
 	}
 
 	desired, err := NormalizeDesiredSpec(fw)
@@ -107,44 +77,30 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
-		if err := deps.RunRoot(ctx.Client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := ctx.Host.RunRoot(fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
-	if err := EnsureNftablesInclude(ctx.Client, deps.RunRoot); err != nil {
+	if err := EnsureNftablesInclude(ctx.Host); err != nil {
 		return err
 	}
 
 	desiredRendered := RenderNormalized(desired)
-	if canCompareFirewallDestination(deps) {
-		matches, err := firewallDestinationMatches(firewallApplyRuntime{client: ctx.Client, deps: deps}, destPath, desiredRendered, os.FileMode(0644))
-		if err != nil {
-			return fmt.Errorf("compare destination %s: %w", destPath, err)
-		}
-		if matches {
-			logger.Debugf("handleFirewall: destination %q already matches, skipping write\n", destPath)
-			return nil
-		}
-	}
-
-	sftpClient, err := deps.NewSFTPClient(ctx.Client)
+	matches, err := firewallDestinationMatches(ctx.Host, destPath, desiredRendered, os.FileMode(0644))
 	if err != nil {
-		return fmt.Errorf("new sftp client: %w", err)
+		return fmt.Errorf("compare destination %s: %w", destPath, err)
 	}
-	if sftpClient != nil {
-		defer sftpClient.Close()
+	if matches {
+		logger.Debugf("handleFirewall: destination %q already matches, skipping write\n", destPath)
+		return nil
 	}
 
-	if err := deps.WriteRootFile(ctx.Client, sftpClient, destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
-		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
+	if err := ctx.Host.WriteRootFile(destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
+		return fmt.Errorf("write root file %s: %w", destPath, err)
 	}
 
 	logger.Debugf("handleFirewall: rendered deterministic firewall rules to %q\n", destPath)
 	return nil
-}
-
-func canCompareFirewallDestination(deps ApplyDeps) bool {
-	return deps.RunRoot != nil && deps.RunRootWithOutput != nil && deps.ReadRootFile != nil
 }
 
 func firewallDestinationMatches(rt firewallCompareRuntime, dest string, rendered string, mode os.FileMode) (bool, error) {
@@ -195,6 +151,9 @@ func statFirewallDestination(rt firewallStatRuntime, dest string) (int64, os.Fil
 
 func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planFirewall: backend=%q family=%q table=%q policies=%d rules=%d\n", fw.Backend, fw.Family, fw.Table, len(fw.Policies), len(fw.Rules))
+	if ctx.Host == nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: host context is required")
+	}
 
 	var details []string
 
@@ -215,7 +174,7 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{}, fmt.Errorf("firewall step: policies are required")
 	}
 
-	info, err := ctx.Runtime.Stat(fw.ManagedDest)
+	info, err := ctx.Host.Stat(fw.ManagedDest)
 	if err != nil {
 		details = append(details,
 			logger.ColorBlue+fmt.Sprintf("managed destination %q: does not exist (file will be created)", fw.ManagedDest)+logger.ColorReset,
@@ -230,7 +189,7 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	details = append(details, logger.ColorGreen+fmt.Sprintf("desired chain policies: %d", len(fw.Policies))+logger.ColorReset)
 	details = append(details, logger.ColorGreen+fmt.Sprintf("desired rules: %d", len(fw.Rules))+logger.ColorReset)
 
-	if firewallIncludePresent(ctx.Runtime) {
+	if firewallIncludePresent(ctx.Host) {
 		details = append(details, logger.ColorGreen+`nftables.conf include "/etc/nftables.d/*.nft" is present`+logger.ColorReset)
 	} else {
 		details = append(details, logger.ColorRed+`nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset)
@@ -243,23 +202,26 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
 }
 
-func ValidateApply(ctx pluginapi.ApplyContext, runRoot func(*ssh.Client, string) error) error {
-	if err := runRoot(ctx.Client, IncludeCheckCmd); err != nil {
+func ValidateApply(host pluginapi.Host) error {
+	if host == nil {
+		return fmt.Errorf("firewall step: host context is required")
+	}
+	if err := host.RunRoot(IncludeCheckCmd); err != nil {
 		return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
 	}
 
-	if err := runRoot(ctx.Client, "nft -c -f /etc/nftables.conf"); err != nil {
+	if err := host.RunRoot("nft -c -f /etc/nftables.conf"); err != nil {
 		return fmt.Errorf("nftables config check failed: %w", err)
 	}
 	return nil
 }
 
-func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
+func ValidatePlan(host pluginapi.Host) (pluginapi.PlanResult, error) {
 	logger.Debugf("planValidate: kind=firewall\n")
 
 	var details []string
 
-	if firewallIncludePresent(ctx.Runtime) {
+	if firewallIncludePresent(host) {
 		details = append(details,
 			logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
 		)
@@ -269,7 +231,7 @@ func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
 		)
 	}
 
-	testErr := firewallConfigTest(ctx.Runtime)
+	testErr := firewallConfigTest(host)
 	if testErr == nil {
 		details = append(details,
 			logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
@@ -287,7 +249,7 @@ func ValidatePlan(ctx pluginapi.PlanContext) (pluginapi.PlanResult, error) {
 	}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
 		ID:   stepID,
 		Type: "firewall",
@@ -295,17 +257,16 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, d
 	if spec == nil {
 		return record, fmt.Errorf("step %q (type=firewall): firewall spec missing", stepID)
 	}
+	if ctx.Host == nil {
+		return record, fmt.Errorf("firewall step: host context is required")
+	}
 
 	dest := ManagedDestination(spec)
 	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
 		return record, fmt.Errorf("step %q (type=firewall): %w", stepID, err)
 	}
 
-	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{
-		RunRoot:           deps.RunRoot,
-		RunRootWithOutput: deps.RunRootWithOutput,
-		ReadRootFile:      deps.ReadRootFile,
-	})
+	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Host, dest)
 	if err != nil {
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
@@ -327,35 +288,38 @@ func ManagedDestination(fw *Spec) string {
 	return ""
 }
 
-func EnsureNftablesInclude(client *ssh.Client, runRoot func(*ssh.Client, string) error) error {
-	if err := runRoot(client, IncludeCheckCmd); err == nil {
+func EnsureNftablesInclude(host pluginapi.Host) error {
+	if host == nil {
+		return fmt.Errorf("firewall step: host context is required")
+	}
+	if err := host.RunRoot(IncludeCheckCmd); err == nil {
 		return nil
 	}
 
 	appendCmd := "printf '\\ninclude \"/etc/nftables.d/*.nft\"\\n' >> /etc/nftables.conf"
-	if err := runRoot(client, appendCmd); err != nil {
+	if err := host.RunRoot(appendCmd); err != nil {
 		return fmt.Errorf("ensure %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
 	}
 
-	if err := runRoot(client, IncludeCheckCmd); err != nil {
+	if err := host.RunRoot(IncludeCheckCmd); err != nil {
 		return fmt.Errorf("verify %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
 	}
 
 	return nil
 }
 
-func firewallIncludePresent(rt pluginapi.Runtime) bool {
-	if rt == nil {
+func firewallIncludePresent(host pluginapi.Host) bool {
+	if host == nil {
 		return false
 	}
-	return rt.RunRoot(IncludeCheckCmd) == nil
+	return host.RunRoot(IncludeCheckCmd) == nil
 }
 
-func firewallConfigTest(rt pluginapi.Runtime) error {
-	if rt == nil {
-		return fmt.Errorf("runtime is required")
+func firewallConfigTest(host pluginapi.Host) error {
+	if host == nil {
+		return fmt.Errorf("host is required")
 	}
-	return rt.RunRoot("nft -c -f /etc/nftables.conf")
+	return host.RunRoot("nft -c -f /etc/nftables.conf")
 }
 
 func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {

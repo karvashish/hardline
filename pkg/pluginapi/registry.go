@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/karvashish/hardline/pkg/profile"
-	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -69,27 +67,22 @@ type FirewallRuleInfo struct {
 	Oif    string
 }
 
-type Runtime interface {
+type Host interface {
 	RunRoot(cmd string) error
 	RunRootWithOutput(cmd string) (string, error)
 	Stat(path string) (os.FileInfo, error)
 	ReadRootFile(path string) (string, error)
+	WriteRootFile(path string, data []byte, mode os.FileMode) error
 }
 
-type ApplyContext struct {
-	Client  *ssh.Client
+type Context struct {
+	Host    Host
 	Profile *profile.Profile
 }
 
-type PlanContext struct {
-	Runtime Runtime
-	Profile *profile.Profile
-}
-
-type RollbackContext struct {
-	Client  *ssh.Client
-	Profile *profile.Profile
-}
+type ApplyContext = Context
+type PlanContext = Context
+type RollbackContext = Context
 
 type PlanResult struct {
 	Summary string
@@ -105,20 +98,12 @@ type Plugin struct {
 	Rollback           func(RollbackContext, profile.Step) (StepRecord, error)
 }
 
-type PluginBundle struct {
-	Name    string
-	Plugins []Plugin
-}
-
 type Registry struct {
-	mu      sync.RWMutex
-	plugins map[string]Plugin
+	plugins []Plugin
 }
 
 func NewRegistry() *Registry {
-	return &Registry{
-		plugins: make(map[string]Plugin),
-	}
+	return &Registry{}
 }
 
 func normalizePluginName(name string) string {
@@ -154,54 +139,13 @@ func (r *Registry) Register(p Plugin) error {
 		return err
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, exists := r.plugins[prepared.Name]; exists {
-		return fmt.Errorf("plugin already registered for name %q", prepared.Name)
-	}
-
-	r.plugins[prepared.Name] = prepared
-	return nil
-}
-
-func (r *Registry) RegisterBundle(bundle PluginBundle) error {
-	if r == nil {
-		return fmt.Errorf("plugin registry is nil")
-	}
-	if len(bundle.Plugins) == 0 {
-		return fmt.Errorf("plugin bundle must export at least one plugin")
-	}
-
-	prepared := make([]Plugin, 0, len(bundle.Plugins))
-	seen := make(map[string]struct{}, len(bundle.Plugins))
-	for _, p := range bundle.Plugins {
-		next, err := preparePlugin(p)
-		if err != nil {
-			return err
+	for _, existing := range r.plugins {
+		if existing.Name == prepared.Name {
+			return fmt.Errorf("plugin already registered for name %q", prepared.Name)
 		}
-		if _, exists := seen[next.Name]; exists {
-			return fmt.Errorf("plugin bundle duplicates plugin %q", next.Name)
-		}
-		seen[next.Name] = struct{}{}
-		prepared = append(prepared, next)
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	nextPlugins := make(map[string]Plugin, len(r.plugins)+len(prepared))
-	for name, p := range r.plugins {
-		nextPlugins[name] = p
-	}
-	for _, p := range prepared {
-		if _, exists := nextPlugins[p.Name]; exists {
-			return fmt.Errorf("plugin already registered for name %q", p.Name)
-		}
-		nextPlugins[p.Name] = p
-	}
-
-	r.plugins = nextPlugins
+	r.plugins = append(r.plugins, prepared)
 	return nil
 }
 
@@ -210,11 +154,13 @@ func (r *Registry) Lookup(name string) (Plugin, bool) {
 		return Plugin{}, false
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	p, ok := r.plugins[normalizePluginName(name)]
-	return p, ok
+	needle := normalizePluginName(name)
+	for _, plugin := range r.plugins {
+		if plugin.Name == needle {
+			return plugin, true
+		}
+	}
+	return Plugin{}, false
 }
 
 func RequireStepPlugin(r *Registry, step profile.Step) (Plugin, error) {

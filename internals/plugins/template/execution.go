@@ -11,23 +11,7 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
-
-type ApplyDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-	NewSFTPClient     func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
-}
-
-type RollbackDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-}
 
 type templateStatRuntime interface {
 	RunRoot(cmd string) error
@@ -39,28 +23,14 @@ type templateCompareRuntime interface {
 	ReadRootFile(path string) (string, error)
 }
 
-type applyRuntime struct {
-	client *ssh.Client
-	deps   ApplyDeps
-}
-
-func (r applyRuntime) RunRoot(cmd string) error {
-	return r.deps.RunRoot(r.client, cmd)
-}
-
-func (r applyRuntime) RunRootWithOutput(cmd string) (string, error) {
-	return r.deps.RunRootWithOutput(r.client, cmd)
-}
-
-func (r applyRuntime) ReadRootFile(path string) (string, error) {
-	return r.deps.ReadRootFile(r.client, path)
-}
-
-func Apply(ctx pluginapi.ApplyContext, t *Spec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, t *Spec) error {
 	logger.Debugf("handleTemplate: src=%q dest=%q mode=%q\n", t.Src, t.Dest, t.Mode)
 
 	if ctx.Profile == nil {
 		return fmt.Errorf("template step: profile context is required")
+	}
+	if ctx.Host == nil {
+		return fmt.Errorf("template step: host context is required")
 	}
 
 	data, err := ctx.Profile.LoadTemplate(t.Src)
@@ -76,41 +46,27 @@ func Apply(ctx pluginapi.ApplyContext, t *Spec, deps ApplyDeps) error {
 		}
 	}
 
-	if canCompareTemplateDestination(deps) {
-		matches, err := templateDestinationMatches(applyRuntime{client: ctx.Client, deps: deps}, t.Dest, data, mode)
-		if err != nil {
-			return fmt.Errorf("compare destination %s: %w", t.Dest, err)
-		}
-		if matches {
-			logger.Debugf("handleTemplate: destination %q already matches, skipping write\n", t.Dest)
-			return nil
-		}
+	matches, err := templateDestinationMatches(ctx.Host, t.Dest, data, mode)
+	if err != nil {
+		return fmt.Errorf("compare destination %s: %w", t.Dest, err)
+	}
+	if matches {
+		logger.Debugf("handleTemplate: destination %q already matches, skipping write\n", t.Dest)
+		return nil
 	}
 
 	dir := path.Dir(t.Dest)
 	if dir != "" && dir != "." {
-		if err := deps.RunRoot(ctx.Client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := ctx.Host.RunRoot(fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
 
-	sftpClient, err := deps.NewSFTPClient(ctx.Client)
-	if err != nil {
-		return fmt.Errorf("new sftp client: %w", err)
-	}
-	if sftpClient != nil {
-		defer sftpClient.Close()
-	}
-
-	if err := deps.WriteRootFile(ctx.Client, sftpClient, t.Dest, data, mode); err != nil {
-		return fmt.Errorf("remote.WriteRootFile %s: %w", t.Dest, err)
+	if err := ctx.Host.WriteRootFile(t.Dest, data, mode); err != nil {
+		return fmt.Errorf("write root file %s: %w", t.Dest, err)
 	}
 
 	return nil
-}
-
-func canCompareTemplateDestination(deps ApplyDeps) bool {
-	return deps.RunRoot != nil && deps.RunRootWithOutput != nil && deps.ReadRootFile != nil
 }
 
 func templateDestinationMatches(rt templateCompareRuntime, dest string, rendered []byte, mode os.FileMode) (bool, error) {
@@ -134,6 +90,9 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 
 	if ctx.Profile == nil {
 		return pluginapi.PlanResult{}, fmt.Errorf("template step: profile context is required")
+	}
+	if ctx.Host == nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("template step: host context is required")
 	}
 
 	rendered, err := ctx.Profile.LoadTemplate(t.Src)
@@ -159,7 +118,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 	contentMatches := false
 	compareReady := false
 
-	size, currentMode, err := statTemplateDestination(ctx.Runtime, t.Dest)
+	size, currentMode, err := statTemplateDestination(ctx.Host, t.Dest)
 	if err != nil {
 		details = append(details,
 			logger.ColorRed+fmt.Sprintf("cannot stat destination %q (%v)", t.Dest, err)+logger.ColorReset,
@@ -190,7 +149,7 @@ func Plan(ctx pluginapi.PlanContext, t *Spec) (pluginapi.PlanResult, error) {
 			)
 		}
 
-		current, readErr := ctx.Runtime.ReadRootFile(t.Dest)
+		current, readErr := ctx.Host.ReadRootFile(t.Dest)
 		if readErr != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("cannot compare content for %q (%v)", t.Dest, readErr)+logger.ColorReset,
@@ -258,7 +217,7 @@ func statTemplateDestination(rt templateStatRuntime, dest string) (int64, os.Fil
 	return size, os.FileMode(perm), nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
 		ID:   stepID,
 		Type: "template",
@@ -266,17 +225,16 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, d
 	if spec == nil {
 		return record, fmt.Errorf("step %q (type=template): template spec missing", stepID)
 	}
+	if ctx.Host == nil {
+		return record, fmt.Errorf("template step: host context is required")
+	}
 
 	dest := strings.TrimSpace(spec.Dest)
 	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
 		return record, fmt.Errorf("step %q (type=template): %w", stepID, err)
 	}
 
-	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{
-		RunRoot:           deps.RunRoot,
-		RunRootWithOutput: deps.RunRootWithOutput,
-		ReadRootFile:      deps.ReadRootFile,
-	})
+	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Host, dest)
 	if err != nil {
 		return record, fmt.Errorf("capture template snapshot for %q: %w", dest, err)
 	}

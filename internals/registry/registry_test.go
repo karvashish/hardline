@@ -34,27 +34,18 @@ func TestNewDefaultRegistryIncludesBuiltins(t *testing.T) {
 	}
 }
 
-func TestNewRegistrySFTPClientPanicsOnNilClient(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic")
-		}
-	}()
-	_, _ = newRegistrySFTPClient(nil)
-}
-
 func TestNewDefaultRegistryPanicsOnRegisterError(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
 			t.Fatal("expected panic")
 		}
-		if !strings.Contains(r.(string), "register default plugin bundle") {
+		if !strings.Contains(r.(string), "register default plugin") {
 			t.Fatalf("unexpected panic: %v", r)
 		}
 	}()
 
-	_ = newDefaultRegistry(func(*pluginapi.Registry, pluginapi.PluginBundle) error {
+	_ = newDefaultRegistry(func(*pluginapi.Registry, pluginapi.Plugin) error {
 		return errors.New("boom")
 	})
 }

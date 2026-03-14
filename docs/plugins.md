@@ -8,6 +8,14 @@ The core plugin API lives in:
 
 - [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
 
+The intended model is:
+
+- host = hardware
+- hardline core = kernel
+- plugins = userspace
+
+The kernel decides when a step is planned, applied, or rolled back. Plugins do not get direct transport wiring anymore; they receive a kernel-owned host ABI through `pluginapi.Host` and use that syscall surface to inspect or mutate the target host.
+
 A plugin must provide:
 
 - `Name`
@@ -24,6 +32,7 @@ Important contract types:
 - `pluginapi.ApplyContext`
 - `pluginapi.PlanContext`
 - `pluginapi.RollbackContext`
+- `pluginapi.Host`
 - `pluginapi.PlanResult`
 - `pluginapi.StepRecord`
 
@@ -33,6 +42,7 @@ The intended ownership split is:
 
 - core orchestration decides when a step is planned, applied, or rolled back
 - the plugin owns how its `config` is decoded, validated, planned, executed, and snapshotted for rollback
+- the kernel-owned `pluginapi.Host` surface is the only host ABI plugins should rely on for mutation
 
 The current code follows that model closely.
 
@@ -45,7 +55,7 @@ Relevant files:
 
 Built-in plugin registration is assembled in:
 
-- [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go)
+- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
 
 Current built-ins:
 
@@ -115,7 +125,7 @@ Behavior:
 - validates current nftables configuration during planning and apply
 - snapshots the managed firewall file for rollback
 
-## Bundled External Plugins
+## External Plugins
 
 This repository currently ships one external Go plugin project:
 
@@ -125,7 +135,7 @@ This repository currently ships one external Go plugin project:
 
 Relevant files:
 
-- bundle export: [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go)
+- export: [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go)
 - spec: [`pluginprojects/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/spec.go)
 - validation wiring: [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go)
 - plan/apply/rollback capture: [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
@@ -159,10 +169,11 @@ Requirements:
 - compiled as `.so`
 - placed in `plugins/` next to the built binary
 - export the symbol `HardlinePluginV1`
-- provide a `*pluginapi.PluginBundle`
+- provide a `*pluginapi.Plugin`
+- consume host access through `pluginapi.Host` from the passed contexts, not by importing runtime transport wiring
 - built with a C compiler available in `PATH` because plugin builds and plugin-loading binaries both require cgo-enabled linking
 
-`make build` currently emits the bundled `firewall_template` plugin to `tmp/plugins/firewall_template.so`.
+`make build` currently emits the shipped `firewall_template` plugin to `tmp/plugins/firewall_template.so`.
 
 Relevant registry files:
 

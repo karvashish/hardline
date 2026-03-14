@@ -14,25 +14,9 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 const DefaultManagedDestination = "/etc/nftables.d/99-hardline-firewall.nft"
-
-type ApplyDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-	NewSFTPClient     func(*ssh.Client) (*sftp.Client, error)
-	WriteRootFile     func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error
-}
-
-type RollbackDeps struct {
-	RunRoot           func(*ssh.Client, string) error
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-	ReadRootFile      func(*ssh.Client, string) (string, error)
-}
 
 type firewallTemplateStatRuntime interface {
 	RunRoot(cmd string) error
@@ -44,24 +28,7 @@ type firewallTemplateCompareRuntime interface {
 	ReadRootFile(path string) (string, error)
 }
 
-type firewallTemplateApplyRuntime struct {
-	client *ssh.Client
-	deps   ApplyDeps
-}
-
-func (r firewallTemplateApplyRuntime) RunRoot(cmd string) error {
-	return r.deps.RunRoot(r.client, cmd)
-}
-
-func (r firewallTemplateApplyRuntime) RunRootWithOutput(cmd string) (string, error) {
-	return r.deps.RunRootWithOutput(r.client, cmd)
-}
-
-func (r firewallTemplateApplyRuntime) ReadRootFile(path string) (string, error) {
-	return r.deps.ReadRootFile(r.client, path)
-}
-
-func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, fw *Spec) error {
 	logger.Debugf("handleFirewallTemplate: backend=%q allow_rules=%d\n", fw.Backend, len(fw.Allow))
 
 	if fw.Backend != "nftables" {
@@ -69,6 +36,9 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 	}
 	if ctx.Profile == nil {
 		return fmt.Errorf("firewall_template step: profile context is required")
+	}
+	if ctx.Host == nil {
+		return fmt.Errorf("firewall_template step: host context is required")
 	}
 
 	tmplPath := strings.TrimSpace(fw.TemplateSrc)
@@ -114,42 +84,28 @@ func Apply(ctx pluginapi.ApplyContext, fw *Spec, deps ApplyDeps) error {
 	destPath := ManagedDestination(fw)
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
-		if err := deps.RunRoot(ctx.Client, fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := ctx.Host.RunRoot(fmt.Sprintf("mkdir -p %q", dir)); err != nil {
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
 
-	if err := firewall.EnsureNftablesInclude(ctx.Client, deps.RunRoot); err != nil {
+	if err := firewall.EnsureNftablesInclude(ctx.Host); err != nil {
 		return err
 	}
 
-	if canCompareFirewallTemplateDestination(deps) {
-		matches, err := firewallTemplateDestinationMatches(firewallTemplateApplyRuntime{client: ctx.Client, deps: deps}, destPath, rendered, os.FileMode(0644))
-		if err != nil {
-			return fmt.Errorf("compare destination %s: %w", destPath, err)
-		}
-		if matches {
-			logger.Debugf("handleFirewallTemplate: destination %q already matches, skipping write\n", destPath)
-			return nil
-		}
-	}
-
-	sftpClient, err := deps.NewSFTPClient(ctx.Client)
+	matches, err := firewallTemplateDestinationMatches(ctx.Host, destPath, rendered, os.FileMode(0644))
 	if err != nil {
-		return fmt.Errorf("new sftp client: %w", err)
+		return fmt.Errorf("compare destination %s: %w", destPath, err)
 	}
-	if sftpClient != nil {
-		defer sftpClient.Close()
+	if matches {
+		logger.Debugf("handleFirewallTemplate: destination %q already matches, skipping write\n", destPath)
+		return nil
 	}
 
-	if err := deps.WriteRootFile(ctx.Client, sftpClient, destPath, []byte(rendered), os.FileMode(0644)); err != nil {
-		return fmt.Errorf("remote.WriteRootFile %s: %w", destPath, err)
+	if err := ctx.Host.WriteRootFile(destPath, []byte(rendered), os.FileMode(0644)); err != nil {
+		return fmt.Errorf("write root file %s: %w", destPath, err)
 	}
 	return nil
-}
-
-func canCompareFirewallTemplateDestination(deps ApplyDeps) bool {
-	return deps.RunRoot != nil && deps.RunRootWithOutput != nil && deps.ReadRootFile != nil
 }
 
 func firewallTemplateDestinationMatches(rt firewallTemplateCompareRuntime, dest, rendered string, mode os.FileMode) (bool, error) {
@@ -200,6 +156,9 @@ func statFirewallTemplateDestination(rt firewallTemplateStatRuntime, dest string
 
 func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planFirewallTemplate: backend=%q allow_rules=%d template=%q -> %q\n", fw.Backend, len(fw.Allow), fw.TemplateSrc, fw.TemplateDest)
+	if ctx.Host == nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("firewall_template step: host context is required")
+	}
 
 	var details []string
 
@@ -217,7 +176,7 @@ func Plan(ctx pluginapi.PlanContext, fw *Spec) (pluginapi.PlanResult, error) {
 		destPath = ManagedDestination(fw)
 	}
 
-	info, err := ctx.Runtime.Stat(destPath)
+	info, err := ctx.Host.Stat(destPath)
 	if err != nil {
 		details = append(details,
 			logger.ColorBlue+fmt.Sprintf("destination %q: does not exist (file will be created)", destPath)+logger.ColorReset,
@@ -248,7 +207,7 @@ func ManagedDestination(fw *Spec) string {
 	return dest
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
 		ID:   stepID,
 		Type: "firewall_template",
@@ -256,17 +215,16 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, d
 	if spec == nil {
 		return record, fmt.Errorf("step %q (type=firewall_template): firewall_template spec missing", stepID)
 	}
+	if ctx.Host == nil {
+		return record, fmt.Errorf("firewall_template step: host context is required")
+	}
 
 	dest := ManagedDestination(spec)
 	if err := rollbackutil.EnforceManagedPath(dest); err != nil {
 		return record, fmt.Errorf("step %q (type=firewall_template): %w", stepID, err)
 	}
 
-	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Client, dest, rollbackutil.Deps{
-		RunRoot:           deps.RunRoot,
-		RunRootWithOutput: deps.RunRootWithOutput,
-		ReadRootFile:      deps.ReadRootFile,
-	})
+	snap, err := rollbackutil.SnapshotRemoteFile(ctx.Host, dest)
 	if err != nil {
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}

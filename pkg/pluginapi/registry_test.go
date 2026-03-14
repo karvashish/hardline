@@ -81,17 +81,12 @@ func TestRegistryLookupNilRegistry(t *testing.T) {
 	}
 }
 
-func TestRegistryRegisterBundle(t *testing.T) {
+func TestRegistryRegisterMultiplePlugins(t *testing.T) {
 	r := NewRegistry()
-	err := r.RegisterBundle(PluginBundle{
-		Name: "bundle",
-		Plugins: []Plugin{
-			validPlugin("x"),
-			validPlugin("y"),
-		},
-	})
-	if err != nil {
-		t.Fatalf("register bundle failed: %v", err)
+	for _, name := range []string{"x", "y"} {
+		if err := r.Register(validPlugin(name)); err != nil {
+			t.Fatalf("register plugin %q failed: %v", name, err)
+		}
 	}
 	if _, ok := r.Lookup("x"); !ok {
 		t.Fatal("expected plugin x in registry")
@@ -99,55 +94,6 @@ func TestRegistryRegisterBundle(t *testing.T) {
 	if _, ok := r.Lookup("y"); !ok {
 		t.Fatal("expected plugin y in registry")
 	}
-}
-
-func TestRegistryRegisterBundleErrors(t *testing.T) {
-	t.Run("nil registry", func(t *testing.T) {
-		var nilReg *Registry
-		if err := nilReg.RegisterBundle(PluginBundle{Plugins: []Plugin{validPlugin("x")}}); err == nil || !strings.Contains(err.Error(), "nil") {
-			t.Fatalf("expected nil registry error, got %v", err)
-		}
-	})
-
-	t.Run("empty bundle", func(t *testing.T) {
-		r := NewRegistry()
-		if err := r.RegisterBundle(PluginBundle{}); err == nil || !strings.Contains(err.Error(), "at least one plugin") {
-			t.Fatalf("expected empty bundle error, got %v", err)
-		}
-	})
-
-	t.Run("duplicate in bundle", func(t *testing.T) {
-		r := NewRegistry()
-		err := r.RegisterBundle(PluginBundle{
-			Plugins: []Plugin{
-				validPlugin("x"),
-				validPlugin("x"),
-			},
-		})
-		if err == nil || !strings.Contains(err.Error(), "duplicates plugin") {
-			t.Fatalf("expected duplicate bundle plugin error, got %v", err)
-		}
-	})
-
-	t.Run("atomic on failure", func(t *testing.T) {
-		r := NewRegistry()
-		if err := r.Register(validPlugin("seed")); err != nil {
-			t.Fatalf("seed register failed: %v", err)
-		}
-
-		err := r.RegisterBundle(PluginBundle{
-			Plugins: []Plugin{
-				validPlugin("seed"),
-				validPlugin("other"),
-			},
-		})
-		if err == nil || !strings.Contains(err.Error(), "already registered") {
-			t.Fatalf("expected registration collision, got %v", err)
-		}
-		if _, ok := r.Lookup("other"); ok {
-			t.Fatal("unexpected partial bundle registration")
-		}
-	})
 }
 
 func TestEnsureValidationPolicy(t *testing.T) {

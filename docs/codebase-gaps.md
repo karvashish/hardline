@@ -28,7 +28,7 @@ This is the intended mental model for the repository even where the implementati
 Areas that are effectively solid today:
 
 - profile loading and JSON schema validation
-- plugin execution for packages, templates, services, firewall, and the shipped `firewall_template` bundle
+- plugin execution for packages, templates, services, firewall, and the shipped `firewall_template` plugin
 - SSH host key checking through `known_hosts`
 - signed profile integrity verification
 - rollback journal persistence and reverse-order rollback replay
@@ -165,8 +165,8 @@ Vision:
 Implemented:
 
 - [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go) defines the plugin contract and registry.
-- [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go) assembles the built-in bundle.
-- [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go) exports the shipped external `firewall_template` bundle.
+- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go) assembles the built-in plugin table.
+- [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go) exports the shipped external `firewall_template` plugin.
 - Each shipped plugin validates its own config before plan/apply/rollback capture.
 
 Divergence:

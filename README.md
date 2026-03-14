@@ -72,8 +72,7 @@ For a new engineer, the fastest reading order is:
 - Rollback: [`internals/rollback/journal.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/journal.go), [`internals/rollback/rollback.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/rollback.go)
 - Plugin contract: [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
 - Shared plugin registry owner: [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
-- Built-in plugin registration: [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go)
-- Bundled external plugin project: [`pluginprojects/firewalltemplate/bundle.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/bundle.go)
+- External plugin export: [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go)
 - External plugin loading: [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
 - SSH and remote execution: [`internals/connection/connection.go`](/home/kartikeya_vashishtha/hardline-try2/internals/connection/connection.go), [`internals/remote/exec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/exec.go), [`internals/remote/fs.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/fs.go)
 - Verification and signing: [`internals/verify/integrity.go`](/home/kartikeya_vashishtha/hardline-try2/internals/verify/integrity.go), [`cmd/profiletool/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/profiletool/main.go)
@@ -112,7 +111,7 @@ Plugin-specific fields live under `config`.
 
 ## Built-in Plugins
 
-The built-in registry is assembled in [`internals/plugins/builtin/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/builtin/registry.go).
+The built-in registry is assembled in [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go).
 
 Supported built-in plugins:
 
@@ -121,13 +120,21 @@ Supported built-in plugins:
 - `service`
 - `firewall`
 
-Bundled external plugin:
+External plugin project:
 
 - `firewall_template`
   Built from [`pluginprojects/firewalltemplate`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate) into `tmp/plugins/firewall_template.so` by `make build`.
   Building and loading the shared object requires a C compiler in `PATH` because Go plugins use cgo-enabled linking.
 
-Before `plan` and `apply`, the binary attempts to load external Go plugins from a `plugins/` directory next to the compiled binary. Shared objects must export `HardlinePluginV1`.
+Before `plan` and `apply`, the binary attempts to load external Go plugins from a `plugins/` directory next to the compiled binary. Each shared object must export `HardlinePluginV1` as a `*pluginapi.Plugin`.
+
+Hardline treats that boundary like a small OS:
+
+- host = hardware
+- hardline core = kernel
+- plugins = userspace
+
+The core decides when plugins are invoked. Plugins should use the kernel-owned `pluginapi.Host` surface exposed in their contexts for host access instead of depending on transport wiring directly.
 
 ## Execution Model
 

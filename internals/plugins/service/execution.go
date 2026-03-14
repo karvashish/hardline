@@ -8,27 +8,21 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"golang.org/x/crypto/ssh"
 )
 
-type ApplyDeps struct {
-	RunRoot func(*ssh.Client, string) error
-}
-
-type RollbackDeps struct {
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-}
-
-func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, s *Spec) error {
 	if s.Name == "" {
 		return fmt.Errorf("service name is required")
+	}
+	if ctx.Host == nil {
+		return fmt.Errorf("service step: host context is required")
 	}
 
 	unit := normalizeServiceUnit(s.Name)
 	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
 
 	if s.Enabled != nil {
-		enabledNow := serviceIsEnabled(ctx.Client, unit, deps.RunRoot)
+		enabledNow := serviceIsEnabled(ctx.Host, unit)
 		if *s.Enabled != enabledNow {
 			var cmd string
 			if *s.Enabled {
@@ -36,7 +30,7 @@ func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
 			} else {
 				cmd = fmt.Sprintf("systemctl disable %s", unit)
 			}
-			if err := deps.RunRoot(ctx.Client, cmd); err != nil {
+			if err := ctx.Host.RunRoot(cmd); err != nil {
 				return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
 			}
 		} else {
@@ -52,13 +46,13 @@ func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
 	var cmd string
 	switch state {
 	case "started", "start":
-		if serviceIsActive(ctx.Client, unit, deps.RunRoot) {
+		if serviceIsActive(ctx.Host, unit) {
 			logger.Debugf("handleService: %s already active, skipping start\n", unit)
 			return nil
 		}
 		cmd = fmt.Sprintf("systemctl start %s", unit)
 	case "stopped", "stop":
-		if !serviceIsActive(ctx.Client, unit, deps.RunRoot) {
+		if !serviceIsActive(ctx.Host, unit) {
 			logger.Debugf("handleService: %s already inactive, skipping stop\n", unit)
 			return nil
 		}
@@ -71,7 +65,7 @@ func Apply(ctx pluginapi.ApplyContext, s *Spec, deps ApplyDeps) error {
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
 	}
 
-	if err := deps.RunRoot(ctx.Client, cmd); err != nil {
+	if err := ctx.Host.RunRoot(cmd); err != nil {
 		return fmt.Errorf("systemctl %s %s: %w", state, unit, err)
 	}
 
@@ -82,6 +76,9 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	if s.Name == "" {
 		return pluginapi.PlanResult{Summary: "service step: invalid (missing service name)"}, fmt.Errorf("service name is required")
 	}
+	if ctx.Host == nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("service step: host context is required")
+	}
 
 	unit := normalizeServiceUnit(s.Name)
 	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, s.Enabled, s.State)
@@ -89,14 +86,14 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	var details []string
 
 	enabledState := "unknown"
-	if serviceIsEnabledRuntime(ctx.Runtime, unit) {
+	if serviceIsEnabled(ctx.Host, unit) {
 		enabledState = "enabled"
 	} else {
 		enabledState = "disabled or not-found"
 	}
 
 	activeState := "unknown"
-	if serviceIsActiveRuntime(ctx.Runtime, unit) {
+	if serviceIsActive(ctx.Host, unit) {
 		activeState = "active"
 	} else {
 		activeState = "inactive or not-found"
@@ -168,7 +165,7 @@ func Plan(ctx pluginapi.PlanContext, s *Spec) (pluginapi.PlanResult, error) {
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: 2}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
 		ID:   stepID,
 		Type: "service",
@@ -176,11 +173,12 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, spec *Spec, d
 	if spec == nil {
 		return record, fmt.Errorf("step %q (type=service): service spec missing", stepID)
 	}
+	if ctx.Host == nil {
+		return record, fmt.Errorf("service step: host context is required")
+	}
 
 	unit := normalizeServiceUnit(spec.Name)
-	state, err := rollbackutil.SnapshotServiceState(ctx.Client, unit, rollbackutil.Deps{
-		RunRootWithOutput: deps.RunRootWithOutput,
-	})
+	state, err := rollbackutil.SnapshotServiceState(ctx.Host, unit)
 	if err != nil {
 		return record, fmt.Errorf("capture service snapshot for %q: %w", unit, err)
 	}
@@ -200,28 +198,18 @@ func normalizeServiceUnit(unit string) string {
 	return name
 }
 
-func serviceIsEnabled(client *ssh.Client, unit string, runRoot func(*ssh.Client, string) error) bool {
-	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)
-	return runRoot(client, cmd) == nil
-}
-
-func serviceIsActive(client *ssh.Client, unit string, runRoot func(*ssh.Client, string) error) bool {
-	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
-	return runRoot(client, cmd) == nil
-}
-
-func serviceIsEnabledRuntime(rt pluginapi.Runtime, unit string) bool {
-	if rt == nil {
+func serviceIsEnabled(host pluginapi.Host, unit string) bool {
+	if host == nil {
 		return false
 	}
 	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", unit)
-	return rt.RunRoot(cmd) == nil
+	return host.RunRoot(cmd) == nil
 }
 
-func serviceIsActiveRuntime(rt pluginapi.Runtime, unit string) bool {
-	if rt == nil {
+func serviceIsActive(host pluginapi.Host, unit string) bool {
+	if host == nil {
 		return false
 	}
 	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", unit)
-	return rt.RunRoot(cmd) == nil
+	return host.RunRoot(cmd) == nil
 }

@@ -104,24 +104,21 @@ func TestNewDefaultRegistries(t *testing.T) {
 	}
 }
 
-func TestRegisterPluginBundle(t *testing.T) {
+func TestRegisterPlugin(t *testing.T) {
 	reg := pluginapi.NewRegistry()
-	err := reg.RegisterBundle(pluginapi.PluginBundle{
-		Name: "bundle",
-		Plugins: []pluginapi.Plugin{{
-			Name:               "rb",
-			InternalValidation: true,
-			Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
-			Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
-				return pluginapi.PlanResult{}, nil
-			},
-			Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
-				return rollback.StepRecord{ID: "rb", Type: "rb", RollbackMode: rollback.ModeNoop}, nil
-			},
-		}},
+	err := reg.Register(pluginapi.Plugin{
+		Name:               "rb",
+		InternalValidation: true,
+		Apply:              func(pluginapi.ApplyContext, profile.Step) error { return nil },
+		Plan: func(pluginapi.PlanContext, profile.Step) (pluginapi.PlanResult, error) {
+			return pluginapi.PlanResult{}, nil
+		},
+		Rollback: func(pluginapi.RollbackContext, profile.Step) (pluginapi.StepRecord, error) {
+			return rollback.StepRecord{ID: "rb", Type: "rb", RollbackMode: rollback.ModeNoop}, nil
+		},
 	})
 	if err != nil {
-		t.Fatalf("register bundle failed: %v", err)
+		t.Fatalf("register plugin failed: %v", err)
 	}
 
 	plugin, ok := reg.Lookup("rb")

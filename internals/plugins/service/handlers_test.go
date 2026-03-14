@@ -6,14 +6,10 @@ import (
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestPlugin_MetadataAndValidation(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{RunRoot: func(*ssh.Client, string) error { return nil }},
-		RollbackDeps{RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil }},
-	)
+	plugin := Plugin()
 
 	if !plugin.InternalValidation {
 		t.Fatal("expected service plugin to declare internal validation")
@@ -46,13 +42,16 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 	if err := validateServiceSpec(nil); err == nil || !strings.Contains(err.Error(), "config is required") {
 		t.Fatalf("expected nil config validation error, got %v", err)
 	}
+	if err := validateServiceSpec(&Spec{}); err == nil || !strings.Contains(err.Error(), "name is required") {
+		t.Fatalf("expected missing name validation error, got %v", err)
+	}
+	if err := validateServiceSpec(&Spec{Name: "ssh", State: "reload-or-restart"}); err != nil {
+		t.Fatalf("expected reload-or-restart validation success, got %v", err)
+	}
 }
 
 func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{RunRoot: func(*ssh.Client, string) error { return nil }},
-		RollbackDeps{RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil }},
-	)
+	plugin := Plugin()
 
 	step := profile.Step{
 		ID:     "svc",
@@ -63,15 +62,36 @@ func TestPlugin_ApplyPlanAndRollback(t *testing.T) {
 		},
 	}
 
-	if err := plugin.Apply(pluginapi.ApplyContext{}, step); err != nil {
+	if err := plugin.Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{}}, step); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
 	if _, err := plugin.Plan(pluginapi.PlanContext{
-		Runtime: serviceRuntimeStub{},
+		Host: serviceRuntimeStub{},
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: serviceRuntimeStub{}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
+	}
+}
+
+func TestPlugin_DecodeErrors(t *testing.T) {
+	plugin := Plugin()
+	step := profile.Step{
+		ID:     "svc",
+		Plugin: "service",
+		Config: map[string]any{
+			"name": 123,
+		},
+	}
+
+	if err := plugin.Apply(pluginapi.ApplyContext{}, step); err == nil {
+		t.Fatal("expected apply decode error")
+	}
+	if _, err := plugin.Plan(pluginapi.PlanContext{Host: serviceRuntimeStub{}}, step); err == nil {
+		t.Fatal("expected plan decode error")
+	}
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
+		t.Fatal("expected rollback decode error")
 	}
 }

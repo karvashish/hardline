@@ -1,25 +1,15 @@
 package template
 
 import (
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestPlugin_MetadataAndValidation(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		},
-		RollbackDeps{},
-	)
+	plugin := Plugin()
 
 	if !plugin.InternalValidation {
 		t.Fatal("expected template plugin to declare internal validation")
@@ -53,14 +43,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 }
 
 func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		},
-		RollbackDeps{},
-	)
+	plugin := Plugin()
 
 	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
 		ID:     "tmpl",
@@ -76,18 +59,7 @@ func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 }
 
 func TestPlugin_PlanAndRollback(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		},
-		RollbackDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
-		},
-	)
+	plugin := Plugin()
 
 	prof := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
 	step := profile.Step{
@@ -102,12 +74,12 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 
 	if _, err := plugin.Plan(pluginapi.PlanContext{
 		Profile: prof,
-		Runtime: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello"},
+		Host:    templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello"},
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}
 
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 5}, readContent: "hello"}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }

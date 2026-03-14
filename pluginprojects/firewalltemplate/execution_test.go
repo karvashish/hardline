@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,14 +15,14 @@ import (
 func TestApply(t *testing.T) {
 	t.Run("unsupported backend", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "ok"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "ufw"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "ufw"})
 		if err == nil || !strings.Contains(err.Error(), "unsupported firewall backend") {
 			t.Fatalf("expected backend error, got %v", err)
 		}
 	})
 
 	t.Run("profile required", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Backend: "nftables"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -32,7 +30,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("template load error", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/other.tmpl": "ok"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"})
 		if err == nil || !strings.Contains(err.Error(), "load nftables template") {
 			t.Fatalf("expected load error, got %v", err)
 		}
@@ -40,17 +38,16 @@ func TestApply(t *testing.T) {
 
 	t.Run("parse and execute errors", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/bad.tmpl": "{{"})
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"})
 		if err == nil || !strings.Contains(err.Error(), "parse nftables template") {
 			t.Fatalf("expected parse error, got %v", err)
 		}
 
 		p = mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/bad.tmpl": "{{index .Missing 0}}"})
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"}, ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		})
+		err = Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
+			runRoot:       func(string) error { return nil },
+			writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+		}, Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"})
 		if err == nil || !strings.Contains(err.Error(), "execute nftables template") {
 			t.Fatalf("expected execute error, got %v", err)
 		}
@@ -59,16 +56,16 @@ func TestApply(t *testing.T) {
 	t.Run("mkdir include sftp write errors", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "{{allow_rules}}"})
 
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
-			RunRoot: func(*ssh.Client, string) error { return errors.New("boom") },
-		})
+		err := Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
+			runRoot: func(string) error { return errors.New("boom") },
+		}, Profile: p}, &Spec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "mkdir") {
 			t.Fatalf("expected mkdir error, got %v", err)
 		}
 
 		checkCount := 0
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err = Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
+			runRoot: func(cmd string) error {
 				if cmd == `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf` {
 					checkCount++
 					return errors.New("missing")
@@ -78,7 +75,7 @@ func TestApply(t *testing.T) {
 				}
 				return nil
 			},
-		})
+		}, Profile: p}, &Spec{Backend: "nftables"})
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure error, got %v", err)
 		}
@@ -86,20 +83,21 @@ func TestApply(t *testing.T) {
 			t.Fatalf("expected one include check, got %d", checkCount)
 		}
 
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, errors.New("boom") },
-		})
-		if err == nil || !strings.Contains(err.Error(), "new sftp client") {
-			t.Fatalf("expected sftp error, got %v", err)
+		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"})
+		if err == nil || !strings.Contains(err.Error(), "host context is required") {
+			t.Fatalf("expected host error, got %v", err)
 		}
 
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{Backend: "nftables"}, ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return errors.New("boom") },
-		})
-		if err == nil || !strings.Contains(err.Error(), "remote.WriteRootFile") {
+		err = Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
+			runRoot: func(cmd string) error {
+				if strings.HasPrefix(cmd, "test -e ") {
+					return errors.New("missing")
+				}
+				return nil
+			},
+			writeRootFile: func(string, []byte, os.FileMode) error { return errors.New("boom") },
+		}, Profile: p}, &Spec{Backend: "nftables"})
+		if err == nil || !strings.Contains(err.Error(), "write root file") {
 			t.Fatalf("expected write error, got %v", err)
 		}
 	})
@@ -108,44 +106,39 @@ func TestApply(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/nftables_base.tmpl": "table inet filter {\n{{allow_rules}}\n}"})
 		var gotDest, gotText string
 		wantText := "table inet filter {\n# hardline: allow rules from profile\n    tcp dport 22 accept\n\n}"
-		err := Apply(pluginapi.ApplyContext{Profile: p}, &Spec{
+		err := Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
+			runRoot:           func(string) error { return nil },
+			runRootWithOutput: func(string) (string, error) { return fmt.Sprintf("644 %d", len(wantText)), nil },
+			readRootFile:      func(string) (string, error) { return wantText, nil },
+			writeRootFile: func(string, []byte, os.FileMode) error {
+				t.Fatalf("write should be skipped when firewall template output already matches")
+				return nil
+			},
+		}, Profile: p}, &Spec{
 			Backend: "nftables",
 			Allow: []AllowRule{
 				{Port: 22, Proto: "tcp"},
-			},
-		}, ApplyDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantText)), nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantText, nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) {
-				t.Fatalf("sftp client should not be created when firewall template output already matches")
-				return nil, nil
-			},
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error {
-				t.Fatalf("write should be skipped when firewall template output already matches")
-				return nil
 			},
 		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		err = Apply(pluginapi.ApplyContext{Profile: p}, &Spec{
-			Backend: "nftables",
-			Allow: []AllowRule{
-				{Port: 22, Proto: "tcp"},
-			},
-		}, ApplyDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return fmt.Sprintf("644 %d", len(wantText)), nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return wantText + "\n# drift", nil },
-			NewSFTPClient:     func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(_ *ssh.Client, _ *sftp.Client, dest string, data []byte, mode os.FileMode) error {
+		err = Apply(pluginapi.ApplyContext{Host: fwTemplateExecHostStub{
+			runRoot:           func(string) error { return nil },
+			runRootWithOutput: func(string) (string, error) { return fmt.Sprintf("644 %d", len(wantText)), nil },
+			readRootFile:      func(string) (string, error) { return wantText + "\n# drift", nil },
+			writeRootFile: func(dest string, data []byte, mode os.FileMode) error {
 				gotDest, gotText = dest, string(data)
 				if mode != 0o644 {
 					t.Fatalf("unexpected mode %#o", mode)
 				}
 				return nil
+			},
+		}, Profile: p}, &Spec{
+			Backend: "nftables",
+			Allow: []AllowRule{
+				{Port: 22, Proto: "tcp"},
 			},
 		})
 		if err != nil {
@@ -168,12 +161,12 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("unexpected custom destination: %q", got)
 	}
 
-	res, err := Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{}}, &Spec{Backend: "ufw"})
+	res, err := Plan(pluginapi.PlanContext{Host: fwTemplateRuntimeStub{}}, &Spec{Backend: "ufw"})
 	if err != nil || !strings.Contains(res.Summary, "unsupported backend") {
 		t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 	}
 
-	res, err = Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{}}, &Spec{Backend: "nftables"})
+	res, err = Plan(pluginapi.PlanContext{Host: fwTemplateRuntimeStub{}}, &Spec{Backend: "nftables"})
 	if err != nil {
 		t.Fatalf("expected defaulted template plan success, got %v", err)
 	}
@@ -181,7 +174,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("expected plan summary to use defaults, got %+v", res)
 	}
 
-	res, err = Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+	res, err = Plan(pluginapi.PlanContext{Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -189,21 +182,21 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("unexpected plan result: %+v", res)
 	}
 
-	_, err = CaptureRollback(pluginapi.RollbackContext{}, "ft", nil, RollbackDeps{})
+	_, err = CaptureRollback(pluginapi.RollbackContext{}, "ft", nil)
 	if err == nil || !strings.Contains(err.Error(), "firewall_template spec missing") {
 		t.Fatalf("expected missing spec error, got %v", err)
 	}
 
-	_, err = CaptureRollback(pluginapi.RollbackContext{}, "ft", &Spec{TemplateDest: "/tmp/nope.nft"}, RollbackDeps{})
+	_, err = CaptureRollback(pluginapi.RollbackContext{Host: fwTemplateExecHostStub{}}, "ft", &Spec{TemplateDest: "/tmp/nope.nft"})
 	if err == nil || !strings.Contains(err.Error(), "outside /etc") {
 		t.Fatalf("expected managed path error, got %v", err)
 	}
 
-	rec, err := CaptureRollback(pluginapi.RollbackContext{}, "ft", &Spec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"}, RollbackDeps{
-		RunRoot:           func(*ssh.Client, string) error { return nil },
-		RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "644", nil },
-		ReadRootFile:      func(*ssh.Client, string) (string, error) { return "abc", nil },
-	})
+	rec, err := CaptureRollback(pluginapi.RollbackContext{Host: fwTemplateExecHostStub{
+		runRoot:           func(string) error { return nil },
+		runRootWithOutput: func(string) (string, error) { return "644", nil },
+		readRootFile:      func(string) (string, error) { return "abc", nil },
+	}}, "ft", &Spec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 	if err != nil {
 		t.Fatalf("CaptureRollback failed: %v", err)
 	}
@@ -272,11 +265,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 	})
 
 	t.Run("plugin decode errors", func(t *testing.T) {
-		plugin := Plugin(ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		}, RollbackDeps{})
+		plugin := Plugin()
 		step := profile.Step{
 			ID:     "bad-firewall-template",
 			Plugin: "firewall_template",
@@ -286,7 +275,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 		if err := plugin.Apply(pluginapi.ApplyContext{}, step); err == nil {
 			t.Fatalf("expected plugin apply decode error")
 		}
-		if _, err := plugin.Plan(pluginapi.PlanContext{Runtime: fwTemplateRuntimeStub{}}, step); err == nil {
+		if _, err := plugin.Plan(pluginapi.PlanContext{Host: fwTemplateRuntimeStub{}}, step); err == nil {
 			t.Fatalf("expected plugin plan decode error")
 		}
 		if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err == nil {
@@ -360,6 +349,8 @@ func (s fwTemplateRuntimeStub) Stat(string) (os.FileInfo, error) {
 }
 func (fwTemplateRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
 
+func (fwTemplateRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
+
 type fwTemplateHelperRuntimeStub struct {
 	runRootErr           error
 	runRootWithOutput    string
@@ -379,4 +370,43 @@ func (s fwTemplateHelperRuntimeStub) ReadRootFile(string) (string, error) {
 		return "", s.readErr
 	}
 	return s.readContent, nil
+}
+
+func (fwTemplateHelperRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
+
+type fwTemplateExecHostStub struct {
+	runRoot           func(string) error
+	runRootWithOutput func(string) (string, error)
+	readRootFile      func(string) (string, error)
+	writeRootFile     func(string, []byte, os.FileMode) error
+}
+
+func (s fwTemplateExecHostStub) RunRoot(cmd string) error {
+	if s.runRoot == nil {
+		return nil
+	}
+	return s.runRoot(cmd)
+}
+
+func (s fwTemplateExecHostStub) RunRootWithOutput(cmd string) (string, error) {
+	if s.runRootWithOutput == nil {
+		return "", nil
+	}
+	return s.runRootWithOutput(cmd)
+}
+
+func (fwTemplateExecHostStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("missing") }
+
+func (s fwTemplateExecHostStub) ReadRootFile(path string) (string, error) {
+	if s.readRootFile == nil {
+		return "", nil
+	}
+	return s.readRootFile(path)
+}
+
+func (s fwTemplateExecHostStub) WriteRootFile(path string, data []byte, mode os.FileMode) error {
+	if s.writeRootFile == nil {
+		return nil
+	}
+	return s.writeRootFile(path, data, mode)
 }

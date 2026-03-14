@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"golang.org/x/crypto/ssh"
 	"os"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 
 func TestApply(t *testing.T) {
 	t.Run("missing name", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &Spec{}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{}, &Spec{})
 		if err == nil || !strings.Contains(err.Error(), "service name is required") {
 			t.Fatalf("expected missing name error, got %v", err)
 		}
@@ -19,8 +18,8 @@ func TestApply(t *testing.T) {
 
 	t.Run("enable and restart when dirty", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "sshd", State: "restart", Enabled: boolPtr(true)}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				if cmd == "systemctl is-enabled ssh >/dev/null 2>&1" {
 					return errors.New("disabled")
@@ -30,7 +29,7 @@ func TestApply(t *testing.T) {
 				}
 				return nil
 			},
-		})
+		}}, &Spec{Name: "sshd", State: "restart", Enabled: boolPtr(true)})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -44,12 +43,12 @@ func TestApply(t *testing.T) {
 
 	t.Run("disable and stop", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "stop", Enabled: boolPtr(false)}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-		})
+		}}, &Spec{Name: "cron", State: "stop", Enabled: boolPtr(false)})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -63,12 +62,12 @@ func TestApply(t *testing.T) {
 
 	t.Run("restart always runs", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "restart"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-		})
+		}}, &Spec{Name: "cron", State: "restart"})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -79,12 +78,12 @@ func TestApply(t *testing.T) {
 
 	t.Run("reload always runs", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "reload"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-		})
+		}}, &Spec{Name: "cron", State: "reload"})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -95,12 +94,12 @@ func TestApply(t *testing.T) {
 
 	t.Run("start skips when already active", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "start"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				return nil
 			},
-		})
+		}}, &Spec{Name: "cron", State: "start"})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -111,15 +110,15 @@ func TestApply(t *testing.T) {
 
 	t.Run("stop skips when inactive", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "stop"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
 				if cmd == "systemctl is-active cron >/dev/null 2>&1" {
 					return errors.New("inactive")
 				}
 				return nil
 			},
-		})
+		}}, &Spec{Name: "cron", State: "stop"})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -129,35 +128,35 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("unsupported state", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "wat"}, ApplyDeps{})
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{}}, &Spec{Name: "cron", State: "wat"})
 		if err == nil || !strings.Contains(err.Error(), "unsupported service state") {
 			t.Fatalf("expected unsupported state error, got %v", err)
 		}
 	})
 
 	t.Run("enable command error", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", Enabled: boolPtr(true)}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				if cmd == "systemctl is-enabled cron >/dev/null 2>&1" {
 					return errors.New("disabled")
 				}
 				return errors.New("boom")
 			},
-		})
+		}}, &Spec{Name: "cron", Enabled: boolPtr(true)})
 		if err == nil || !strings.Contains(err.Error(), "enable/disable") {
 			t.Fatalf("expected enable/disable error, got %v", err)
 		}
 	})
 
 	t.Run("state command error", func(t *testing.T) {
-		err := Apply(pluginapi.ApplyContext{}, &Spec{Name: "cron", State: "start"}, ApplyDeps{
-			RunRoot: func(_ *ssh.Client, cmd string) error {
+		err := Apply(pluginapi.ApplyContext{Host: serviceRuntimeStub{
+			runRoot: func(cmd string) error {
 				if cmd == "systemctl is-active cron >/dev/null 2>&1" {
 					return errors.New("inactive")
 				}
 				return errors.New("boom")
 			},
-		})
+		}}, &Spec{Name: "cron", State: "start"})
 		if err == nil || !strings.Contains(err.Error(), "systemctl start") {
 			t.Fatalf("expected state command error, got %v", err)
 		}
@@ -165,12 +164,12 @@ func TestApply(t *testing.T) {
 }
 
 func TestPlan(t *testing.T) {
-	_, err := Plan(pluginapi.PlanContext{Runtime: serviceRuntimeStub{}}, &Spec{})
+	_, err := Plan(pluginapi.PlanContext{Host: serviceRuntimeStub{}}, &Spec{})
 	if err == nil || !strings.Contains(err.Error(), "service name is required") {
 		t.Fatalf("expected missing name error, got %v", err)
 	}
 
-	res, err := Plan(pluginapi.PlanContext{Runtime: serviceRuntimeStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
+	res, err := Plan(pluginapi.PlanContext{Host: serviceRuntimeStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -194,7 +193,7 @@ func TestPlan(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Plan(pluginapi.PlanContext{Runtime: serviceRuntimeStub{}}, &tc.spec)
+			out, err := Plan(pluginapi.PlanContext{Host: serviceRuntimeStub{}}, &tc.spec)
 			if err != nil {
 				t.Fatalf("Plan failed: %v", err)
 			}
@@ -207,16 +206,16 @@ func TestPlan(t *testing.T) {
 
 func TestCaptureRollback(t *testing.T) {
 	t.Run("missing spec", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "s", nil, RollbackDeps{})
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "s", nil)
 		if err == nil || !strings.Contains(err.Error(), "service spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 	})
 
 	t.Run("query error", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "s", &Spec{Name: "sshd"}, RollbackDeps{
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("boom") },
-		})
+		_, err := CaptureRollback(pluginapi.RollbackContext{Host: serviceRuntimeStub{
+			runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") },
+		}}, "s", &Spec{Name: "sshd"})
 		if err == nil || !strings.Contains(err.Error(), "capture service snapshot") {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
@@ -224,15 +223,15 @@ func TestCaptureRollback(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		calls := 0
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "s", &Spec{Name: "sshd"}, RollbackDeps{
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) {
+		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: serviceRuntimeStub{
+			runRootWithOutput: func(string) (string, error) {
 				calls++
 				if calls == 1 {
 					return "enabled", nil
 				}
 				return "active", nil
 			},
-		})
+		}}, "s", &Spec{Name: "sshd"})
 		if err != nil {
 			t.Fatalf("CaptureRollback failed: %v", err)
 		}
@@ -253,16 +252,22 @@ func TestUnitAndStateHelpers(t *testing.T) {
 		t.Fatalf("expected trim, got %q", got)
 	}
 
-	if !serviceIsEnabled(nil, "x", func(*ssh.Client, string) error { return nil }) {
+	if serviceIsEnabled(nil, "x") {
+		t.Fatal("expected nil host to report disabled")
+	}
+	if !serviceIsEnabled(serviceRuntimeStub{runRoot: func(string) error { return nil }}, "x") {
 		t.Fatal("expected enabled=true")
 	}
-	if serviceIsEnabled(nil, "x", func(*ssh.Client, string) error { return errors.New("no") }) {
+	if serviceIsEnabled(serviceRuntimeStub{runRoot: func(string) error { return errors.New("no") }}, "x") {
 		t.Fatal("expected enabled=false")
 	}
-	if !serviceIsActive(nil, "x", func(*ssh.Client, string) error { return nil }) {
+	if serviceIsActive(nil, "x") {
+		t.Fatal("expected nil host to report inactive")
+	}
+	if !serviceIsActive(serviceRuntimeStub{runRoot: func(string) error { return nil }}, "x") {
 		t.Fatal("expected active=true")
 	}
-	if serviceIsActive(nil, "x", func(*ssh.Client, string) error { return errors.New("no") }) {
+	if serviceIsActive(serviceRuntimeStub{runRoot: func(string) error { return errors.New("no") }}, "x") {
 		t.Fatal("expected active=false")
 	}
 }
@@ -270,11 +275,16 @@ func TestUnitAndStateHelpers(t *testing.T) {
 func boolPtr(v bool) *bool { return &v }
 
 type serviceRuntimeStub struct {
-	enabled map[string]bool
-	active  map[string]bool
+	enabled           map[string]bool
+	active            map[string]bool
+	runRoot           func(string) error
+	runRootWithOutput func(string) (string, error)
 }
 
 func (s serviceRuntimeStub) RunRoot(cmd string) error {
+	if s.runRoot != nil {
+		return s.runRoot(cmd)
+	}
 	switch {
 	case strings.HasPrefix(cmd, "systemctl is-enabled "):
 		unit := strings.TrimSuffix(strings.TrimPrefix(cmd, "systemctl is-enabled "), " >/dev/null 2>&1")
@@ -293,8 +303,15 @@ func (s serviceRuntimeStub) RunRoot(cmd string) error {
 	}
 }
 
-func (serviceRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+func (s serviceRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if s.runRootWithOutput != nil {
+		return s.runRootWithOutput(cmd)
+	}
+	return "", nil
+}
 
 func (serviceRuntimeStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not found") }
 
 func (serviceRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+
+func (serviceRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }

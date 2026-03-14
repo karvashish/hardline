@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"golang.org/x/crypto/ssh"
 	"os"
 	"strings"
 	"testing"
@@ -13,16 +12,18 @@ import (
 func TestApply(t *testing.T) {
 	t.Run("success runs commands in order", func(t *testing.T) {
 		var cmds []string
-		err := Apply(pluginapi.ApplyContext{}, &Spec{
+		err := Apply(pluginapi.ApplyContext{Host: packagesRuntimeStub{
+			runRoot: func(cmd string) error {
+				cmds = append(cmds, cmd)
+				return nil
+			},
+		}}, &Spec{
 			Update:     true,
 			Upgrade:    true,
 			Install:    []string{"a", "b"},
 			Purge:      []string{"c"},
 			Autoremove: true,
-		}, ApplyDeps{RunRoot: func(_ *ssh.Client, cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		}})
+		})
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
@@ -52,12 +53,14 @@ func TestApply(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := Apply(pluginapi.ApplyContext{}, &tc.spec, ApplyDeps{RunRoot: func(_ *ssh.Client, cmd string) error {
-				if cmd == tc.failCmd {
-					return errors.New("boom")
-				}
-				return nil
-			}})
+			err := Apply(pluginapi.ApplyContext{Host: packagesRuntimeStub{
+				runRoot: func(cmd string) error {
+					if cmd == tc.failCmd {
+						return errors.New("boom")
+					}
+					return nil
+				},
+			}}, &tc.spec)
 			if err == nil || !strings.Contains(err.Error(), tc.wantSub) {
 				t.Fatalf("expected %q error, got %v", tc.wantSub, err)
 			}
@@ -73,7 +76,7 @@ func TestPlan(t *testing.T) {
 			install:   []string{"a", "b", "dep1"},
 			auto:      []string{"oldpkg"},
 		}
-		res, err := Plan(pluginapi.PlanContext{Runtime: rt}, &Spec{
+		res, err := Plan(pluginapi.PlanContext{Host: rt}, &Spec{
 			Update:     true,
 			Upgrade:    true,
 			Install:    []string{"a", "b"},
@@ -95,7 +98,7 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("full noop", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Runtime: packagesRuntimeStub{}}, &Spec{})
+		res, err := Plan(pluginapi.PlanContext{Host: packagesRuntimeStub{}}, &Spec{})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -105,7 +108,7 @@ func TestPlan(t *testing.T) {
 	})
 
 	t.Run("update only partial noop", func(t *testing.T) {
-		res, err := Plan(pluginapi.PlanContext{Runtime: packagesRuntimeStub{}}, &Spec{Update: true, Upgrade: true, Autoremove: true})
+		res, err := Plan(pluginapi.PlanContext{Host: packagesRuntimeStub{}}, &Spec{Update: true, Upgrade: true, Autoremove: true})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -123,7 +126,7 @@ func TestPlan(t *testing.T) {
 			installErr: errors.New("ierr"),
 			autoErr:    errors.New("aerr"),
 		}
-		res, err := Plan(pluginapi.PlanContext{Runtime: rt}, &Spec{Upgrade: true, Install: []string{"x"}, Autoremove: true})
+		res, err := Plan(pluginapi.PlanContext{Host: rt}, &Spec{Upgrade: true, Install: []string{"x"}, Autoremove: true})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -138,35 +141,35 @@ func TestPlan(t *testing.T) {
 
 func TestCaptureRollbackAndSnapshot(t *testing.T) {
 	t.Run("missing spec", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "p", nil, RollbackDeps{})
+		_, err := CaptureRollback(pluginapi.RollbackContext{}, "p", nil)
 		if err == nil || !strings.Contains(err.Error(), "packages spec missing") {
 			t.Fatalf("expected missing spec error, got %v", err)
 		}
 	})
 
 	t.Run("query error", func(t *testing.T) {
-		_, err := CaptureRollback(pluginapi.RollbackContext{}, "p", &Spec{Install: []string{"x"}}, RollbackDeps{
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", errors.New("boom") },
-		})
+		_, err := CaptureRollback(pluginapi.RollbackContext{Host: packagesRuntimeStub{
+			runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") },
+		}}, "p", &Spec{Install: []string{"x"}})
 		if err == nil || !strings.Contains(err.Error(), "capture package state") {
 			t.Fatalf("expected query error, got %v", err)
 		}
 	})
 
 	t.Run("success", func(t *testing.T) {
-		rec, err := CaptureRollback(pluginapi.RollbackContext{}, "p", &Spec{
-			Update:     true,
-			Upgrade:    true,
-			Autoremove: true,
-			Install:    []string{"curl"},
-			Purge:      []string{"vim"},
-		}, RollbackDeps{
-			RunRootWithOutput: func(_ *ssh.Client, cmd string) (string, error) {
+		rec, err := CaptureRollback(pluginapi.RollbackContext{Host: packagesRuntimeStub{
+			runRootWithOutput: func(cmd string) (string, error) {
 				if strings.Contains(cmd, "curl") {
 					return "install ok installed\t1.0", nil
 				}
 				return "", nil
 			},
+		}}, "p", &Spec{
+			Update:     true,
+			Upgrade:    true,
+			Autoremove: true,
+			Install:    []string{"curl"},
+			Purge:      []string{"vim"},
 		})
 		if err != nil {
 			t.Fatalf("CaptureRollback failed: %v", err)
@@ -246,12 +249,17 @@ type packagesRuntimeStub struct {
 	install   []string
 	auto      []string
 
-	upgradeErr error
-	installErr error
-	autoErr    error
+	upgradeErr        error
+	installErr        error
+	autoErr           error
+	runRoot           func(string) error
+	runRootWithOutput func(string) (string, error)
 }
 
 func (s packagesRuntimeStub) RunRoot(cmd string) error {
+	if s.runRoot != nil {
+		return s.runRoot(cmd)
+	}
 	if strings.HasPrefix(cmd, "dpkg -s ") {
 		name := strings.TrimSuffix(strings.TrimPrefix(cmd, "dpkg -s "), " >/dev/null 2>&1")
 		name = strings.Trim(name, "\"")
@@ -264,6 +272,9 @@ func (s packagesRuntimeStub) RunRoot(cmd string) error {
 }
 
 func (s packagesRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if s.runRootWithOutput != nil {
+		return s.runRootWithOutput(cmd)
+	}
 	switch {
 	case strings.Contains(cmd, "apt-get -s upgrade"):
 		if s.upgradeErr != nil {
@@ -288,6 +299,8 @@ func (s packagesRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 func (packagesRuntimeStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not found") }
 
 func (packagesRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+
+func (packagesRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
 
 func joinInstLines(pkgs []string) string {
 	var lines []string

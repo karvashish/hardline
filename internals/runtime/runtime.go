@@ -17,7 +17,9 @@ var (
 	runRoot           = remote.RunRoot
 	runRootWithOutput = remote.RunRootWithOutput
 	readRootFile      = remote.ReadRootFile
+	writeRootFile     = remote.WriteRootFile
 	newSFTPClient     = func(client *ssh.Client) (sftpStatClient, error) { return sftp.NewClient(client) }
+	newSFTPWriter     = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
 )
 
 type SSHRuntime struct {
@@ -48,4 +50,16 @@ func (r *SSHRuntime) Stat(path string) (os.FileInfo, error) {
 
 func (r *SSHRuntime) ReadRootFile(path string) (string, error) {
 	return readRootFile(r.client, path)
+}
+
+func (r *SSHRuntime) WriteRootFile(path string, data []byte, mode os.FileMode) error {
+	sftpClient, err := newSFTPWriter(r.client)
+	if err != nil {
+		return err
+	}
+	if sftpClient != nil {
+		defer sftpClient.Close()
+	}
+
+	return writeRootFile(r.client, sftpClient, path, data, mode)
 }

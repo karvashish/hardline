@@ -29,8 +29,8 @@ var (
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return plugin.Open(path)
 	}
-	registerPluginBundleAction = func(bundle pluginapi.PluginBundle) error {
-		return registry.Shared().RegisterBundle(bundle)
+	registerPluginAction = func(loaded pluginapi.Plugin) error {
+		return registry.Shared().Register(loaded)
 	}
 )
 
@@ -85,38 +85,38 @@ func loadPluginFile(path string) error {
 		return fmt.Errorf("plugin %q missing symbol %q: %w", path, pluginSymbolV1, err)
 	}
 
-	bundle, err := resolvePluginBundle(sym, path)
+	loaded, err := resolvePlugin(sym, path)
 	if err != nil {
 		return err
 	}
-	if err := registerPluginBundle(bundle, path); err != nil {
+	if err := registerPlugin(loaded, path); err != nil {
 		return err
 	}
 	logger.Debugf("plugins: loaded %q\n", path)
 	return nil
 }
 
-func resolvePluginBundle(sym plugin.Symbol, path string) (pluginapi.PluginBundle, error) {
+func resolvePlugin(sym plugin.Symbol, path string) (pluginapi.Plugin, error) {
 	switch v := sym.(type) {
-	case *pluginapi.PluginBundle:
+	case *pluginapi.Plugin:
 		if v == nil {
-			return pluginapi.PluginBundle{}, fmt.Errorf("plugin %q symbol %q is nil", path, pluginSymbolV1)
+			return pluginapi.Plugin{}, fmt.Errorf("plugin %q symbol %q is nil", path, pluginSymbolV1)
 		}
 		return *v, nil
 	default:
-		return pluginapi.PluginBundle{}, fmt.Errorf(
-			"plugin %q symbol %q has unsupported type %T (expected *pluginapi.PluginBundle)",
+		return pluginapi.Plugin{}, fmt.Errorf(
+			"plugin %q symbol %q has unsupported type %T (expected *pluginapi.Plugin)",
 			path, pluginSymbolV1, sym,
 		)
 	}
 }
 
-func registerPluginBundle(bundle pluginapi.PluginBundle, path string) error {
-	name := strings.TrimSpace(bundle.Name)
+func registerPlugin(loaded pluginapi.Plugin, path string) error {
+	name := strings.TrimSpace(loaded.Name)
 	if name == "" {
 		name = filepath.Base(path)
 	}
-	if err := registerPluginBundleAction(bundle); err != nil {
+	if err := registerPluginAction(loaded); err != nil {
 		return fmt.Errorf("register plugin %q (%s): %w", path, name, err)
 	}
 	return nil

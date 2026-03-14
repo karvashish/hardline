@@ -8,7 +8,7 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "template",
 		InternalValidation: true,
@@ -20,7 +20,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 			if err := validateTemplateSpec(spec); err != nil {
 				return err
 			}
-			if err := Apply(ctx, spec, applyDeps); err != nil {
+			if err := Apply(ctx, spec); err != nil {
 				return err
 			}
 			return nil
@@ -50,7 +50,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 				return pluginapi.StepRecord{ID: step.ID, Type: "template"}, err
 			}
 
-			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
+			return CaptureRollback(ctx, step.ID, spec)
 		},
 	}
 }

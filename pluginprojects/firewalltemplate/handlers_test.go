@@ -1,25 +1,15 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
-	"github.com/pkg/sftp"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestPlugin_MetadataAndValidation(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		},
-		RollbackDeps{},
-	)
+	plugin := Plugin()
 
 	if !plugin.InternalValidation {
 		t.Fatal("expected firewall_template plugin to declare internal validation")
@@ -57,14 +47,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 }
 
 func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		},
-		RollbackDeps{},
-	)
+	plugin := Plugin()
 
 	err := plugin.Apply(pluginapi.ApplyContext{}, profile.Step{
 		ID:     "ft",
@@ -80,18 +63,7 @@ func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 }
 
 func TestPlugin_PlanAndRollback(t *testing.T) {
-	plugin := Plugin(
-		ApplyDeps{
-			RunRoot:       func(*ssh.Client, string) error { return nil },
-			NewSFTPClient: func(*ssh.Client) (*sftp.Client, error) { return nil, nil },
-			WriteRootFile: func(*ssh.Client, *sftp.Client, string, []byte, os.FileMode) error { return nil },
-		},
-		RollbackDeps{
-			RunRoot:           func(*ssh.Client, string) error { return nil },
-			RunRootWithOutput: func(*ssh.Client, string) (string, error) { return "", nil },
-			ReadRootFile:      func(*ssh.Client, string) (string, error) { return "", nil },
-		},
-	)
+	plugin := Plugin()
 
 	step := profile.Step{
 		ID:     "ft",
@@ -103,12 +75,12 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 	}
 
 	if _, err := plugin.Plan(pluginapi.PlanContext{
-		Runtime: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}},
+		Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}},
 	}, step); err != nil {
 		t.Fatalf("plan failed: %v", err)
 	}
 
-	if _, err := plugin.Rollback(pluginapi.RollbackContext{}, step); err != nil {
+	if _, err := plugin.Rollback(pluginapi.RollbackContext{Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, step); err != nil {
 		t.Fatalf("rollback failed: %v", err)
 	}
 }

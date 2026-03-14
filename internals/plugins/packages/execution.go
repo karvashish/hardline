@@ -9,30 +9,21 @@ import (
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
-	"golang.org/x/crypto/ssh"
 )
 
-type ApplyDeps struct {
-	RunRoot func(*ssh.Client, string) error
-}
-
-type RollbackDeps struct {
-	RunRootWithOutput func(*ssh.Client, string) (string, error)
-}
-
-func packageInstalled(rt pluginapi.Runtime, name string) bool {
-	if rt == nil {
+func packageInstalled(host pluginapi.Host, name string) bool {
+	if host == nil {
 		return false
 	}
 	cmd := fmt.Sprintf("dpkg -s %q >/dev/null 2>&1", name)
-	return rt.RunRoot(cmd) == nil
+	return host.RunRoot(cmd) == nil
 }
 
-func aptUpgradePreview(rt pluginapi.Runtime) ([]string, error) {
-	if rt == nil {
+func aptUpgradePreview(host pluginapi.Host) ([]string, error) {
+	if host == nil {
 		return nil, nil
 	}
-	out, err := rt.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s upgrade")
+	out, err := host.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s upgrade")
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +48,11 @@ func aptUpgradePreview(rt pluginapi.Runtime) ([]string, error) {
 	return pkgs, nil
 }
 
-func aptInstallPreview(rt pluginapi.Runtime, pkgs []string) ([]string, error) {
-	if rt == nil || len(pkgs) == 0 {
+func aptInstallPreview(host pluginapi.Host, pkgs []string) ([]string, error) {
+	if host == nil || len(pkgs) == 0 {
 		return nil, nil
 	}
-	out, err := rt.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s install " + strings.Join(pkgs, " "))
+	out, err := host.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s install " + strings.Join(pkgs, " "))
 	if err != nil {
 		return nil, err
 	}
@@ -86,11 +77,11 @@ func aptInstallPreview(rt pluginapi.Runtime, pkgs []string) ([]string, error) {
 	return result, nil
 }
 
-func aptAutoremovePreview(rt pluginapi.Runtime) ([]string, error) {
-	if rt == nil {
+func aptAutoremovePreview(host pluginapi.Host) ([]string, error) {
+	if host == nil {
 		return nil, nil
 	}
-	out, err := rt.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s autoremove")
+	out, err := host.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s autoremove")
 	if err != nil {
 		return nil, err
 	}
@@ -115,40 +106,43 @@ func aptAutoremovePreview(rt pluginapi.Runtime) ([]string, error) {
 	return pkgs, nil
 }
 
-func Apply(ctx pluginapi.ApplyContext, pk *Spec, deps ApplyDeps) error {
+func Apply(ctx pluginapi.ApplyContext, pk *Spec) error {
 	logger.Debugf(
 		"handlePackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove,
 	)
+	if ctx.Host == nil {
+		return fmt.Errorf("packages step: host context is required")
+	}
 
 	if pk.Update {
-		if err := deps.RunRoot(ctx.Client, "apt-get update -y"); err != nil {
+		if err := ctx.Host.RunRoot("apt-get update -y"); err != nil {
 			return fmt.Errorf("apt-get update failed: %w", err)
 		}
 	}
 
 	if pk.Upgrade {
-		if err := deps.RunRoot(ctx.Client, "apt-get upgrade -y"); err != nil {
+		if err := ctx.Host.RunRoot("apt-get upgrade -y"); err != nil {
 			return fmt.Errorf("apt-get upgrade failed: %w", err)
 		}
 	}
 
 	if len(pk.Install) > 0 {
 		cmd := "apt-get install -y " + strings.Join(pk.Install, " ")
-		if err := deps.RunRoot(ctx.Client, cmd); err != nil {
+		if err := ctx.Host.RunRoot(cmd); err != nil {
 			return fmt.Errorf("apt-get install failed (%s): %w", strings.Join(pk.Install, ","), err)
 		}
 	}
 
 	if len(pk.Purge) > 0 {
 		cmd := "apt-get purge -y " + strings.Join(pk.Purge, " ")
-		if err := deps.RunRoot(ctx.Client, cmd); err != nil {
+		if err := ctx.Host.RunRoot(cmd); err != nil {
 			return fmt.Errorf("apt-get purge failed (%s): %w", strings.Join(pk.Purge, ","), err)
 		}
 	}
 
 	if pk.Autoremove {
-		if err := deps.RunRoot(ctx.Client, "apt-get autoremove -y"); err != nil {
+		if err := ctx.Host.RunRoot("apt-get autoremove -y"); err != nil {
 			return fmt.Errorf("apt-get autoremove failed: %w", err)
 		}
 	}
@@ -159,6 +153,9 @@ func Apply(ctx pluginapi.ApplyContext, pk *Spec, deps ApplyDeps) error {
 func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("planPackages: update=%v upgrade=%v install=%v purge=%v autoremove=%v\n",
 		pk.Update, pk.Upgrade, pk.Install, pk.Purge, pk.Autoremove)
+	if ctx.Host == nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("packages step: host context is required")
+	}
 
 	var details []string
 
@@ -172,7 +169,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 		details = append(details, logger.ColorGreen+"will run: apt-get update -y"+logger.ColorReset)
 	}
 	if pk.Upgrade {
-		up, err := aptUpgradePreview(ctx.Runtime)
+		up, err := aptUpgradePreview(ctx.Host)
 		if err != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("upgrade: failed to preview upgrades (%v)", err)+logger.ColorReset,
@@ -191,7 +188,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	for _, name := range pk.Install {
-		if packageInstalled(ctx.Runtime, name) {
+		if packageInstalled(ctx.Host, name) {
 			line := fmt.Sprintf(
 				"%spackage %q:%s %scurrently installed (no install change)%s",
 				logger.ColorBlue, name, logger.ColorReset,
@@ -211,7 +208,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	if len(pk.Install) > 0 {
-		all, err := aptInstallPreview(ctx.Runtime, pk.Install)
+		all, err := aptInstallPreview(ctx.Host, pk.Install)
 		if err != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("install: failed to preview dependency installs (%v)", err)+logger.ColorReset,
@@ -237,7 +234,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	for _, name := range pk.Purge {
-		if packageInstalled(ctx.Runtime, name) {
+		if packageInstalled(ctx.Host, name) {
 			purgeWillChange = append(purgeWillChange, name)
 
 			line := fmt.Sprintf(
@@ -257,7 +254,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	if pk.Autoremove {
-		pkgs, err := aptAutoremovePreview(ctx.Runtime)
+		pkgs, err := aptAutoremovePreview(ctx.Host)
 		if err != nil {
 			details = append(details,
 				logger.ColorRed+fmt.Sprintf("autoremove: failed to preview packages to be removed (%v)", err)+logger.ColorReset,
@@ -347,7 +344,7 @@ func Plan(ctx pluginapi.PlanContext, pk *Spec) (pluginapi.PlanResult, error) {
 	return pluginapi.PlanResult{Summary: summary, Details: details, Noop: noop}, nil
 }
 
-func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec, deps RollbackDeps) (rollback.StepRecord, error) {
+func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec) (rollback.StepRecord, error) {
 	record := rollback.StepRecord{
 		ID:   stepID,
 		Type: "packages",
@@ -355,8 +352,11 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec, dep
 	if pk == nil {
 		return record, fmt.Errorf("step %q (type=packages): packages spec missing", stepID)
 	}
+	if ctx.Host == nil {
+		return record, fmt.Errorf("packages step: host context is required")
+	}
 
-	pkgs, err := snapshotPackageState(ctx.Client, pk, deps.RunRootWithOutput)
+	pkgs, err := snapshotPackageState(ctx.Host, pk)
 	if err != nil {
 		return record, err
 	}
@@ -375,7 +375,7 @@ func CaptureRollback(ctx pluginapi.RollbackContext, stepID string, pk *Spec, dep
 	return record, nil
 }
 
-func snapshotPackageState(client *ssh.Client, pk *Spec, runRootWithOutput func(*ssh.Client, string) (string, error)) ([]rollback.ObjectRecord, error) {
+func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]rollback.ObjectRecord, error) {
 	pkgSet := map[string]struct{}{}
 	installSet := map[string]struct{}{}
 	purgeSet := map[string]struct{}{}
@@ -406,7 +406,7 @@ func snapshotPackageState(client *ssh.Client, pk *Spec, runRootWithOutput func(*
 	records := make([]rollback.ObjectRecord, 0, len(names))
 	for _, name := range names {
 		cmd := "dpkg-query -W -f='${Status}\\t${Version}' " + strconv.Quote(name) + " 2>/dev/null || true"
-		out, err := runRootWithOutput(client, cmd)
+		out, err := host.RunRootWithOutput(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("capture package state for %q: %w", name, err)
 		}

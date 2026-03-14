@@ -8,7 +8,7 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
+func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "firewall",
 		InternalValidation: true,
@@ -20,10 +20,10 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 			if err := validateFirewallSpec(spec); err != nil {
 				return err
 			}
-			if err := Apply(ctx, spec, applyDeps); err != nil {
+			if err := Apply(ctx, spec); err != nil {
 				return err
 			}
-			return ValidateApply(ctx, applyDeps.RunRoot)
+			return ValidateApply(ctx.Host)
 		},
 		Plan: func(ctx pluginapi.PlanContext, step profile.Step) (pluginapi.PlanResult, error) {
 			spec, err := decodeFirewallSpec(step)
@@ -39,7 +39,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 				return pluginapi.PlanResult{}, err
 			}
 
-			validateResult, err := ValidatePlan(ctx)
+			validateResult, err := ValidatePlan(ctx.Host)
 			if err != nil {
 				return pluginapi.PlanResult{}, err
 			}
@@ -55,7 +55,7 @@ func Plugin(applyDeps ApplyDeps, rollbackDeps RollbackDeps) pluginapi.Plugin {
 				return pluginapi.StepRecord{ID: step.ID, Type: "firewall"}, err
 			}
 
-			return CaptureRollback(ctx, step.ID, spec, rollbackDeps)
+			return CaptureRollback(ctx, step.ID, spec)
 		},
 	}
 }

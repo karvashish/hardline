@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -13,12 +14,16 @@ func TestSSHRuntime_RunAndReadDelegation(t *testing.T) {
 	prevRunRoot := runRoot
 	prevRunRootOut := runRootWithOutput
 	prevReadRoot := readRootFile
+	prevWriteRoot := writeRootFile
 	prevNewSFTP := newSFTPClient
+	prevNewSFTPWriter := newSFTPWriter
 	defer func() {
 		runRoot = prevRunRoot
 		runRootWithOutput = prevRunRootOut
 		readRootFile = prevReadRoot
+		writeRootFile = prevWriteRoot
 		newSFTPClient = prevNewSFTP
+		newSFTPWriter = prevNewSFTPWriter
 	}()
 
 	runCalled := false
@@ -55,6 +60,19 @@ func TestSSHRuntime_RunAndReadDelegation(t *testing.T) {
 		t.Fatalf("unexpected ReadRootFile result: out=%q err=%v", text, err)
 	}
 
+	writeCalled := false
+	writeRootFile = func(_ *ssh.Client, _ *sftp.Client, path string, data []byte, mode os.FileMode) error {
+		writeCalled = path == "/etc/example" && string(data) == "next" && mode == 0o640
+		return nil
+	}
+	newSFTPWriter = func(*ssh.Client) (*sftp.Client, error) { return nil, nil }
+	if err := rt.WriteRootFile("/etc/example", []byte("next"), 0o640); err != nil {
+		t.Fatalf("WriteRootFile failed: %v", err)
+	}
+	if !writeCalled {
+		t.Fatal("expected WriteRootFile delegation")
+	}
+
 	newSFTPClient = func(*ssh.Client) (sftpStatClient, error) {
 		return fakeSFTPClient{info: fakeFileInfo{mode: 0o644, size: 12}}, nil
 	}
@@ -66,7 +84,13 @@ func TestSSHRuntime_RunAndReadDelegation(t *testing.T) {
 
 func TestSSHRuntime_StatWithFakeSFTP(t *testing.T) {
 	prevNewSFTP := newSFTPClient
-	defer func() { newSFTPClient = prevNewSFTP }()
+	prevNewSFTPWriter := newSFTPWriter
+	prevWriteRoot := writeRootFile
+	defer func() {
+		newSFTPClient = prevNewSFTP
+		newSFTPWriter = prevNewSFTPWriter
+		writeRootFile = prevWriteRoot
+	}()
 
 	newSFTPClient = func(*ssh.Client) (sftpStatClient, error) {
 		return nil, errors.New("boom")
@@ -75,6 +99,13 @@ func TestSSHRuntime_StatWithFakeSFTP(t *testing.T) {
 	rt := NewSSHRuntime(nil)
 	if _, err := rt.Stat("/etc/example"); err == nil || err.Error() != "boom" {
 		t.Fatalf("expected sftp error, got %v", err)
+	}
+
+	newSFTPWriter = func(*ssh.Client) (*sftp.Client, error) {
+		return nil, errors.New("writer boom")
+	}
+	if err := rt.WriteRootFile("/etc/example", []byte("x"), 0o600); err == nil || err.Error() != "writer boom" {
+		t.Fatalf("expected writer error, got %v", err)
 	}
 }
 

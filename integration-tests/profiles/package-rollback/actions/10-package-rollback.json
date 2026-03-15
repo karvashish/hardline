@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "id": "itest-package-install",
+      "plugin": "packages",
+      "severity": "medium",
+      "risk_class": "availability",
+      "control_tags": [],
+      "config": {
+        "install": [
+          "tree"
+        ]
+      }
+    },
+    {
+      "id": "itest-package-template",
+      "plugin": "template",
+      "severity": "low",
+      "risk_class": "availability",
+      "control_tags": [],
+      "config": {
+        "src": "templates/10-managed.conf.tmpl",
+        "dest": "/etc/hardline.d/99-hardline-itest-package-rollback.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "itest-package-service",
+      "plugin": "service",
+      "severity": "low",
+      "risk_class": "availability",
+      "control_tags": [],
+      "config": {
+        "name": "nftables",
+        "enabled": true,
+        "state": "restarted"
+      }
+    }
+  ]
+}

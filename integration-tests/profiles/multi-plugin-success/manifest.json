@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "actions/10-multi.json",
+      "sha256": "a9abd583f1274b06fb3da23b476b7ed5b64bc04e295755d28d2a27dde31f96ff"
+    },
+    {
+      "path": "profile.json",
+      "sha256": "032e7967840c0149b12cf43806eefdfdd440043cb436d41f28ce3b6005f0db1e"
+    },
+    {
+      "path": "templates/10-managed.conf.tmpl",
+      "sha256": "0112681100914159295d6eaf1db7dc1bd0ee43207a7b8ae94ae7b1ae2f656ce0"
+    },
+    {
+      "path": "templates/20-firewall-template.tmpl",
+      "sha256": "1f301bd61add6df3d2bb8a31aa4aac9a4b3fd7352f58234581fa9aee552c80dd"
+    }
+  ]
+}

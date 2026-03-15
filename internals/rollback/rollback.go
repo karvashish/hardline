@@ -97,8 +97,25 @@ func RollbackStepsStrict(client *ssh.Client, steps []StepRecord) error {
 }
 
 func executeRollbackSteps(client *ssh.Client, steps []StepRecord, showProgress bool, strictBestEffort bool) error {
+	var deferredServiceSteps []StepRecord
 	for i := len(steps) - 1; i >= 0; i-- {
 		step := steps[i]
+		if stepHasServiceObjects(step) {
+			deferredServiceSteps = append(deferredServiceSteps, step)
+			continue
+		}
+		if showProgress {
+			logger.Infof("step: %s (%s) ", step.ID, step.Type)
+		}
+		if err := rollbackStepWithMode(client, step, strictBestEffort); err != nil {
+			return fmt.Errorf("rollback step %q failed: %w", step.ID, err)
+		}
+		if showProgress {
+			logger.Infof("✓\n")
+		}
+	}
+
+	for _, step := range deferredServiceSteps {
 		if showProgress {
 			logger.Infof("step: %s (%s) ", step.ID, step.Type)
 		}
@@ -110,6 +127,15 @@ func executeRollbackSteps(client *ssh.Client, steps []StepRecord, showProgress b
 		}
 	}
 	return nil
+}
+
+func stepHasServiceObjects(step StepRecord) bool {
+	for _, obj := range step.Before {
+		if obj.Kind == ObjectService {
+			return true
+		}
+	}
+	return false
 }
 
 func rollbackStep(client *ssh.Client, step StepRecord) error {
@@ -222,7 +248,9 @@ func restoreService(client *ssh.Client, state ServiceState) error {
 
 	activeCmd := "systemctl stop " + strconv.Quote(unit)
 	if state.Active {
-		activeCmd = "systemctl start " + strconv.Quote(unit)
+		// Restart after dependent files/packages have been restored so runtime state
+		// is reconciled with disk instead of only ensuring the unit is running.
+		activeCmd = "systemctl restart " + strconv.Quote(unit)
 	}
 	if err := runRootCmd(client, activeCmd); err != nil {
 		return fmt.Errorf("restore service active state for %q: %w", unit, err)

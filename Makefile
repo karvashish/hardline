@@ -15,15 +15,14 @@ ITEST_TF_DIR := integration-tests/terraform
 ITEST_TF_STATE := $(abspath $(OUTDIR)/itest-gcp.tfstate)
 ITEST_TF_OUTPUTS := $(abspath $(OUTDIR)/itest-gcp.outputs.json)
 ITEST_TFVARS ?= $(ITEST_TF_DIR)/terraform.tfvars
-ITEST_PROFILE ?= integration-tests/profiles/ssh-reload-success
+ITEST_PROFILE ?= integration-tests/profiles/multi-plugin-success
 ITEST_SCENARIO ?= smoke
 PROFILE_DIR ?= base-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
 SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
 PROFILE_DIRS := \
 	base-secure-ubuntu-24.04-lts \
-	integration-tests/profiles/ssh-reload-success \
-	integration-tests/profiles/ssh-reload-force-rollback
+	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
 
 .PHONY: all test build build-plugins build-firewall-template-plugin profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 

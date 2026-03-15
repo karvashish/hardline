@@ -226,6 +226,64 @@ func TestRollbackSteps(t *testing.T) {
 			t.Fatalf("expected success, got %v", err)
 		}
 	})
+
+	t.Run("service steps are deferred until files are restored", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *ssh.Client) error { return nil }
+
+		var cmds []string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		}
+
+		err := RollbackSteps(nil, []StepRecord{
+			{
+				ID:           "template-step",
+				Type:         "template",
+				RollbackMode: ModeDeterministic,
+				Before: []ObjectRecord{
+					{
+						Kind: ObjectFile,
+						File: &FileSnapshot{
+							Path:    "/etc/nftables.d/99-hardline-itest.nft",
+							Existed: false,
+						},
+					},
+				},
+			},
+			{
+				ID:           "service-step",
+				Type:         "service",
+				RollbackMode: ModeDeterministic,
+				Before: []ObjectRecord{
+					{
+						Kind: ObjectService,
+						Service: &ServiceState{
+							Unit:    "nftables",
+							Known:   true,
+							Enabled: true,
+							Active:  true,
+						},
+					},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("RollbackSteps failed: %v", err)
+		}
+
+		if len(cmds) != 3 {
+			t.Fatalf("expected 3 rollback commands, got %#v", cmds)
+		}
+		if !strings.Contains(cmds[0], "rm -f") {
+			t.Fatalf("expected file removal before service restore, got %#v", cmds)
+		}
+		if !strings.Contains(cmds[1], "enable") || !strings.Contains(cmds[2], "restart") {
+			t.Fatalf("unexpected service restore commands: %#v", cmds)
+		}
+	})
 }
 
 func TestRollbackStepsStrict(t *testing.T) {
@@ -499,6 +557,23 @@ func TestRestoreFileAndServiceAndPackage(t *testing.T) {
 		}
 	})
 
+	t.Run("service restore active restarts", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		var cmds []string
+		runRootCmd = func(_ *ssh.Client, cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		}
+		err := restoreService(nil, ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: true})
+		if err != nil {
+			t.Fatalf("restoreService failed: %v", err)
+		}
+		if len(cmds) != 2 || !strings.Contains(cmds[0], "enable") || !strings.Contains(cmds[1], "restart") {
+			t.Fatalf("unexpected service cmds: %#v", cmds)
+		}
+	})
+
 	t.Run("service enable error", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
@@ -518,7 +593,7 @@ func TestRestoreFileAndServiceAndPackage(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 		runRootCmd = func(_ *ssh.Client, cmd string) error {
-			if strings.Contains(cmd, "start") || strings.Contains(cmd, "stop") {
+			if strings.Contains(cmd, "restart") || strings.Contains(cmd, "stop") {
 				return errors.New("active boom")
 			}
 			return nil

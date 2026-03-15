@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "actions/10-multi.json",
+      "sha256": "e19bff2de19faf42287fb380ee3f517d116447d9a48980e369a21cc8991088b8"
+    },
+    {
+      "path": "profile.json",
+      "sha256": "b297b1f15d606a6a433229c2761bf686e9f2830ec075ea2deadb06d71dcae465"
+    },
+    {
+      "path": "templates/10-managed.conf.tmpl",
+      "sha256": "27d37204213713403aa5a1025a1734f3338dc1a61b4d3ce4ee74d1a1e8b5271a"
+    },
+    {
+      "path": "templates/20-firewall-template.tmpl",
+      "sha256": "ea3d2e46eb20e1d7c112c16be48cabadf5aaeb2768847eba106750ea002d9c11"
+    },
+    {
+      "path": "templates/30-ssh-invalid.tmpl",
+      "sha256": "31b3186a50bf02ae30366ef853a21cc188e98949d568d7cf47899678123b4e5a"
+    }
+  ]
+}

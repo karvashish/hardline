@@ -1,102 +1,138 @@
-# Product Direction
+# Plan Design
 
-This page describes the intended operator-facing shape of Hardline and points to the files that currently implement each part.
+This page describes the current planning model implemented in `internals/plan`.
 
-Use this together with [`docs/codebase-gaps.md`](/home/kartikeya_vashishtha/hardline-try2/docs/codebase-gaps.md):
+## What `plan` does today
 
-- this file says what the product should feel like
-- `codebase-gaps.md` says where the code is still short or divergent
+The code path for `plan` is:
 
-## Desired Operator Experience
+1. parse CLI flags
+2. load plugins
+3. load the profile
+4. validate version and schema compatibility
+5. validate the profile and action files
+6. ensure required plugins exist
+7. connect to the remote host
+8. run plugin `Plan` for each step
+9. render terminal output
+10. optionally write a JSON, YAML, or Markdown artifact
 
-The intended workflow is:
+## Step result model
 
-1. verify a shipped or reviewed profile artifact
-2. inspect what it would do on a host
-3. apply it with rollback protection
-4. recover the last successful run if needed
+Each planned step becomes a `StepPlan` with:
 
-Current implementing files:
+- `StepID`
+- `StepType`
+- `Severity`
+- `RiskClass`
+- `Noop`
+- `Summary`
+- `Details`
+- `Diff`
+- `OperatorSummary`
+- `Highlights`
 
-- verify: [`internals/verify/verify.go`](/home/kartikeya_vashishtha/hardline-try2/internals/verify/verify.go)
-- plan: [`internals/plan/plan.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/plan.go)
-- apply: [`internals/apply/apply.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/apply.go)
-- rollback: [`internals/rollback/rollback.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/rollback.go)
+`Severity` and `RiskClass` come from the profile step itself, not from dynamic scoring logic.
 
-## Desired Product Properties
+## Dispositions
 
-Hardline should be:
+The plan code classifies a step into one of three states:
 
-- deterministic
-- explicit on disk
-- safe to inspect before mutation
-- rollback-aware
-- plugin-owned at the domain layer
+- `already aligned`
+  - `Noop == 0`
+  - no normalized highlights
+- `change planned`
+  - `Noop != 0`
+  - no normalized highlights
+- `needs attention`
+  - any normalized highlight is present
 
-The main files that express those properties today are:
+That same status is written into file artifacts.
 
-- deterministic profile structure: [`pkg/profile/profile.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/profile.go)
-- schema validation: [`pkg/profile/validation.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/validation.go)
-- plugin boundary: [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
-- rollback journal model: [`internals/rollback/journal.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/journal.go)
+## Terminal output
 
-## Desired `plan`
+Two terminal views exist:
 
-`plan` should be an operator-grade preflight.
+- compact mode
+  - default
+  - high-level summary and planned changes
+- detailed mode
+  - enabled by `--debug` or `-d`
+  - per-step details, diff, and highlights
 
-That means:
+## File artifacts
 
-- validate local profile inputs
-- inspect remote state
-- explain what each step intends to change
-- expose risk clearly enough that an operator can decide whether to proceed
+Artifacts are optional and are controlled by:
 
-Relevant files:
+- `--report-file`
+- `--report-format`
 
-- orchestration: [`internals/plan/plan.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/plan.go)
-- per-step planning: [`internals/plan/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/steps.go)
-- planner runtime: [`internals/runtime/runtime.go`](/home/kartikeya_vashishtha/hardline-try2/internals/runtime/runtime.go)
-- plugin planners:
-  - [`internals/plugins/packages/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/execution.go)
-  - [`internals/plugins/template/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/execution.go)
-  - [`internals/plugins/service/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/execution.go)
-  - [`internals/plugins/firewall/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/execution.go)
-  - [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
+Supported formats:
 
-## Desired `apply`
+- `json`
+- `yaml`
+- `md`
 
-`apply` should be the only mutation path and should never be blind.
+If `--report-format` is omitted, the format is inferred from the file extension:
 
-That means:
+- `.json`
+- `.yaml`
+- `.yml`
+- `.md`
+- `.markdown`
 
-- a preflight pass runs before mutation
-- each step is validated before execution
-- rollback state is captured before mutation for managed resources
-- failures trigger automatic rollback where possible
+## Artifact structure
 
-Relevant files:
+JSON and YAML artifacts contain:
 
-- apply orchestration: [`internals/apply/apply.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/apply.go)
-- apply step dispatch: [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go)
-- rollback capture helpers: [`pkg/pluginapi/helpers.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/helpers.go)
+- `kind`
+- `profile`
+- `target`
+- `summary`
+- `changes_planned`
+- `needs_attention`
+- `steps`
+- `next_steps`
 
-## Desired `rollback`
+`kind` is always:
 
-Rollback should restore managed state in reverse order with bounded scope.
+```text
+hardline_plan
+```
 
-Relevant files:
+## Summary fields
 
-- journal model: [`internals/rollback/journal.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/journal.go)
-- rollback engine: [`internals/rollback/rollback.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/rollback.go)
+The summary currently reports:
 
-## Desired Verification Story
+- steps inspected
+- already aligned
+- changes planned
+- needs attention
+- overall risk
+- risk breakdown
+- rollback available
 
-Verification should let a user trust both the artifact and the profile structure.
+`overall risk` is aggregated from step severities already present in the profile data and step plan results.
 
-Current relevant files:
+## Next-step commands
 
-- integrity verification: [`internals/verify/integrity.go`](/home/kartikeya_vashishtha/hardline-try2/internals/verify/integrity.go)
-- signing tool: [`cmd/profiletool/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/profiletool/main.go)
-- schema validation: [`pkg/profile/validation.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/validation.go)
+The plan artifact always includes suggested commands for:
 
-This is one of the areas where the implementation is not fully at the product shape yet. The exact gap is tracked in [`docs/codebase-gaps.md`](/home/kartikeya_vashishtha/hardline-try2/docs/codebase-gaps.md).
+- `apply`
+- `rollback last`
+
+These are constructed from the profile ID and target host.
+
+## Current design boundaries in code
+
+The `plan` package still contains explicit TODOs for:
+
+- computing per-step risk scores
+- deriving mitigations and rollback strategies
+- aggregating a final run-level risk from richer logic
+
+Today, plan output is mostly a structured presentation of:
+
+- plugin-provided plan details
+- profile-provided severity and risk metadata
+- simple aggregation logic

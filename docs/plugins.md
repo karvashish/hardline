@@ -1,181 +1,234 @@
 # Plugins
 
-This page explains the plugin contract and points to the files that own plugin behavior.
+This page documents the plugin surface that exists in code today.
 
-## Contract
+## Plugin contract
 
-The core plugin API lives in:
+The plugin interface is defined by `pkg/pluginapi.Plugin`.
 
-- [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
-
-The intended model is:
-
-- host = hardware
-- hardline core = kernel
-- plugins = userspace
-
-The kernel decides when a step is planned, applied, or rolled back. Plugins do not get direct transport wiring anymore; they receive a kernel-owned host ABI through `pluginapi.Host` and use that syscall surface to inspect or mutate the target host.
-
-A plugin must provide:
+Every plugin must provide:
 
 - `Name`
+- `InternalValidation`
 - `Apply`
 - `Plan`
 - `Capture`
 
-Optional behavior flags:
+Hardline refuses to run a step if its plugin is missing.
 
-- `InternalValidation`
+Validation policy:
 
-Important contract types:
+- if `InternalValidation` is `true`, the step is accepted normally
+- if `InternalValidation` is `false`, the step must set `allow_unvalidated=true`
 
-- `pluginapi.ApplyContext`
-- `pluginapi.PlanContext`
-- `pluginapi.CaptureContext`
-- `pluginapi.Host`
-- `pluginapi.PlanResult`
-- `pluginapi.StepRecord`
+## Built-in plugins
 
-## Ownership Boundary
-
-The intended ownership split is:
-
-- core orchestration decides when a step is planned, applied, or rolled back
-- the plugin owns how its `config` is decoded, validated, planned, executed, and snapshotted for rollback
-- the kernel-owned `pluginapi.Host` surface is the only host ABI plugins should rely on for mutation
-
-The current code follows that model closely.
-
-Relevant files:
-
-- apply orchestration: [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go)
-- plan orchestration: [`internals/plan/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/steps.go)
-
-## Built-In Plugins
-
-Built-in plugin registration is assembled in:
-
-- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
-
-Current built-ins:
+The default registry registers four built-ins:
 
 - `packages`
 - `template`
 - `service`
 - `firewall`
 
-### `packages`
+## External plugin loading
 
-Relevant files:
+At process start, Hardline scans `plugins/` next to the executable and loads every `.so` file it finds.
 
-- spec: [`internals/plugins/packages/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/spec.go)
-- validation wiring: [`internals/plugins/packages/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/handlers.go)
-- plan/apply/capture: [`internals/plugins/packages/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/execution.go)
+A dynamic plugin must export:
 
-Behavior:
+- `HardlinePluginV1`
 
-- plans and applies `apt-get update`
-- previews and applies `apt-get upgrade`
-- installs packages
-- purges packages
-- previews and applies `autoremove`
-
-### `template`
-
-Relevant files:
-
-- spec: [`internals/plugins/template/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/spec.go)
-- validation wiring: [`internals/plugins/template/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/handlers.go)
-- plan/apply/capture: [`internals/plugins/template/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/execution.go)
-
-Behavior:
-
-- loads template bytes from the profile directory
-- writes the rendered bytes to a managed destination on the target host
-- plans by comparing remote mode and file contents
-- snapshots the destination file for rollback
-
-### `service`
-
-Relevant files:
-
-- spec: [`internals/plugins/service/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/spec.go)
-- validation wiring: [`internals/plugins/service/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/handlers.go)
-- plan/apply/capture: [`internals/plugins/service/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/execution.go)
-
-Behavior:
-
-- enables or disables services
-- starts, stops, restarts, or reloads services
-- snapshots current enabled/active state for rollback
-
-### `firewall`
-
-Relevant files:
-
-- spec: [`internals/plugins/firewall/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/spec.go)
-- validation wiring: [`internals/plugins/firewall/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/handlers.go)
-- plan/apply/capture: [`internals/plugins/firewall/execution.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/execution.go)
-
-Behavior:
-
-- currently supports `nftables` only
-- renders deterministic managed rules to a configured destination
-- ensures `/etc/nftables.conf` includes `/etc/nftables.d/*.nft`
-- validates current nftables configuration during planning and apply
-- snapshots the managed firewall file for rollback
-
-## External Plugins
-
-This repository currently ships one external Go plugin project:
+This repo currently builds one external plugin:
 
 - `firewall_template`
 
-### `firewall_template`
+## Rollback modes
 
-Relevant files:
+Plugins capture rollback data through `Capture`.
 
-- export: [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go)
-- spec: [`pluginprojects/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/spec.go)
-- validation wiring: [`pluginprojects/firewalltemplate/handlers.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/handlers.go)
-- plan/apply/capture: [`pluginprojects/firewalltemplate/execution.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/execution.go)
+Current rollback modes in use:
+
+- `template`: deterministic
+- `service`: deterministic
+- `firewall`: deterministic
+- `firewall_template`: deterministic
+- `packages`: best_effort
+
+`packages` capture notes explicitly mark `apt update`, `apt upgrade`, and `apt autoremove` as not fully reversible or best-effort.
+
+## Managed file restrictions
+
+File-oriented rollback capture uses `pluginapi.EnforceManagedPath`.
+
+A managed file destination must:
+
+- live under `/etc/`
+- have a basename starting with `99-hardline`
+- use one of these extensions:
+  - `.conf`
+  - `.nft`
+  - `.rules`
+
+That restriction is enforced by the capture path used for:
+
+- `template`
+- `firewall`
+- `firewall_template`
+
+## `packages`
+
+Spec:
+
+```json
+{
+  "update": true,
+  "upgrade": false,
+  "autoremove": false,
+  "install": ["tree"],
+  "purge": ["telnet"]
+}
+```
+
+Validation from code:
+
+- install entries must be non-empty
+- purge entries must be non-empty
+- a package cannot appear twice in the same list
+- a package cannot be both installed and purged in one step
+
+## `template`
+
+Spec:
+
+```json
+{
+  "src": "templates/example.tmpl",
+  "dest": "/etc/example.d/99-hardline-example.conf",
+  "mode": "0644"
+}
+```
+
+Validation from code:
+
+- `src` is required
+- `dest` is required
+- `mode`, when set, must parse as octal
 
 Behavior:
 
-- loads a template from the profile
-- injects allow rules into the rendered nftables output
-- writes to `/etc/nftables.d/99-hardline-firewall.nft` by default
-- plans with a best-effort template-oriented report
-- snapshots the managed file for rollback
+- loads the template through `profile.LoadTemplate`
+- compares remote content and mode
+- only rewrites when content or mode differ
 
-## Validation Policy
+## `service`
 
-Validation policy is enforced by:
+Spec:
 
-- [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
+```json
+{
+  "name": "nftables",
+  "enabled": true,
+  "state": "restarted"
+}
+```
 
-If `InternalValidation` is `false`, the step must opt in with `allow_unvalidated=true`.
+Accepted states:
 
-All shipped plugins currently set `InternalValidation=true`.
+- empty
+- `started`
+- `start`
+- `stopped`
+- `stop`
+- `restarted`
+- `restart`
+- `reloaded`
+- `reload`
+- `reload-or-restart`
 
-## External Plugins
+Notes from code:
 
-External plugin loading lives in:
+- `sshd` is normalized to `ssh`
+- rollback restores both enablement and activity state
 
-- [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
+## `firewall`
 
-Requirements:
+Spec shape:
 
-- compiled as `.so`
-- placed in `plugins/` next to the built binary
-- export the symbol `HardlinePluginV1`
-- provide a `*pluginapi.Plugin`
-- consume host access through `pluginapi.Host` from the passed contexts, not by importing runtime transport wiring
-- built with a C compiler available in `PATH` because plugin builds and plugin-loading binaries both require cgo-enabled linking
+```json
+{
+  "backend": "nftables",
+  "family": "inet",
+  "table": "filter",
+  "managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
+  "policies": [
+    {"chain": "input", "policy": "drop"}
+  ],
+  "rules": [
+    {"chain": "input", "proto": "tcp", "port": 22, "action": "accept"}
+  ]
+}
+```
 
-`make build` currently emits the shipped `firewall_template` plugin to `tmp/plugins/firewall_template.so`.
+Validation from code:
 
-Relevant registry files:
+- only backend `nftables` is accepted
+- `managed_dest` is required
+- the spec is normalized before execution
 
-- [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
-- [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
+Behavior:
+
+- writes a deterministic nftables file
+- ensures `/etc/nftables.conf` includes `/etc/nftables.d/*.nft`
+- validates the final nftables config in plan/apply support paths
+
+## `firewall_template`
+
+This plugin lives in `pluginprojects/firewalltemplate` and is built as a shared object.
+
+Spec:
+
+```json
+{
+  "backend": "nftables",
+  "policy": "drop",
+  "template_src": "templates/20-firewall-template.tmpl",
+  "template_dest": "/etc/nftables.d/99-hardline-custom.nft",
+  "allow": [
+    {"port": 2222, "proto": "tcp"},
+    {"port": 5353, "proto": "udp"}
+  ]
+}
+```
+
+Validation from code:
+
+- only backend `nftables` is accepted
+- `policy` is required
+- each allow rule port must be `1..65535`
+- protocol must be empty, `tcp`, or `udp`
+
+Behavior:
+
+- loads a profile template
+- injects generated allow rules with a template function
+- writes a managed nftables file
+- plan output is explicitly marked best-effort and template-driven
+
+## Example step
+
+From `integration-tests/profiles/multi-plugin-success/actions/10-multi.json`:
+
+```json
+{
+  "id": "itest-managed-template-apply",
+  "plugin": "template",
+  "severity": "low",
+  "risk_class": "integrity",
+  "control_tags": [],
+  "config": {
+    "src": "templates/10-managed.conf.tmpl",
+    "dest": "/etc/hardline.d/99-hardline-itest-success.conf",
+    "mode": "0644"
+  }
+}
+```

@@ -1,30 +1,37 @@
-# Hardline Profiles
+# Profiles
 
-This document describes the profile format that the current code loads from [`pkg/profile/profile.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/profile.go).
+This page describes the profile format implemented in `pkg/profile`, `pkg/pluginapi`, and `internals/verify`.
 
-## Relevant Files
+## Directory layout
 
-- loader: [`pkg/profile/profile.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/profile.go)
-- schema validation: [`pkg/profile/validation.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/validation.go)
-- profile schema: [`schema/profile.schema.json`](/home/kartikeya_vashishtha/hardline-try2/schema/profile.schema.json)
-- action schema: [`schema/action-file.schema.json`](/home/kartikeya_vashishtha/hardline-try2/schema/action-file.schema.json)
-- example profile: [`base-secure-ubuntu-24.04-lts/profile.json`](/home/kartikeya_vashishtha/hardline-try2/base-secure-ubuntu-24.04-lts/profile.json)
-
-## Directory Shape
-
-A profile is a directory, not a single file. The expected layout is:
+A profile directory contains:
 
 - `profile.json`
-- `actions/*.json`
-- `templates/*.tmpl`
+- one or more action files referenced by `profile.json`
+- zero or more template files referenced by `profile.json`
+
+If you want signature verification through `verify-profile`, the directory also needs:
+
 - `manifest.json`
 - `manifest.sig`
 
-The manifest files are used by `verify-profile`. They are not loaded by `profile.Load`.
-
 ## `profile.json`
 
-`profile.json` contains:
+The `Profile` struct currently contains these fields:
+
+- `id`
+- `display_name`
+- `version`
+- `os`
+  - `family`
+  - `version`
+  - `variant`
+- `profile_schema`
+- `min_hardline`
+- `actions`
+- `templates`
+
+Example from `base-secure-ubuntu-24.04-lts/profile.json`:
 
 ```json
 {
@@ -39,7 +46,8 @@ The manifest files are used by `verify-profile`. They are not loaded by `profile
   "profile_schema": 1,
   "min_hardline": "0.0.1",
   "actions": [
-    "actions/00-packages.json"
+    "actions/00-packages.json",
+    "actions/10-ssh.json"
   ],
   "templates": [
     "templates/10-ssh-sshd-config.tmpl"
@@ -47,92 +55,124 @@ The manifest files are used by `verify-profile`. They are not loaded by `profile
 }
 ```
 
-Semantics:
+## Action files
 
-- `actions` is an ordered list. `plan` and `apply` walk action files in this order.
-- `templates` is a declaration list used by `Profile.LoadTemplate`. Template-backed plugins can only load files declared here.
-- `profile_schema` is compared against the compiled schema support in the current binary.
-- `min_hardline` is checked during `plan` and `apply`.
-
-## Action Files
-
-Each action file has this top-level shape:
+Each action file decodes into:
 
 ```json
 {
   "steps": [
     {
-      "id": "ssh-template-apply",
+      "id": "step-id",
       "plugin": "template",
-      "severity": "medium",
-      "risk_class": "access",
+      "severity": "low",
+      "risk_class": "integrity",
       "control_tags": [],
-      "config": {
-        "src": "templates/10-ssh-sshd-config.tmpl",
-        "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
-        "mode": "0600"
-      }
+      "config": {},
+      "allow_unvalidated": false
     }
   ]
 }
 ```
 
-Core step fields owned by the profile package:
+Current step fields:
 
 - `id`
 - `plugin`
 - `severity`
+  - `low`
+  - `medium`
+  - `high`
+  - `critical`
 - `risk_class`
+  - `none`
+  - `access`
+  - `availability`
+  - `data_loss`
+  - `integrity`
+  - `compliance`
+  - `other`
 - `control_tags`
 - `config`
 - `allow_unvalidated`
 
-Plugin-specific data is always nested under `config`.
+## Validation layers
 
-## Shipped Step Types
+### Schema validation
 
-Built-in plugins and the bundled external firewall template plugin expose these `config` structs:
+`plan` and `apply` both call `Profile.Affirm()`.
 
-- [`internals/plugins/packages/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/packages/spec.go)
-- [`internals/plugins/template/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/template/spec.go)
-- [`internals/plugins/service/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/service/spec.go)
-- [`internals/plugins/firewall/spec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/firewall/spec.go)
-- [`pluginprojects/firewalltemplate/spec.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/spec.go)
+That validates:
 
-Built-ins:
+- `profile.json` against `schema/profile.schema.json`
+- every listed action file against `schema/action-file.schema.json`
 
-- `packages`
-  Uses `update`, `upgrade`, `autoremove`, `install`, and `purge`.
-- `template`
-  Uses `src`, `dest`, and `mode`.
-- `service`
-  Uses `name`, optional `enabled`, and optional `state`.
-- `firewall`
-  Manages nftables rules written to a managed destination.
+### Plugin validation
 
-Bundled external plugin:
+After schema validation, Hardline ensures every step plugin is registered.
 
-- `firewall_template`
-  Renders an nftables template with an allowlist.
+### Signature validation
 
-## Validation Boundaries
+`verify-profile` separately validates:
 
-Profile validation is split across two layers:
+- `manifest.json`
+- `manifest.sig`
+- hash coverage for every non-metadata file in the profile directory
 
-- [`pkg/profile/validation.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/validation.go) validates `profile.json` and each action file against generated JSON schemas.
-- Plugin validation is enforced through the plugin registry and `pluginapi.EnsureValidationPolicy(...)`.
+`plan` and `apply` do not run this signature-validation step.
 
-If a plugin does not self-validate, the step must explicitly set `allow_unvalidated=true` or `plan` and `apply` will fail.
+## Template declaration rules
 
-## Template Rules
-
-Templates are loaded relative to the profile directory. `Profile.LoadTemplate(rel)` rejects any template path that is not declared in `profile.json`.
+Templates are loaded through `Profile.LoadTemplate(rel)`.
 
 That means:
 
-- listing a template in `profile.json` is required
-- referencing a template from a step is not sufficient on its own
+- template paths are relative to the profile directory
+- a template must be listed in `profile.json.templates`
+- loading a template not declared there fails
 
-## Example
+## Version gating
 
-The canonical in-repo example profile is [`base-secure-ubuntu-24.04-lts/profile.json`](/home/kartikeya_vashishtha/hardline-try2/base-secure-ubuntu-24.04-lts/profile.json).
+Two version checks happen before `plan` and `apply` continue:
+
+- Hardline version must satisfy `min_hardline`
+- `profile_schema` must not be newer than the compiled-in supported schema version
+
+## OS metadata
+
+The `os` object is stored in the profile and appears in plan reports.
+
+The current code does not enforce host OS compatibility from these fields.
+
+## Example profile patterns in this repo
+
+User-facing profile:
+
+- `base-secure-ubuntu-24.04-lts`
+
+Integration-only profiles:
+
+- `integration-tests/profiles/multi-plugin-success`
+- `integration-tests/profiles/multi-plugin-force-rollback`
+- `integration-tests/profiles/package-rollback`
+- `integration-tests/profiles/layer-base`
+
+## Manifest generation and signing
+
+The profile signing tool does two things:
+
+- `keygen`
+  - generates an Ed25519 keypair
+  - writes the public key to `internals/verify/profile_signing_pub.pem`
+- `sign`
+  - hashes every non-metadata file in the profile directory
+  - writes `manifest.json`
+  - signs that manifest into `manifest.sig`
+
+Useful commands:
+
+```bash
+make profiletool
+make sign-profile PROFILE_DIR=base-secure-ubuntu-24.04-lts
+make sign-profiles
+```

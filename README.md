@@ -1,184 +1,159 @@
-# hardline
+# Hardline
 
-`hardline` applies declarative host-hardening profiles over SSH.
-
-This repository now documents four separate things on purpose:
-
-- the current code-backed behavior in this file
-- the repo and runtime structure in [`docs/architecture.md`](/home/kartikeya_vashishtha/hardline-try2/docs/architecture.md)
-- the on-disk profile and plugin model in [`docs/profiles.md`](/home/kartikeya_vashishtha/hardline-try2/docs/profiles.md) and [`docs/plugins.md`](/home/kartikeya_vashishtha/hardline-try2/docs/plugins.md)
-- the intended direction and status against that direction in [`docs/plan-design.md`](/home/kartikeya_vashishtha/hardline-try2/docs/plan-design.md) and [`docs/codebase-gaps.md`](/home/kartikeya_vashishtha/hardline-try2/docs/codebase-gaps.md)
-
-If a reader wants to know whether something is implemented, missing, or currently wrong, start with [`docs/codebase-gaps.md`](/home/kartikeya_vashishtha/hardline-try2/docs/codebase-gaps.md). If they want to know where to read the code next, start with [`docs/architecture.md`](/home/kartikeya_vashishtha/hardline-try2/docs/architecture.md).
-
-The current implementation is centered on:
-
-- JSON profiles and JSON action files
-- built-in step plugins for packages, templates, services, and firewall rules
-- a shipped external `firewall_template` plugin project that builds to a loadable `.so`
-- signed profile integrity verification
-- automatic rollback capture during `apply`
+Hardline is a Go CLI that reads a profile directory from disk, connects to a remote host over SSH, plans changes, applies them, and records rollback state.
 
 ## Commands
 
-`hardline` exposes these commands:
+`hardline` currently exposes five commands:
 
-- `plan <profile> --host HOST --user USER --keypath PATH`
-- `apply <profile> --host HOST --user USER --keypath PATH`
-- `rollback last --host HOST --user USER --keypath PATH`
-- `verify-profile <profile>`
-- `vp <profile>`
-- `version`
+- `plan <profile>`
+- `apply <profile>`
+- `rollback last`
+- `verify-profile <profile>` and `vp <profile>`
+- `version` and `-v`
 
-Important current behavior:
+`apply` always runs the planning path first, then executes the profile.
 
-- `apply` always runs `plan` first from [`cmd/hardline/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/hardline/main.go).
-- `rollback` only supports the target `last`.
-- `verify-profile` verifies `manifest.json` and `manifest.sig`; it does not run schema validation or step planning.
-- SSH connections require a private key, a populated `known_hosts`, and non-interactive `sudo`.
+## What Hardline manages
 
-## Doc Map
-
-- [`README.md`](/home/kartikeya_vashishtha/hardline-try2/README.md)
-  Current implementation overview.
-- [`docs/architecture.md`](/home/kartikeya_vashishtha/hardline-try2/docs/architecture.md)
-  Repository map and main execution paths with code entry points.
-- [`docs/profiles.md`](/home/kartikeya_vashishtha/hardline-try2/docs/profiles.md)
-  Actual on-disk profile format and plugin-owned config structure.
-- [`docs/plugins.md`](/home/kartikeya_vashishtha/hardline-try2/docs/plugins.md)
-  Plugin contract, built-in plugin set, and rollback ownership boundaries.
-- [`docs/plan-design.md`](/home/kartikeya_vashishtha/hardline-try2/docs/plan-design.md)
-  Intended operator-facing direction for planning, apply, rollback, and verification.
-- [`docs/codebase-gaps.md`](/home/kartikeya_vashishtha/hardline-try2/docs/codebase-gaps.md)
-  Status page: implemented, partial, wrong, and missing relative to the vision.
-
-## Start Here
-
-For a new engineer, the fastest reading order is:
-
-1. [`README.md`](/home/kartikeya_vashishtha/hardline-try2/README.md)
-2. [`docs/architecture.md`](/home/kartikeya_vashishtha/hardline-try2/docs/architecture.md)
-3. [`docs/profiles.md`](/home/kartikeya_vashishtha/hardline-try2/docs/profiles.md)
-4. [`docs/plugins.md`](/home/kartikeya_vashishtha/hardline-try2/docs/plugins.md)
-5. [`docs/codebase-gaps.md`](/home/kartikeya_vashishtha/hardline-try2/docs/codebase-gaps.md)
-
-## Relevant Files
-
-- CLI entry point: [`cmd/hardline/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/hardline/main.go)
-- CLI parsing and versioning: [`internals/cli/cli.go`](/home/kartikeya_vashishtha/hardline-try2/internals/cli/cli.go), [`internals/cli/version.go`](/home/kartikeya_vashishtha/hardline-try2/internals/cli/version.go)
-- Profile loading and validation: [`pkg/profile/profile.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/profile.go), [`pkg/profile/validation.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/profile/validation.go)
-- Planning: [`internals/plan/plan.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/plan.go), [`internals/plan/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plan/steps.go)
-- Apply: [`internals/apply/apply.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/apply.go), [`internals/apply/steps.go`](/home/kartikeya_vashishtha/hardline-try2/internals/apply/steps.go)
-- Rollback: [`internals/rollback/journal.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/journal.go), [`internals/rollback/rollback.go`](/home/kartikeya_vashishtha/hardline-try2/internals/rollback/rollback.go)
-- Plugin contract: [`pkg/pluginapi/registry.go`](/home/kartikeya_vashishtha/hardline-try2/pkg/pluginapi/registry.go)
-- Shared plugin registry owner: [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go)
-- External plugin export: [`pluginprojects/firewalltemplate/export.go`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate/export.go)
-- External plugin loading: [`internals/plugins/loader.go`](/home/kartikeya_vashishtha/hardline-try2/internals/plugins/loader.go)
-- SSH and remote execution: [`internals/connection/connection.go`](/home/kartikeya_vashishtha/hardline-try2/internals/connection/connection.go), [`internals/remote/exec.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/exec.go), [`internals/remote/fs.go`](/home/kartikeya_vashishtha/hardline-try2/internals/remote/fs.go)
-- Verification and signing: [`internals/verify/integrity.go`](/home/kartikeya_vashishtha/hardline-try2/internals/verify/integrity.go), [`cmd/profiletool/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/profiletool/main.go)
-
-## Profile Layout
-
-A profile is a directory that contains:
-
-- `profile.json`
-- `actions/*.json`
-- `templates/*.tmpl`
-- `manifest.json`
-- `manifest.sig`
-
-The bundled example is [`base-secure-ubuntu-24.04-lts/profile.json`](/home/kartikeya_vashishtha/hardline-try2/base-secure-ubuntu-24.04-lts/profile.json).
-
-`profile.json` declares:
-
-- profile identity and OS metadata
-- the supported profile schema version
-- the minimum hardline version
-- ordered action file paths
-- declared template paths
-
-Each action file contains ordered `steps`. Each step has core metadata:
-
-- `id`
-- `plugin`
-- `severity`
-- `risk_class`
-- `control_tags`
-- `config`
-- optional `allow_unvalidated`
-
-Plugin-specific fields live under `config`.
-
-## Built-in Plugins
-
-The built-in registry is assembled in [`internals/registry/registry.go`](/home/kartikeya_vashishtha/hardline-try2/internals/registry/registry.go).
-
-Supported built-in plugins:
+The built-in registry currently includes these plugins:
 
 - `packages`
 - `template`
 - `service`
 - `firewall`
 
-External plugin project:
+At runtime, Hardline also loads any `.so` plugins found in `plugins/` next to the binary. This repo builds one external plugin there:
 
 - `firewall_template`
-  Built from [`pluginprojects/firewalltemplate`](/home/kartikeya_vashishtha/hardline-try2/pluginprojects/firewalltemplate) into `tmp/plugins/firewall_template.so` by `make build`.
-  Building and loading the shared object requires a C compiler in `PATH` because Go plugins use cgo-enabled linking.
 
-Before `plan` and `apply`, the binary attempts to load external Go plugins from a `plugins/` directory next to the compiled binary. Each shared object must export `HardlinePluginV1` as a `*pluginapi.Plugin`.
+## Requirements from the code
 
-Hardline treats that boundary like a small OS:
+- Go `1.25.4`
+- SSH access to the target host
+- A trusted `known_hosts` entry, or `HARDLINE_KNOWN_HOSTS` pointing at a known-hosts file
+- Non-interactive `sudo` on the remote host
 
-- host = hardware
-- hardline core = kernel
-- plugins = userspace
+## Build and Test
 
-The core decides when plugins are invoked. Plugins should use the kernel-owned `pluginapi.Host` surface exposed in their contexts for host access instead of depending on transport wiring directly.
+Common make targets:
 
-## Execution Model
-
-`plan`:
-
-1. Loads the profile directory.
-2. Checks hardline version compatibility.
-3. Validates `profile.json` and each action file against the generated JSON schemas.
-4. Connects to the target host over SSH.
-5. Runs each step's plugin planner and prints a human-readable report.
-
-`apply`:
-
-1. Runs `plan` first.
-2. Reconnects to the target host.
-3. Re-checks version compatibility and schema validation.
-4. Captures rollback state for each step.
-5. Executes each step in action-file order.
-6. Automatically rolls back recorded steps if a later step fails.
-7. Saves the last successful rollback journal.
-
-`rollback last`:
-
-1. Loads the last successful journal for the target host.
-2. Reconnects over SSH.
-3. Replays rollback objects in reverse order.
-
-## Signing And Verification
-
-Profile signing is handled by [`cmd/profiletool/main.go`](/home/kartikeya_vashishtha/hardline-try2/cmd/profiletool/main.go).
-
-Useful targets:
-
-- `make keygen`
-- `make sign-profile PROFILE_DIR=<profile-dir>`
 - `make test`
+  - runs `go test ./...`
+  - enforces repo-wide and per-package coverage floors through `MIN_COVERAGE` (default `90`)
 - `make build`
+  - runs `tidy`
+  - ensures the embedded profile signing public key exists
+  - regenerates JSON schemas
+  - builds the `firewall_template` plugin
+  - builds `tmp/hardline`
+- `make profiletool`
+- `make genschema`
+- `make sign-profiles`
 
-`verify-profile` checks:
+## CLI examples
 
-- the Ed25519 signature on `manifest.json`
-- the declared manifest version and hash algorithm
-- the SHA-256 hash of every regular file in the profile directory except `manifest.json` and `manifest.sig`
+Plan:
 
-## Testing
+```bash
+tmp/hardline plan base-secure-ubuntu-24.04-lts \
+  --host example.com \
+  --user deploy \
+  --keypath /home/me/.ssh/id_ed25519
+```
 
-Repository tests run through `make test`, which enforces repo-wide coverage with a default minimum of `90%`.
+Apply with a saved report:
+
+```bash
+tmp/hardline apply base-secure-ubuntu-24.04-lts \
+  --host example.com \
+  --user deploy \
+  --keypath /home/me/.ssh/id_ed25519 \
+  --report-file tmp/plan.json \
+  --report-format json
+```
+
+Keep the local rollback journal after a successful apply:
+
+```bash
+tmp/hardline apply base-secure-ubuntu-24.04-lts \
+  --host example.com \
+  --user deploy \
+  --keypath /home/me/.ssh/id_ed25519 \
+  --keep-local-rollback
+```
+
+Rollback the last successful remote run:
+
+```bash
+tmp/hardline rollback last \
+  --host example.com \
+  --user deploy \
+  --keypath /home/me/.ssh/id_ed25519
+```
+
+Verify a signed profile:
+
+```bash
+tmp/hardline verify-profile base-secure-ubuntu-24.04-lts
+```
+
+## Profile verification and trust
+
+`verify-profile` does two things:
+
+- verifies `manifest.json` and `manifest.sig` with the embedded Ed25519 public key
+- checks that every plugin referenced by the profile is registered
+
+`plan` and `apply` do not call the signature-verification path. They load the profile, validate it against the JSON schema, and check that required plugins are registered.
+
+## Rollback state
+
+During `apply`, Hardline captures per-step rollback state before execution.
+
+- local journal:
+  - default root: `${TMPDIR:-/tmp}/hardline/runs`
+  - override: `HARDLINE_STATE_DIR`
+- remote journal:
+  - `/var/lib/hardline/runs/last.json`
+
+On success, the remote journal is written. The local journal is removed unless `--keep-local-rollback` is set.
+
+`rollback` only supports the target `last`, and it reads the remote journal.
+
+## Integration tests
+
+The integration runner provisions a GCP VM with Terraform and then runs the live scenarios over SSH.
+
+Targets:
+
+- `make itest`
+- `make itest-scenario ITEST_SCENARIO=<name>`
+- `make itest-scenarios`
+- `make itest-gcp-up`
+- `make itest-gcp-down`
+
+Terraform input defaults live under `integration-tests/terraform/terraform.tfvars.example`.
+
+## Repository map
+
+- `cmd/hardline`: CLI entrypoint
+- `cmd/profiletool`: key generation and profile signing
+- `cmd/genschema`: JSON schema generation
+- `internals/apply`: apply workflow
+- `internals/plan`: planning and report generation
+- `internals/rollback`: rollback journals and rollback execution
+- `internals/verify`: profile signature verification
+- `internals/plugins`: built-in plugin implementations
+- `pluginprojects/firewalltemplate`: external plugin project
+- `pkg/profile`: profile loading and schema validation
+- `schema/`: generated JSON schemas
+- `integration-tests/`: live integration runner, test profiles, Terraform
+
+For more detail:
+
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/plugins.md`](docs/plugins.md)
+- [`docs/profiles.md`](docs/profiles.md)
+- [`docs/plan-design.md`](docs/plan-design.md)
+- [`docs/codebase-gaps.md`](docs/codebase-gaps.md)

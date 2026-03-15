@@ -23,6 +23,11 @@ output "ssh_user" {
   value       = var.ssh_user
 }
 
+output "ssh_private_key_path_hint" {
+  description = "Absolute SSH private key path used for human and itest commands."
+  value       = var.ssh_private_key_path_hint
+}
+
 output "labels" {
   description = "Applied labels."
   value       = google_compute_instance.itest_vm.labels

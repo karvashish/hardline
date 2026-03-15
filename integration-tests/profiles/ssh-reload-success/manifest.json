@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "actions/10-ssh.json",
+      "sha256": "884d55228d59cac20ea14883e7a959b3a116942980e06257b8a1ae4fbd65efce"
+    },
+    {
+      "path": "profile.json",
+      "sha256": "50b6bd78442d5533aea74b4b8c979f9a10ff01480fc0491d2135d4bf0dc4f5ab"
+    },
+    {
+      "path": "templates/10-ssh-sshd-config.tmpl",
+      "sha256": "37b94d166ed957fe0f87f925eef69f03fab7d7406eb86d9aa3c9eab261efc9d0"
+    }
+  ]
+}

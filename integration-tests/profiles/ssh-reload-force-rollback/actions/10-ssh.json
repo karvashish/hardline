@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "id": "itest-ssh-template-apply",
+      "plugin": "template",
+      "severity": "high",
+      "risk_class": "access",
+      "control_tags": [],
+      "config": {
+        "src": "templates/10-ssh-sshd-config.tmpl",
+        "dest": "/etc/ssh/sshd_config.d/99-hardline-itest-ssh-bad.conf",
+        "mode": "0600"
+      }
+    },
+    {
+      "id": "itest-ssh-service-reload",
+      "plugin": "service",
+      "severity": "critical",
+      "risk_class": "access",
+      "control_tags": [],
+      "config": {
+        "name": "ssh",
+        "enabled": true,
+        "state": "reloaded"
+      }
+    }
+  ]
+}

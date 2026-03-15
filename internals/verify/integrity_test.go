@@ -19,16 +19,16 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func TestVerifyProfileIntegrity_SuccessForBundledProfile(t *testing.T) {
-	profileDir := copyBundledProfile(t)
+func TestVerifyProfileIntegrity_SuccessForSignedFixture(t *testing.T) {
+	profileDir := copySignedFixtureProfile(t)
 
 	if err := VerifyProfileIntegrity(profileDir); err != nil {
-		t.Fatalf("expected bundled profile integrity check to pass, got error: %v", err)
+		t.Fatalf("expected signed fixture integrity check to pass, got error: %v", err)
 	}
 }
 
 func TestVerifyProfileIntegrity_DetectsTamper(t *testing.T) {
-	profileDir := copyBundledProfile(t)
+	profileDir := copySignedFixtureProfile(t)
 
 	target := filepath.Join(profileDir, "templates", "10-ssh-sshd-config.tmpl")
 	f, err := os.OpenFile(target, os.O_WRONLY|os.O_APPEND, 0)
@@ -53,7 +53,7 @@ func TestVerifyProfileIntegrity_DetectsTamper(t *testing.T) {
 }
 
 func TestVerifyProfileIntegrity_DetectsUnexpectedFile(t *testing.T) {
-	profileDir := copyBundledProfile(t)
+	profileDir := copySignedFixtureProfile(t)
 
 	extra := filepath.Join(profileDir, "extra.txt")
 	if err := os.WriteFile(extra, []byte("unexpected"), 0o644); err != nil {
@@ -70,7 +70,7 @@ func TestVerifyProfileIntegrity_DetectsUnexpectedFile(t *testing.T) {
 }
 
 func TestVerifyProfileIntegrity_DetectsInvalidSignatureEncoding(t *testing.T) {
-	profileDir := copyBundledProfile(t)
+	profileDir := copySignedFixtureProfile(t)
 
 	sigPath := filepath.Join(profileDir, manifestSigName)
 	if err := os.WriteFile(sigPath, []byte("%%%not-base64%%%"), 0o644); err != nil {
@@ -399,7 +399,7 @@ func TestBuildProfileManifest_Error(t *testing.T) {
 }
 
 func TestVerifyProfile_Helper(t *testing.T) {
-	okDir := copyBundledProfile(t)
+	okDir := copySignedFixtureProfile(t)
 	if err := verifyProfile(cli.Command{Profile: okDir}); err != nil {
 		t.Fatalf("expected verifyProfile success, got %v", err)
 	}
@@ -437,11 +437,11 @@ func TestVerifyProfile_MissingPluginFails(t *testing.T) {
 }
 
 func TestVerify_NoExitOnSuccess(t *testing.T) {
-	okDir := copyBundledProfile(t)
+	okDir := copySignedFixtureProfile(t)
 	Verify(cli.Command{Profile: okDir, Debug: true})
 }
 
-func copyBundledProfile(t *testing.T) string {
+func copySignedFixtureProfile(t *testing.T) string {
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -450,11 +450,11 @@ func copyBundledProfile(t *testing.T) string {
 	}
 
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
-	src := filepath.Join(repoRoot, "base-secure-ubuntu-24.04-lts")
+	src := filepath.Join(repoRoot, "integration-tests", "profiles", "ssh-reload-success")
 	dst := filepath.Join(t.TempDir(), "profile")
 
 	if err := copyDir(src, dst); err != nil {
-		t.Fatalf("copy bundled profile: %v", err)
+		t.Fatalf("copy signed fixture profile: %v", err)
 	}
 	return dst
 }

@@ -80,7 +80,7 @@ variable "ssh_user" {
 }
 
 variable "ssh_public_key_path" {
-  description = "Path to public SSH key injected into VM metadata."
+  description = "Absolute path to public SSH key injected into VM metadata."
   type        = string
 }
 
@@ -97,7 +97,7 @@ variable "additional_labels" {
 }
 
 variable "ssh_private_key_path_hint" {
-  description = "Only used to build human-friendly ssh command output."
+  description = "Absolute SSH private key path used by itest and ssh command output."
   type        = string
-  default     = "~/.ssh/id_ed25519"
+  default     = "/home/REPLACE_ME/.ssh/id_ed25519"
 }

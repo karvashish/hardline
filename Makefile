@@ -15,14 +15,17 @@ ITEST_TF_DIR := integration-tests/terraform
 ITEST_TF_STATE := $(abspath $(OUTDIR)/itest-gcp.tfstate)
 ITEST_TF_OUTPUTS := $(abspath $(OUTDIR)/itest-gcp.outputs.json)
 ITEST_TFVARS ?= $(ITEST_TF_DIR)/terraform.tfvars
-ITEST_PROFILE ?= base-secure-ubuntu-24.04-lts
-ITEST_E2E_SCRIPT := $(abspath integration-tests/run-e2e.sh)
-
+ITEST_PROFILE ?= integration-tests/profiles/ssh-reload-success
+ITEST_SCENARIO ?= smoke
 PROFILE_DIR ?= base-secure-ubuntu-24.04-lts
-SIGNING_KEY ?= profile_signing.key
-SIGNING_PUB ?= profile_signing_pub.pem
+SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
+SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
+PROFILE_DIRS := \
+	base-secure-ubuntu-24.04-lts \
+	integration-tests/profiles/ssh-reload-success \
+	integration-tests/profiles/ssh-reload-force-rollback
 
-.PHONY: all test build build-plugins build-firewall-template-plugin profiletool ensure-embedded-pubkey keygen sign-profile genschema tidy clean itest itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+.PHONY: all test build build-plugins build-firewall-template-plugin profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -98,6 +101,12 @@ sign-profile: profiletool
 	$(PROFILE_TOOL_BIN) sign \
 		--profile-dir $(PROFILE_DIR) \
 		--private-key $(SIGNING_KEY)
+
+sign-profiles: profiletool
+	@for dir in $(PROFILE_DIRS); do \
+		echo "== signing profile $$dir =="; \
+		$(PROFILE_TOOL_BIN) sign --profile-dir "$$dir" --private-key $(SIGNING_KEY) || exit $$?; \
+	done
 
 genschema:
 	@echo "== building genschema tool =="
@@ -193,4 +202,13 @@ itest-gcp-down: itest-gcp-init
 itest-gcp-clean: itest-gcp-down
 
 itest:
-	@integration-tests/itest-gcp.sh "ITEST_PROFILE=$(ITEST_PROFILE) ITEST_TFVARS=$(abspath $(ITEST_TFVARS)) ITEST_OUTPUTS_JSON=$(ITEST_TF_OUTPUTS) $(ITEST_E2E_SCRIPT)"
+	@$(MAKE) itest-gcp-up
+	@integration-tests/itest.sh smoke "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
+
+itest-scenario:
+	@$(MAKE) itest-gcp-up
+	@integration-tests/itest.sh "$(ITEST_SCENARIO)" "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
+
+itest-scenarios:
+	@$(MAKE) itest-gcp-up
+	@integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"

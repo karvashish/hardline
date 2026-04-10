@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {
+      "id": "itest-managed-template-apply",
+      "plugin": "template",
+      "config": {
+        "src": "templates/10-managed.conf.tmpl",
+        "dest": "/etc/hardline.d/99-hardline-itest-success.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "itest-firewall-template-apply",
+      "plugin": "firewall_template",
+      "config": {
+        "backend": "nftables",
+        "policy": "drop",
+        "template_src": "templates/20-firewall-template.tmpl",
+        "template_dest": "/etc/nftables.d/99-hardline-itest-success.nft",
+        "allow": [
+          {
+            "port": 2222,
+            "proto": "tcp"
+          },
+          {
+            "port": 5353,
+            "proto": "udp"
+          }
+        ]
+      }
+    },
+    {
+      "id": "itest-firewall-service-restart",
+      "plugin": "service",
+      "config": {
+        "name": "nftables",
+        "enabled": true,
+        "state": "restarted"
+      }
+    }
+  ]
+}

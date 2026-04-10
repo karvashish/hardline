@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "id": "fail2ban-ssh-config",
+      "plugin": "template",
+      "config": {
+        "src": "templates/35-fail2ban-ssh-protection.tmpl",
+        "dest": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "fail2ban-service-enable",
+      "plugin": "service",
+      "config": {
+        "name": "fail2ban",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

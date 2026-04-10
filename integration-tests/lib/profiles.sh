@@ -1,0 +1,479 @@
+#!/usr/bin/env bash
+# =============================================================================
+# profiles.sh — Dynamic profile generators and signing infrastructure
+# =============================================================================
+# Sourced by itest.sh. Do not run directly.
+# Requires: DYNAMIC_PROFILES_DIR, ROOT_DIR, PROFILETOOL_BIN, SIGNING_KEY
+
+# ─── Signing ─────────────────────────────────────────────────────────────────
+init_signing() {
+  SIGNING_KEY="${ROOT_DIR}/tmp/profile_signing.key"
+  PROFILETOOL_BIN="${ROOT_DIR}/tmp/profiletool"
+
+  if [[ ! -f "${SIGNING_KEY}" ]]; then
+    echo "WARNING: signing key not found at ${SIGNING_KEY}" >&2
+    CAN_SIGN=false
+    return
+  fi
+  if [[ ! -x "${PROFILETOOL_BIN}" ]]; then
+    echo "WARNING: profiletool not found at ${PROFILETOOL_BIN}" >&2
+    CAN_SIGN=false
+    return
+  fi
+  CAN_SIGN=true
+}
+
+sign_profile() {
+  local profile_dir="$1"
+  if [[ "${CAN_SIGN}" != "true" ]]; then
+    echo "WARNING: cannot sign profile — profiletool or key missing" >&2
+    return 1
+  fi
+  "${PROFILETOOL_BIN}" sign \
+    --profile-dir "${profile_dir}" \
+    --private-key "${SIGNING_KEY}"
+}
+
+# ─── Profile generators ─────────────────────────────────────────────────────
+
+# Packages: install
+make_profile_packages_install() {
+  local name="$1" pkg="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-packages.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-packages.json" <<EOJSON
+{
+  "steps": [{
+    "id": "install-${pkg}",
+    "plugin": "packages",
+    "config": { "update": "once", "install": ["${pkg}"] }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Packages: purge
+make_profile_packages_purge() {
+  local name="$1" pkg="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-packages.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-packages.json" <<EOJSON
+{
+  "steps": [{
+    "id": "purge-${pkg}",
+    "plugin": "packages",
+    "config": { "purge": ["${pkg}"] }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Packages: update always
+make_profile_packages_update_always() {
+  local name="$1" pkg="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-packages.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-packages.json" <<EOJSON
+{
+  "steps": [{
+    "id": "install-${pkg}",
+    "plugin": "packages",
+    "config": { "update": "always", "install": ["${pkg}"] }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Template
+make_profile_template() {
+  local name="$1" dest="$2" content="$3" mode="${4:-0644}"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  echo -n "${content}" > "${dir}/templates/config.tmpl"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-template.json"],
+  "templates": ["templates/config.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-template.json" <<EOJSON
+{
+  "steps": [{
+    "id": "deploy-config",
+    "plugin": "template",
+    "config": {
+      "src": "templates/config.tmpl",
+      "dest": "${dest}",
+      "mode": "${mode}"
+    }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Firewall (basic — input chain only)
+make_profile_firewall() {
+  local name="$1" table="$2" dest="$3"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-firewall.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-firewall.json" <<EOJSON
+{
+  "steps": [
+    {
+      "id": "configure-fw",
+      "plugin": "firewall",
+        "config": {
+        "backend": "nftables",
+        "family": "inet",
+        "table": "${table}",
+        "managed_dest": "${dest}",
+        "policies": [{ "chain": "input", "policy": "drop" }],
+        "rules": [
+          { "chain": "input", "in_interface": "lo", "action": "accept" },
+          { "chain": "input", "ct_states": ["established", "related"], "action": "accept" },
+          { "chain": "input", "proto": "tcp", "port": 22, "action": "accept" },
+          { "chain": "input", "proto": "icmp", "action": "accept" }
+        ]
+      }
+    },
+    {
+      "id": "reload-nftables",
+      "plugin": "service",
+        "config": { "name": "nftables", "enabled": true, "state": "restarted" }
+    }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Firewall with advanced rules (forward chain, source CIDR, multi-port, non-lo interface)
+make_profile_firewall_advanced() {
+  local name="$1" table="$2" dest="$3" iface="${4:-}"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-firewall.json"],
+  "templates": []
+}
+EOJSON
+
+  # Build interface rule for forward chain — use non-lo interface if provided
+  local fwd_iface="lo"
+  if [[ -n "${iface}" ]]; then
+    fwd_iface="${iface}"
+  fi
+
+  cat > "${dir}/actions/00-firewall.json" <<EOJSON
+{
+  "steps": [
+    {
+      "id": "configure-fw-advanced",
+      "plugin": "firewall",
+        "config": {
+        "backend": "nftables",
+        "family": "inet",
+        "table": "${table}",
+        "managed_dest": "${dest}",
+        "policies": [
+          { "chain": "input", "policy": "drop" },
+          { "chain": "forward", "policy": "drop" }
+        ],
+        "rules": [
+          { "chain": "input", "in_interface": "lo", "action": "accept" },
+          { "chain": "input", "ct_states": ["established", "related"], "action": "accept" },
+          { "chain": "input", "proto": "tcp", "port": 22, "action": "accept" },
+          { "chain": "input", "proto": "tcp", "ports": [80, 443], "action": "accept" },
+          { "chain": "input", "proto": "tcp", "port": 8080, "source": "10.0.0.0/8", "action": "accept" },
+          { "chain": "input", "proto": "icmp", "action": "accept" },
+          { "chain": "forward", "in_interface": "${fwd_iface}", "proto": "tcp", "port": 8443, "action": "accept" }
+        ]
+      }
+    },
+    {
+      "id": "reload-nftables",
+      "plugin": "service",
+        "config": { "name": "nftables", "enabled": true, "state": "restarted" }
+    }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Template + service (with restart_policy on_change)
+make_profile_template_service() {
+  local name="$1" template_dest="$2" content="$3" svc_name="$4"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  echo -n "${content}" > "${dir}/templates/config.tmpl"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-config.json"],
+  "templates": ["templates/config.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-config.json" <<EOJSON
+{
+  "steps": [
+    {
+      "id": "deploy-config",
+      "plugin": "template",
+        "config": {
+        "src": "templates/config.tmpl",
+        "dest": "${template_dest}",
+        "mode": "0600"
+      }
+    },
+    {
+      "id": "reload-service",
+      "plugin": "service",
+        "config": {
+        "name": "${svc_name}",
+        "enabled": true,
+        "state": "reloaded",
+        "restart_policy": { "type": "on_change", "steps": ["deploy-config"] }
+      }
+    }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Service only (various states)
+make_profile_service() {
+  local name="$1" svc_name="$2" state="$3" enabled="$4"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-service.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-service.json" <<EOJSON
+{
+  "steps": [{
+    "id": "manage-service",
+    "plugin": "service",
+    "config": {
+      "name": "${svc_name}",
+      "enabled": ${enabled},
+      "state": "${state}"
+    }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Profile with a failing step (triggers rollback)
+make_profile_with_failing_step() {
+  local name="$1" good_dest="$2" content="$3"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  echo -n "${content}" > "${dir}/templates/config.tmpl"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-steps.json"],
+  "templates": ["templates/config.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-steps.json" <<EOJSON
+{
+  "steps": [
+    {
+      "id": "good-step",
+      "plugin": "template",
+        "config": {
+        "src": "templates/config.tmpl",
+        "dest": "${good_dest}",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "bad-step",
+      "plugin": "service",
+        "config": {
+        "name": "nonexistent-service-hardline-test-xyzzy",
+        "state": "restarted"
+      }
+    }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Template profile with allowed_overrides (for overrides feature scenarios).
+# $1=name  $2=template_dest  $3=template_content  $4=space-separated allowed override names.
+# After calling, caller may write "${dir}/profile.overrides.json" and it will NOT
+# invalidate the signature because profile.overrides.json is excluded from the
+# signed manifest walker.
+make_profile_with_allowed_overrides() {
+  local name="$1" dest="$2" content="$3" allowed_csv="$4"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  echo -n "${content}" > "${dir}/templates/config.tmpl"
+
+  # Build JSON array from whitespace-separated names.
+  local allowed_json="["
+  local first=true
+  for name_i in ${allowed_csv}; do
+    if [[ "${first}" == "true" ]]; then first=false; else allowed_json+=", "; fi
+    allowed_json+="\"${name_i}\""
+  done
+  allowed_json+="]"
+
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-template.json"],
+  "templates": ["templates/config.tmpl"],
+  "allowed_overrides": ${allowed_json}
+}
+EOJSON
+  cat > "${dir}/actions/00-template.json" <<EOJSON
+{
+  "steps": [{
+    "id": "deploy-config",
+    "plugin": "template",
+    "config": {
+      "src": "templates/config.tmpl",
+      "dest": "${dest}",
+      "mode": "0644"
+    }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Profile with high min_hardline version gate
+make_profile_min_version() {
+  local name="$1" min_ver="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "${min_ver}",
+  "actions": ["actions/00-pkg.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-pkg.json" <<EOJSON
+{
+  "steps": [{
+    "id": "s1",
+    "plugin": "packages",
+    "config": { "install": ["tree"] }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}

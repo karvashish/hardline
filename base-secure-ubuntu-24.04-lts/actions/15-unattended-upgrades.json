@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "id": "unattended-upgrades-auto",
+      "plugin": "template",
+      "config": {
+        "src": "templates/15-unattended-upgrades.tmpl",
+        "dest": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
+        "mode": "0644"
+      }
+    }
+  ]
+}

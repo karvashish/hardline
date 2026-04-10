@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "actions/10-package-rollback.json",
+      "sha256": "5d748b3dbabbb8788bc684644f5f8c3c1836a690c20b7c6cfc228fa3adefd201"
+    },
+    {
+      "path": "profile.json",
+      "sha256": "8e8778537cc1b47745852dfaaa21d58c04e28ffd7df9c6a2198f46afbd8f19a3"
+    },
+    {
+      "path": "templates/10-managed.conf.tmpl",
+      "sha256": "9c880057df0a14589ffaa599e53dfba68692977a967f9bc305211dceff0fd2c0"
+    }
+  ]
+}

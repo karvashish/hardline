@@ -1,0 +1,20 @@
+{
+  "id": "itest-layer-base",
+  "display_name": "Integration Test Layer Base",
+  "version": "1.0.0",
+  "os": {
+    "family": "ubuntu",
+    "version": "24.04",
+    "variant": "lts"
+  },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": [
+    "actions/10-layer-base.json"
+  ],
+  "templates": [
+    "templates/10-managed.conf.tmpl",
+    "templates/20-firewall-template.tmpl"
+  ],
+  "allowed_overrides": []
+}

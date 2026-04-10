@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "id": "itest-package-install",
+      "plugin": "packages",
+      "config": {
+        "install": [
+          "tree"
+        ]
+      }
+    },
+    {
+      "id": "itest-package-template",
+      "plugin": "template",
+      "config": {
+        "src": "templates/10-managed.conf.tmpl",
+        "dest": "/etc/hardline.d/99-hardline-itest-package-rollback.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "itest-package-service",
+      "plugin": "service",
+      "config": {
+        "name": "nftables",
+        "enabled": true,
+        "state": "restarted"
+      }
+    }
+  ]
+}

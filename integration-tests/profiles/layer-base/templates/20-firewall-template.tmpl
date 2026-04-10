@@ -1,0 +1,6 @@
+table inet hardline_itest_layer_base {
+  chain input {
+    type filter hook input priority 30;
+    policy accept;
+{{allow_rules}}  }
+}

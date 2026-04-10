@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/karvashish/hardline/pkg/profile/action-file",
+  "$ref": "#/$defs/ActionFile",
+  "$defs": {
+    "ActionFile": {
+      "properties": {
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "steps"
+      ]
+    },
+    "Step": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        },
+        "allow_unvalidated": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "plugin"
+      ]
+    }
+  }
+}

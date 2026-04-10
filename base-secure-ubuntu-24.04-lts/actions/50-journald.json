@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "id": "journald-configure-persistence",
+      "plugin": "template",
+      "config": {
+        "src": "templates/50-journald-hardening.conf.tmpl",
+        "dest": "/etc/systemd/journald.conf.d/99-hardline.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "journald-reload",
+      "plugin": "service",
+      "config": {
+        "name": "systemd-journald",
+        "enabled": true,
+        "state": "restarted",
+        "restart_policy": {
+          "type": "on_change",
+          "steps": [
+            "journald-configure-persistence"
+          ]
+        }
+      }
+    }
+  ]
+}

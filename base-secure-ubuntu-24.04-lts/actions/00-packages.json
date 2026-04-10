@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {
+      "id": "packages-base-secure",
+      "plugin": "packages",
+      "config": {
+        "update": "always",
+        "upgrade": "once",
+        "autoremove": "once",
+        "install": [
+          "nftables",
+          "auditd",
+          "fail2ban",
+          "unattended-upgrades"
+        ],
+        "purge": [
+          "telnet",
+          "rsh-client",
+          "ftp",
+          "tftp",
+          "cups",
+          "rpcbind",
+          "nfs-common",
+          "snapd",
+          "whoopsie",
+          "apport",
+          "landscape-client"
+        ]
+      }
+    }
+  ]
+}

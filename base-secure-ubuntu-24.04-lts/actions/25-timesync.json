@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "id": "timesyncd-enable",
+      "plugin": "service",
+      "config": {
+        "name": "chrony",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

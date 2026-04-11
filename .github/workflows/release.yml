@@ -1,0 +1,185 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name to build (e.g. v0.1.0). Must already exist.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential
+
+      - name: Build (hardline, profiletool, firewall_template.so)
+        run: make build
+
+      - name: Stage release archive
+        id: stage
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          PKG="hardline-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          STAGE="dist/${PKG}"
+          mkdir -p "${STAGE}/plugins"
+          install -m 0755 tmp/hardline "${STAGE}/hardline"
+          install -m 0755 tmp/profiletool "${STAGE}/profiletool"
+          install -m 0644 tmp/plugins/firewall_template.so "${STAGE}/plugins/firewall_template.so"
+          install -m 0644 README.md "${STAGE}/README.md"
+          install -m 0644 LICENSE "${STAGE}/LICENSE"
+          tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
+          ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+          rm -rf "${STAGE}"
+          echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/${{ steps.stage.outputs.pkg }}.tar.gz
+            dist/${{ steps.stage.outputs.pkg }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows:
+    name: Build windows/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: make build-windows WIN_GOARCH=${{ matrix.goarch }}
+
+      - name: Stage release archive
+        id: stage
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          PKG="hardline-${TAG}-windows-${{ matrix.goarch }}"
+          STAGE="dist/${PKG}"
+          mkdir -p "${STAGE}"
+          install -m 0755 tmp/windows/${{ matrix.goarch }}/hardline.exe "${STAGE}/hardline.exe"
+          install -m 0755 tmp/windows/${{ matrix.goarch }}/profiletool.exe "${STAGE}/profiletool.exe"
+          install -m 0644 README.md "${STAGE}/README.md"
+          install -m 0644 LICENSE "${STAGE}/LICENSE"
+          ( cd dist && zip -qr "${PKG}.zip" "${PKG}" )
+          ( cd dist && sha256sum "${PKG}.zip" > "${PKG}.zip.sha256" )
+          rm -rf "${STAGE}"
+          echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ matrix.goarch }}
+          path: |
+            dist/${{ steps.stage.outputs.pkg }}.zip
+            dist/${{ steps.stage.outputs.pkg }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  profile:
+    name: Package base profile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Create profile tarball
+        id: pack
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          PKG="base-secure-ubuntu-24.04-lts-${VERSION}"
+          mkdir -p dist
+          tar -czf "dist/${PKG}.tar.gz" base-secure-ubuntu-24.04-lts
+          ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+          echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload profile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-profile
+          path: |
+            dist/${{ steps.pack.outputs.pkg }}.tar.gz
+            dist/${{ steps.pack.outputs.pkg }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    needs: [build, build-windows, profile]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}
+          fail_on_unmatched_files: true

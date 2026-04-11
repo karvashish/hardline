@@ -112,3 +112,16 @@ Useful flags:
 - `tmp/plugins/firewall_template.so`
 
 External plugins are loaded from a `plugins/` directory adjacent to the `hardline` binary, so if you move the binary, move the plugin directory with it.
+
+## Platform Support
+
+| Platform | `hardline` CLI | `profiletool` | Built-in plugins | External plugins |
+|---|---|---|---|---|
+| Linux amd64 | yes | yes | yes | yes |
+| Linux arm64 | yes | yes | yes | yes |
+| Windows amd64 | yes | yes | yes | **no** |
+| Windows arm64 | yes | yes | yes | **no** |
+
+Hardline applies configuration to remote Linux hosts over SSH. The Windows builds exist so you can run the CLI from a Windows workstation to manage Linux targets — they are not intended for applying profiles *to* a Windows host.
+
+External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages`, `templates`, `services`, `firewall`) are compiled into the binary and remain available on every platform.

@@ -24,7 +24,10 @@ PROFILE_DIRS := \
 	base-secure-ubuntu-24.04-lts \
 	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
 
-.PHONY: all test build build-plugins build-firewall-template-plugin profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+WIN_GOARCH ?= amd64
+WIN_OUTDIR := $(OUTDIR)/windows/$(WIN_GOARCH)
+
+.PHONY: all test build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -60,6 +63,18 @@ build: tidy checkversion ensure-embedded-pubkey genschema build-plugins
 		-ldflags "$(LDFLAGS)" \
 		-o $(OUTDIR)/$(BINARY) \
 		$(CMD)
+
+build-windows: tidy checkversion ensure-embedded-pubkey genschema
+	@echo "== building $(BINARY) for windows/$(WIN_GOARCH) ($(VERSION)) =="
+	@echo "== external plugins are NOT supported on windows (CGO disabled, plugin system is unix-only) =="
+	@mkdir -p $(WIN_OUTDIR)
+	GOOS=windows GOARCH=$(WIN_GOARCH) GO111MODULE=on CGO_ENABLED=0 go build \
+		-ldflags "$(LDFLAGS)" \
+		-o $(WIN_OUTDIR)/$(BINARY).exe \
+		$(CMD)
+	GOOS=windows GOARCH=$(WIN_GOARCH) GO111MODULE=on CGO_ENABLED=0 go build \
+		-o $(WIN_OUTDIR)/profiletool.exe \
+		./cmd/profiletool
 
 build-plugins: build-firewall-template-plugin
 

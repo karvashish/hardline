@@ -2,18 +2,24 @@
 
 Hardline is a signed-profile runner for applying opinionated system configuration to remote Linux hosts over SSH. It verifies profile contents locally, checks the target host before changes, produces a plan, applies steps with non-interactive `sudo`, and stores rollback journals so the last successful run can be reverted.
 
-## Why Not Just Ansible?
+## What's In The Trusted Execution Surface
 
-A signed Ansible repo signs the wrapper, not what runs. Real-world playbooks lean on `shell:`, `command:`, `raw:`, and jinja-templated scripts — a reviewer auditing a "signed" playbook is auditing bash embedded in YAML, which is exactly as good as auditing bash.
-
-Hardline has **no shell escape hatch**. Every step is a typed plugin config:
+A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is four typed plugin configs:
 
 - `packages` — install / purge named packages
-- `template` — render a file to a managed destination with a fixed mode
+- `template` — render a file to a managed destination path with a fixed mode
 - `service` — enable / disable / restart named systemd units
 - `firewall` — declarative nftables rules
 
-There is no `exec` plugin, no `command` plugin, no way to smuggle `curl | sh` through a signed manifest. The auditable surface is narrow, declarative, and enumerable. That — not the rollback journal, not the runtime signature check, not the apply lock — is the reason to use Hardline over a disciplined Ansible setup. If your Ansible repo genuinely bans `shell`/`command` and nobody needs rollback, Ansible is the right tool. In practice nobody keeps that discipline.
+That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects — signing the manifest is signing the full set of instructions, not a wrapper around them.
+
+This is a deliberately narrow design, different from a general-purpose configuration tool like Ansible. If you need the generality of Ansible, use Ansible. If you want the attack surface of an apply to be finite and enumerable, that's what Hardline is for.
+
+Beyond the narrow vocabulary, three supporting properties worth knowing:
+
+- **Runtime signature verification.** The runner verifies the profile's signature against a trusted key before any step executes — not at git-clone time, not at CI time, at the moment of apply.
+- **Rollback journal with conflict detection.** Each step records before/after snapshots. Rollback restores the before state and refuses to proceed if the current remote state has drifted since apply (unless `--force-rollback` is passed).
+- **Apply lock on the target.** Only one apply per host at a time; concurrent runs would corrupt the journal.
 
 The repo ships with:
 
@@ -23,7 +29,7 @@ The repo ships with:
 - an example Ubuntu 24.04 hardening profile in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 
-**Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The four [built-in plugins](#why-not-just-ansible) cover the common cases and ship compiled into the binary on every platform.
+**Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The four [built-in plugins](#whats-in-the-trusted-execution-surface) cover the common cases and ship compiled into the binary on every platform.
 
 ## Install
 

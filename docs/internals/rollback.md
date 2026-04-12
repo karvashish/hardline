@@ -179,8 +179,6 @@ If a step fails after earlier steps already succeeded:
 
 The same local-journal path is used when the apply context is cancelled by `SIGINT` or `SIGTERM`.
 
-This is a big part of why rollback is a major selling point: users do not need to invent their own manual unwind procedure for the common "step N failed after steps 1..N-1 already changed the box" case.
-
 ## Rollback Execution Rules
 
 Rollback walks step records in reverse order.
@@ -207,8 +205,6 @@ That is the right comparison because the question rollback is asking is:
 "Is the host still in the state this profile last wrote?"
 
 If the answer is no, then something changed after apply, and rollback should not blindly restore old state on top of newer intent.
-
-This is what makes rollback safe in the default path. Without this check, rollback would happily destroy manual fixes, other automation's changes, or newer Hardline-managed state.
 
 ## Conflict Detection By Object Type
 
@@ -257,10 +253,3 @@ Important limits:
 - package rollback is best-effort, not lossless
 - a failed apply leaves no remote success journal
 - if the target is unreachable during automatic rollback, the local journal becomes the only structured recovery record
-
-So the right mental model is:
-
-- stronger than "best effort undo commands"
-- weaker than filesystem snapshots or database-style transactions
-
-For a remote host hardening tool, that is still a meaningful advantage: the system records real before/after state, persists it as it goes, can auto-rollback on failure, and refuses by default to overwrite newer state.

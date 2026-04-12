@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "actions/00-packages.json",
-      "sha256": "2d2cbd528655886146ff3c6b8aac8daa032970a614f7d342074e174999f8f824"
+      "sha256": "a86c71d2c674dff5465e78dcd09d62d85ca0cbf36e1c01a234f4a4598085356c"
     },
     {
       "path": "actions/10-ssh.json",

@@ -137,6 +137,15 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify starter profile
+        run: go run ./cmd/hardline verify-profile starter-secure-ubuntu-24.04-lts
+
       - name: Create profile tarball
         id: pack
         run: |

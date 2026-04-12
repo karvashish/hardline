@@ -27,7 +27,7 @@ The local key file must not be group-writable or world-writable.
 ## Generate A Key Pair
 
 ```bash
-tmp/profiletool keygen \
+profiletool keygen \
   --private-out ./tmp/profile_signing.key \
   --public-out ./tmp/profile_signing_pub.pem
 ```
@@ -35,7 +35,7 @@ tmp/profiletool keygen \
 ## Sign A Profile
 
 ```bash
-tmp/profiletool sign \
+profiletool sign \
   --profile-dir base-secure-ubuntu-24.04-lts \
   --private-key ./tmp/profile_signing.key
 ```

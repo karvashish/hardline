@@ -1,10 +1,12 @@
 # Getting Started
 
+This page assumes `hardline` is already on your `PATH`. If it isn't, start with the [Install Guide](install.md).
+
 ## Prerequisites
 
 Local machine:
 
-- Go `1.26.1` or newer if you are building from source
+- `hardline` and `profiletool` on `PATH` (or run them from the extracted release directory)
 - an SSH private key that can reach the target host
 - a populated `known_hosts` file, or `HARDLINE_KNOWN_HOSTS` pointing to one
 
@@ -21,28 +23,16 @@ For the included sample profile:
 - package management is expected to work through `apt-get`
 - service management is expected to work through `systemctl`
 
-## Build
+## Get The Example Profile
 
-From the repo root:
-
-```bash
-make build
-```
-
-That creates:
-
-- `tmp/hardline`
-- `tmp/profiletool`
-- `tmp/plugins/firewall_template.so`
-
-If you relocate the `hardline` binary, keep external plugins in a sibling `plugins/` directory next to it.
+The example `base-secure-ubuntu-24.04-lts` profile is published as its own tarball on every release, or you can `git clone` the repo and use the directory in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
 
 ## First Command
 
-Start by verifying the included profile locally:
+Start by verifying the profile locally:
 
 ```bash
-tmp/hardline verify-profile base-secure-ubuntu-24.04-lts
+hardline verify-profile base-secure-ubuntu-24.04-lts
 ```
 
 `verify`, `vp`, and `verify-profile` all work for this command.
@@ -60,7 +50,7 @@ This checks:
 ### Generate A Plan
 
 ```bash
-tmp/hardline plan base-secure-ubuntu-24.04-lts \
+hardline plan base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -71,7 +61,7 @@ tmp/hardline plan base-secure-ubuntu-24.04-lts \
 ### Apply A Profile
 
 ```bash
-tmp/hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -87,7 +77,7 @@ Important behavior:
 Keep the local rollback journal too:
 
 ```bash
-tmp/hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \
@@ -97,7 +87,7 @@ tmp/hardline apply base-secure-ubuntu-24.04-lts \
 ### Roll Back The Last Successful Apply
 
 ```bash
-tmp/hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -108,7 +98,7 @@ If a managed file, package, or service changed after the original apply, rollbac
 Override that protection carefully:
 
 ```bash
-tmp/hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \
@@ -123,7 +113,20 @@ tmp/hardline rollback base-secure-ubuntu-24.04-lts \
 - `--overrides-file PATH`
 - `--allow-local-key`
 
+The [CLI Reference](cli-reference.md) has the full list with descriptions, shorthands, and environment variables.
+
+## Build From Source
+
+If you prefer building from a checkout instead of downloading a release, clone the repo and run `make build`. This requires **Go 1.26.1 or newer**. The build produces:
+
+- `tmp/hardline`
+- `tmp/profiletool`
+- `tmp/plugins/firewall_template.so`
+
+Either add `./tmp` to your `PATH` for the rest of the session, or run commands with the explicit `tmp/` prefix (`tmp/hardline verify-profile ...`). If you relocate the binary after building, keep external plugins in a sibling `plugins/` directory next to it — see the note in the [Install Guide](install.md#put-hardline-on-your-path).
+
 Related:
 
 - [Overrides](overrides.md)
 - [Signing And Verification](signing-and-verification.md)
+- [Failure And Recovery](failure-and-recovery.md)

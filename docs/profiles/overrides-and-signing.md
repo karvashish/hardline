@@ -26,7 +26,7 @@ Key points:
 Generate a key pair:
 
 ```bash
-tmp/profiletool keygen \
+profiletool keygen \
   --private-out ./tmp/profile_signing.key \
   --public-out ./tmp/profile_signing_pub.pem
 ```
@@ -34,7 +34,7 @@ tmp/profiletool keygen \
 Sign a profile:
 
 ```bash
-tmp/profiletool sign \
+profiletool sign \
   --profile-dir ./my-profile \
   --private-key ./tmp/profile_signing.key
 ```

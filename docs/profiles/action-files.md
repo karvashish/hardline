@@ -8,7 +8,6 @@ Each action file is a JSON object with a `steps` array:
     {
       "id": "ssh-template-apply",
       "plugin": "template",
-      "control_tags": [],
       "config": {
         "src": "templates/10-ssh-sshd-config.tmpl",
         "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
@@ -25,7 +24,6 @@ Each action file is a JSON object with a `steps` array:
 | --- | --- | --- |
 | `id` | yes | Stable step identifier |
 | `plugin` | yes | Registered plugin name |
-| `control_tags` | yes | Required by schema; current runtime execution does not consume it |
 | `config` | no | Plugin-specific configuration object |
 | `allow_unvalidated` | no | Acknowledge a plugin that does not perform internal validation |
 
@@ -34,7 +32,6 @@ Each action file is a JSON object with a `steps` array:
 - step order is execution order
 - all built-in plugins in this repo set `InternalValidation=true`
 - `allow_unvalidated` is mostly relevant for external plugins
-- action-file schema still requires `control_tags`, even though the current runtime `profile.Step` struct does not store or use it
 - service steps with `restart_policy.type=on_change` can refer to earlier step IDs through `restart_policy.steps`
 
 Next:

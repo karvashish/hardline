@@ -24,15 +24,10 @@ The action-file schema requires steps with:
 
 - `id`
 - `plugin`
-- `control_tags`
 - optional `config`
 - optional `allow_unvalidated`
 
-One nuance from the current code:
-
-- the schema still requires `control_tags`
-- the current `profile.Step` runtime struct stores `id`, `plugin`, `config`, and `allow_unvalidated`
-- `control_tags` are therefore schema-visible but not currently consumed in runtime execution
+The `profile.Step` runtime struct stores `id`, `plugin`, `config`, and `allow_unvalidated`.
 
 ## Profile Manifest
 

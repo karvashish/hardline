@@ -10,32 +10,25 @@ The repo ships with:
 - an example Ubuntu 24.04 hardening profile in [`base-secure-ubuntu-24.04-lts/profile.json`](base-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 
+## Install
+
+Download a prebuilt release archive from [github.com/karvashish/hardline/releases](https://github.com/karvashish/hardline/releases). Every tag publishes Linux (amd64, arm64) and Windows (amd64, arm64) archives plus the example profile as a separate tarball. Each file has a companion `.sha256` for verification. See the [Install Guide](docs/users/install.md) for verify/extract/PATH steps, or [Build From Source](docs/users/getting-started.md#build-from-source) if you prefer to build from a checkout.
+
 ## Quick Start
 
-Build the project:
+Assuming `hardline` is on your `PATH` and you have a copy of the example profile directory (from the release archive or the repo checkout), verify, plan, apply, and roll back:
 
 ```bash
-make build
-```
-
-Verify, plan, and apply the included example profile:
-
-```bash
-tmp/hardline verify-profile base-secure-ubuntu-24.04-lts
-tmp/hardline plan base-secure-ubuntu-24.04-lts \
+hardline verify-profile base-secure-ubuntu-24.04-lts
+hardline plan base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
-tmp/hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
-```
-
-Roll back the last successful apply for that profile:
-
-```bash
-tmp/hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback base-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -44,16 +37,25 @@ tmp/hardline rollback base-secure-ubuntu-24.04-lts \
 Notes:
 
 - The remote user must be able to run `sudo -n`.
-- The target host must already exist in your `known_hosts` file.
+- The target host must already exist in your `known_hosts` file (or set `HARDLINE_KNOWN_HOSTS`).
 - `apply` automatically re-runs verification and planning before it makes changes.
+
+## Supported Targets
+
+The only profile that ships with Hardline targets **Ubuntu 24.04 LTS**. The built-in `packages` plugin talks to `apt-get`, the `service` plugin talks to `systemctl`, and the `firewall` plugin renders an `nftables` include under `/etc/nftables.d/`. In practice this means the runtime is viable on modern Debian-family systems with systemd and nftables — Ubuntu 22.04 and 24.04 LTS, Debian 12+ — though only Ubuntu 24.04 is exercised by the integration tests. Other distros (RHEL / Rocky / Alma, Arch, Alpine) are **not** supported today: the apt-only packages plugin is the hard blocker, not the rest of the design. Adding an rpm or pacman plugin is a real path forward, just not one anyone has walked yet.
+
+Hardline's CLI runs on Linux (amd64, arm64) and Windows (amd64, arm64). Windows builds are intended for running the CLI from a workstation to manage remote Linux hosts over SSH — see the [Platform Support](#platform-support) section below for details.
 
 ## For Users
 
 If you want to run Hardline without digging through internals, start here:
 
 - [User Guide](docs/user-guide.md) for the user-facing docs hub
-- [Getting Started](docs/users/getting-started.md) for prerequisites, build outputs, and the basic `verify-profile` / `plan` / `apply` / `rollback` flow
+- [Install Guide](docs/users/install.md) for downloading, verifying, and putting a release on your `PATH`
+- [Getting Started](docs/users/getting-started.md) for prerequisites and the basic `verify-profile` / `plan` / `apply` / `rollback` flow
+- [CLI Reference](docs/users/cli-reference.md) for every command, flag, environment variable, and exit code
 - [Troubleshooting](docs/users/troubleshooting.md) for common failures
+- [Failure And Recovery](docs/users/failure-and-recovery.md) for what happens when a run is interrupted or a host disappears mid-apply
 - [Signing And Verification](docs/users/signing-and-verification.md) for profile trust and key handling
 
 ## For Profile Authors
@@ -94,14 +96,7 @@ hardline vp <profile>       # alias for verify-profile
 hardline version
 ```
 
-Useful flags:
-
-- `--report-file` and `--report-format json|yaml|md` to save plan/apply output
-- `--log-file` to write plain-text logs
-- `--overrides-file` or `profile.overrides.json` for runtime overrides
-- `--allow-local-key` to verify profiles with `/etc/hardline/profile_signing_pub.pem`
-- `--keep-local-rollback` to keep the runner-side journal after a successful apply
-- `--force-rollback` to roll back even if a managed object changed after apply
+For every flag, environment variable, and exit code, see the [CLI Reference](docs/users/cli-reference.md).
 
 ## Build Outputs
 

@@ -21,9 +21,6 @@
           "cups",
           "rpcbind",
           "nfs-common",
-          "snapd",
-          "whoopsie",
-          "apport",
           "landscape-client"
         ]
       }

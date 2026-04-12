@@ -57,6 +57,7 @@ Out of scope (treat as regular bugs, not vulnerabilities):
 - Denial-of-service from an attacker who already has root on the runner or target
 - Findings in third-party dependencies that Hardline re-exposes without modification — please report those to the upstream project first; if Hardline's usage amplifies the impact, do report that here
 - The documented "plugin: not implemented" behavior on Windows builds — external plugins are unsupported on Windows by design
+- **The behavior of external plugins themselves.** External `.so` plugins loaded from the `plugins/` directory execute with root privileges on the target and are not signature-verified by Hardline. If an external plugin reads secrets, writes outside its declared scope, skips validation, or otherwise misbehaves, that is a bug in the plugin — report it to the plugin's author. Hardline's responsibility ends at refusing to load from a world-writable directory. See [Trust Boundaries](#trust-boundaries) below.
 
 ## Trust Boundaries
 

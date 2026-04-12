@@ -13,7 +13,7 @@ A signed Hardline profile can only ask the runtime to do things the runtime know
 
 That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects — signing the manifest is signing the full set of instructions, not a wrapper around them.
 
-This is a deliberately narrow design, different from a general-purpose configuration tool like Ansible. If you need the generality of Ansible, use Ansible. If you want the attack surface of an apply to be finite and enumerable, that's what Hardline is for.
+Hardline runs the hardening step, and only the hardening step. Provisioning stays where it is — Terraform, cloud-init, or Ansible brings the host up and creates the admin user. Hardline takes over once the host is ready.
 
 Beyond the narrow vocabulary, three supporting properties worth knowing:
 

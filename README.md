@@ -2,6 +2,19 @@
 
 Hardline is a signed-profile runner for applying opinionated system configuration to remote Linux hosts over SSH. It verifies profile contents locally, checks the target host before changes, produces a plan, applies steps with non-interactive `sudo`, and stores rollback journals so the last successful run can be reverted.
 
+## Why Not Just Ansible?
+
+A signed Ansible repo signs the wrapper, not what runs. Real-world playbooks lean on `shell:`, `command:`, `raw:`, and jinja-templated scripts — a reviewer auditing a "signed" playbook is auditing bash embedded in YAML, which is exactly as good as auditing bash.
+
+Hardline has **no shell escape hatch**. Every step is a typed plugin config:
+
+- `packages` — install / purge named packages
+- `template` — render a file to a managed destination with a fixed mode
+- `service` — enable / disable / restart named systemd units
+- `firewall` — declarative nftables rules
+
+There is no `exec` plugin, no `command` plugin, no way to smuggle `curl | sh` through a signed manifest. The auditable surface is narrow, declarative, and enumerable. That — not the rollback journal, not the runtime signature check, not the apply lock — is the reason to use Hardline over a disciplined Ansible setup. If your Ansible repo genuinely bans `shell`/`command` and nobody needs rollback, Ansible is the right tool. In practice nobody keeps that discipline.
+
 The repo ships with:
 
 - the `hardline` CLI in [`cmd/hardline/main.go`](cmd/hardline/main.go)
@@ -9,6 +22,8 @@ The repo ships with:
 - built-in plugins for packages, templates, services, and nftables
 - an example Ubuntu 24.04 hardening profile in [`base-secure-ubuntu-24.04-lts/profile.json`](base-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
+
+**Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The four [built-in plugins](#why-not-just-ansible) cover the common cases and ship compiled into the binary on every platform.
 
 ## Install
 

@@ -8,7 +8,7 @@ The format follows [Keep A Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- Release pipeline: tag-triggered GitHub Actions workflow that builds `hardline` and `profiletool` for linux amd64/arm64 and windows amd64/arm64, packages the `base-secure-ubuntu-24.04-lts` profile as a tarball, and publishes all artifacts to a GitHub Release with SHA256 companions.
+- Release pipeline: tag-triggered GitHub Actions workflow that builds `hardline` and `profiletool` for linux amd64/arm64 and windows amd64/arm64, packages the `starter-secure-ubuntu-24.04-lts` profile as a tarball, and publishes all artifacts to a GitHub Release with SHA256 companions.
 - `make build-windows` target for cross-compiling static (CGO-disabled) Windows binaries. External plugins remain Linux-only.
 - User-facing [Install Guide](docs/users/install.md) covering tarball download, verification, extraction, and PATH setup for Linux and Windows.
 - [CLI Reference](docs/users/cli-reference.md) documenting every command, flag, environment variable (`HARDLINE_KNOWN_HOSTS`, `HARDLINE_STATE_DIR`), and exit code.

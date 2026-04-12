@@ -187,8 +187,8 @@ func TestPrintPlanNextSteps(t *testing.T) {
 
 func TestPrintPlan(t *testing.T) {
 	p := profile.Profile{
-		ID:          "base-secure-ubuntu-24.04-lts",
-		DisplayName: "Base Secure Ubuntu",
+		ID:          "starter-secure-ubuntu-24.04-lts",
+		DisplayName: "Starter Secure Ubuntu",
 		Version:     "1.2.3",
 		OS:          profile.OSInfo{Family: "ubuntu", Version: "24.04"},
 	}
@@ -216,8 +216,8 @@ func TestPrintPlan(t *testing.T) {
 
 func TestRenderCompactPlan(t *testing.T) {
 	p := profile.Profile{
-		ID:          "base-secure-ubuntu-24.04-lts",
-		DisplayName: "Base Secure Ubuntu",
+		ID:          "starter-secure-ubuntu-24.04-lts",
+		DisplayName: "Starter Secure Ubuntu",
 		Version:     "1.2.3",
 		OS:          profile.OSInfo{Family: "ubuntu", Version: "24.04"},
 	}
@@ -434,8 +434,8 @@ func TestPlanHelperBranches(t *testing.T) {
 
 func TestReportRenderingAndValidation(t *testing.T) {
 	p := profile.Profile{
-		ID:          "base-secure-ubuntu-24.04-lts",
-		DisplayName: "Base Secure Ubuntu",
+		ID:          "starter-secure-ubuntu-24.04-lts",
+		DisplayName: "Starter Secure Ubuntu",
 		Version:     "1.2.3",
 		OS:          profile.OSInfo{Family: "ubuntu", Version: "24.04"},
 	}
@@ -469,10 +469,10 @@ func TestReportRenderingAndValidation(t *testing.T) {
 	if report.Summary.AlreadyAligned != 1 || report.Summary.NeedsAttention != 1 {
 		t.Fatalf("unexpected report counts %+v", report.Summary)
 	}
-	if report.NextSteps.ApplyCommand != `hardline apply base-secure-ubuntu-24.04-lts --host host-1 --overrides-file "/tmp/dev-overrides.json"` {
+	if report.NextSteps.ApplyCommand != `hardline apply starter-secure-ubuntu-24.04-lts --host host-1 --overrides-file "/tmp/dev-overrides.json"` {
 		t.Fatalf("unexpected apply command %q", report.NextSteps.ApplyCommand)
 	}
-	if report.NextSteps.RollbackCommand != `hardline rollback base-secure-ubuntu-24.04-lts --host host-1` {
+	if report.NextSteps.RollbackCommand != `hardline rollback starter-secure-ubuntu-24.04-lts --host host-1` {
 		t.Fatalf("unexpected rollback command %q", report.NextSteps.RollbackCommand)
 	}
 

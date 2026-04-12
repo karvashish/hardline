@@ -18,7 +18,7 @@ Each tag publishes five archives. Pick the one that matches your machine:
 | `hardline-<tag>-linux-arm64.tar.gz` | Linux on arm64 (Graviton, Ampere, Raspberry Pi 4/5, etc.) |
 | `hardline-<tag>-windows-amd64.zip` | Windows on x86_64 |
 | `hardline-<tag>-windows-arm64.zip` | Windows on arm64 (Surface Pro X, Snapdragon X) |
-| `base-secure-ubuntu-24.04-lts-<tag>.tar.gz` | The example Ubuntu 24.04 hardening profile |
+| `starter-secure-ubuntu-24.04-lts-<tag>.tar.gz` | The example Ubuntu 24.04 hardening profile |
 
 Every archive has a companion `.sha256` file published next to it. Always verify before extracting.
 
@@ -98,12 +98,12 @@ The example Ubuntu 24.04 hardening profile is shipped as its own archive so you 
 
 ```bash
 VERSION=v0.1.0
-curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/base-secure-ubuntu-24.04-lts-${VERSION}.tar.gz"
-curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/base-secure-ubuntu-24.04-lts-${VERSION}.tar.gz.sha256"
-sha256sum -c "base-secure-ubuntu-24.04-lts-${VERSION}.tar.gz.sha256"
-tar -xzf "base-secure-ubuntu-24.04-lts-${VERSION}.tar.gz"
+curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz"
+curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz.sha256"
+sha256sum -c "starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz.sha256"
+tar -xzf "starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz"
 
-hardline verify-profile base-secure-ubuntu-24.04-lts
+hardline verify-profile starter-secure-ubuntu-24.04-lts
 ```
 
 ## Windows

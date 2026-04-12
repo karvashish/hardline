@@ -142,9 +142,9 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          PKG="base-secure-ubuntu-24.04-lts-${VERSION}"
+          PKG="starter-secure-ubuntu-24.04-lts-${VERSION}"
           mkdir -p dist
-          tar -czf "dist/${PKG}.tar.gz" base-secure-ubuntu-24.04-lts
+          tar -czf "dist/${PKG}.tar.gz" starter-secure-ubuntu-24.04-lts
           ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 

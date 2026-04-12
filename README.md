@@ -20,7 +20,7 @@ The repo ships with:
 - the `hardline` CLI in [`cmd/hardline/main.go`](cmd/hardline/main.go)
 - the `profiletool` helper in [`cmd/profiletool/main.go`](cmd/profiletool/main.go)
 - built-in plugins for packages, templates, services, and nftables
-- an example Ubuntu 24.04 hardening profile in [`base-secure-ubuntu-24.04-lts/profile.json`](base-secure-ubuntu-24.04-lts/profile.json)
+- an example Ubuntu 24.04 hardening profile in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 
 **Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The four [built-in plugins](#why-not-just-ansible) cover the common cases and ship compiled into the binary on every platform.
@@ -34,16 +34,16 @@ Download a prebuilt release archive from [github.com/karvashish/hardline/release
 Assuming `hardline` is on your `PATH` and you have a copy of the example profile directory (from the release archive or the repo checkout), verify, plan, apply, and roll back:
 
 ```bash
-hardline verify-profile base-secure-ubuntu-24.04-lts
-hardline plan base-secure-ubuntu-24.04-lts \
+hardline verify-profile starter-secure-ubuntu-24.04-lts
+hardline plan starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
-hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
-hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -82,7 +82,7 @@ If you are writing or editing profiles, start here:
 - [Action Files](docs/profiles/action-files.md) for step structure and execution ordering
 - [Built-In Plugins](docs/profiles/builtin-plugins.md) for plugin config reference
 - [Overrides And Signing](docs/profiles/overrides-and-signing.md) for runtime inputs and profile signing
-- [Example Profile](base-secure-ubuntu-24.04-lts/profile.json) for a concrete Ubuntu 24.04 hardening profile
+- [Example Profile](starter-secure-ubuntu-24.04-lts/profile.json) for a concrete Ubuntu 24.04 hardening profile
 
 ## Internals
 

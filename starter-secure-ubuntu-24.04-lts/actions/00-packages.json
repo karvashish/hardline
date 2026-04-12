@@ -1,7 +1,7 @@
 {
   "steps": [
     {
-      "id": "packages-base-secure",
+      "id": "packages-starter-secure",
       "plugin": "packages",
       "config": {
         "update": "always",

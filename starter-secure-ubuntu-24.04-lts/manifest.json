@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "actions/00-packages.json",
-      "sha256": "f3992d7e4b47a1f7622ea718d2d0f801c1dc2b2f4e955a00e47c9cec552dcdb0"
+      "sha256": "2d2cbd528655886146ff3c6b8aac8daa032970a614f7d342074e174999f8f824"
     },
     {
       "path": "actions/10-ssh.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "profile.json",
-      "sha256": "06955c9e9d0f3a7d05f1c6a1b0d1e737c4c32bbc0c56c39864f92956346a85d1"
+      "sha256": "dde171b11409d2e861b4eebd11d94818d8716b5cb4866ae63a0baf0d3c157be5"
     },
     {
       "path": "templates/10-ssh-sshd-config.tmpl",

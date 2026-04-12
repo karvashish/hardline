@@ -26,7 +26,7 @@ Important details:
 Use an explicit overrides file like this:
 
 ```bash
-hardline plan base-secure-ubuntu-24.04-lts \
+hardline plan starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \

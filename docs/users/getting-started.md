@@ -25,14 +25,14 @@ For the included sample profile:
 
 ## Get The Example Profile
 
-The example `base-secure-ubuntu-24.04-lts` profile is published as its own tarball on every release, or you can `git clone` the repo and use the directory in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
+The example `starter-secure-ubuntu-24.04-lts` profile is published as its own tarball on every release, or you can `git clone` the repo and use the directory in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
 
 ## First Command
 
 Start by verifying the profile locally:
 
 ```bash
-hardline verify-profile base-secure-ubuntu-24.04-lts
+hardline verify-profile starter-secure-ubuntu-24.04-lts
 ```
 
 `verify`, `vp`, and `verify-profile` all work for this command.
@@ -50,7 +50,7 @@ This checks:
 ### Generate A Plan
 
 ```bash
-hardline plan base-secure-ubuntu-24.04-lts \
+hardline plan starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -61,7 +61,7 @@ hardline plan base-secure-ubuntu-24.04-lts \
 ### Apply A Profile
 
 ```bash
-hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -77,7 +77,7 @@ Important behavior:
 Keep the local rollback journal too:
 
 ```bash
-hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \
@@ -87,7 +87,7 @@ hardline apply base-secure-ubuntu-24.04-lts \
 ### Roll Back The Last Successful Apply
 
 ```bash
-hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519
@@ -98,7 +98,7 @@ If a managed file, package, or service changed after the original apply, rollbac
 Override that protection carefully:
 
 ```bash
-hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \

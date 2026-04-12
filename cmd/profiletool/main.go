@@ -54,7 +54,7 @@ Commands:
 
 Examples:
   go run ./cmd/profiletool keygen --private-out /tmp/profile_signing.key --public-out /tmp/profile_signing_pub.pem
-  go run ./cmd/profiletool sign --profile-dir base-secure-ubuntu-24.04-lts --private-key /tmp/profile_signing.key
+  go run ./cmd/profiletool sign --profile-dir starter-secure-ubuntu-24.04-lts --private-key /tmp/profile_signing.key
 `)
 }
 

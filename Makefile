@@ -17,11 +17,11 @@ ITEST_TF_OUTPUTS := $(abspath $(OUTDIR)/itest-gcp.outputs.json)
 ITEST_TFVARS ?= $(ITEST_TF_DIR)/terraform.tfvars
 ITEST_PROFILE ?= integration-tests/profiles/multi-plugin-success
 ITEST_SCENARIO ?= smoke
-PROFILE_DIR ?= base-secure-ubuntu-24.04-lts
+PROFILE_DIR ?= starter-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
 SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
 PROFILE_DIRS := \
-	base-secure-ubuntu-24.04-lts \
+	starter-secure-ubuntu-24.04-lts \
 	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
 
 WIN_GOARCH ?= amd64

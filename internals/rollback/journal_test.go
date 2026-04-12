@@ -21,7 +21,7 @@ func TestJournalSaveAndLoad(t *testing.T) {
 	resolveStateDir = func() (string, error) { return tmp, nil }
 	nowUTC = func() time.Time { return time.Date(2026, 3, 7, 14, 0, 0, 0, time.UTC) }
 
-	j := NewJournal("example.com:22", "base-secure", "base-secure-ubuntu-24.04-lts")
+	j := NewJournal("example.com:22", "base-secure", "starter-secure-ubuntu-24.04-lts")
 	j.Status = "success"
 	j.Steps = []StepRecord{
 		{

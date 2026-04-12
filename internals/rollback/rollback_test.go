@@ -26,7 +26,7 @@ func TestRollbackCommand_TargetValidationAndLoadError(t *testing.T) {
 		}
 
 		err := rollbackCommand(cli.Command{
-			Profile: "base-secure-ubuntu-24.04-lts",
+			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
 			KeyPath: "/tmp/key",
@@ -93,7 +93,7 @@ func TestRollbackCommand_Success(t *testing.T) {
 	}
 
 	err := rollbackCommand(cli.Command{
-		Profile: "base-secure-ubuntu-24.04-lts",
+		Profile: "starter-secure-ubuntu-24.04-lts",
 		Host:    "example.com",
 		User:    "root",
 		KeyPath: "/tmp/key",
@@ -123,7 +123,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 		loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
 		err := rollbackCommand(cli.Command{
-			Profile: "base-secure-ubuntu-24.04-lts",
+			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
 			KeyPath: "/tmp/key",
@@ -142,7 +142,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, errors.New("dial") }
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 		err := rollbackCommand(cli.Command{
-			Profile: "base-secure-ubuntu-24.04-lts",
+			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
 			KeyPath: "/tmp/key",
@@ -174,7 +174,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 		loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
 		err := rollbackCommand(cli.Command{
-			Profile: "base-secure-ubuntu-24.04-lts",
+			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
 			KeyPath: "/tmp/key",
@@ -193,7 +193,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *remote.Client) error { return errors.New("sudo denied") }
 		err := rollbackCommand(cli.Command{
-			Profile: "base-secure-ubuntu-24.04-lts",
+			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
 			KeyPath: "/tmp/key",

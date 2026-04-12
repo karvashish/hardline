@@ -23,7 +23,7 @@ ARTIFACT_ROOT="${ROOT_DIR}/tmp/itest-artifacts"
 DYNAMIC_PROFILES_DIR=""
 
 # ─── Static profile paths ───────────────────────────────────────────────────
-BASE_PROFILE="${ROOT_DIR}/base-secure-ubuntu-24.04-lts"
+BASE_PROFILE="${ROOT_DIR}/starter-secure-ubuntu-24.04-lts"
 MULTI_SUCCESS_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-success"
 PACKAGE_ROLLBACK_PROFILE="${ROOT_DIR}/integration-tests/profiles/package-rollback"
 LAYER_BASE_PROFILE="${ROOT_DIR}/integration-tests/profiles/layer-base"

@@ -36,7 +36,7 @@ profiletool keygen \
 
 ```bash
 profiletool sign \
-  --profile-dir base-secure-ubuntu-24.04-lts \
+  --profile-dir starter-secure-ubuntu-24.04-lts \
   --private-key ./tmp/profile_signing.key
 ```
 

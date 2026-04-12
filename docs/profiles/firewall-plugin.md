@@ -66,7 +66,7 @@ Example overrides file (`./runtime/dev-overrides.json`):
 Example CLI invocation against the base profile:
 
 ```bash
-hardline apply base-secure-ubuntu-24.04-lts \
+hardline apply starter-secure-ubuntu-24.04-lts \
   --host example.internal \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \

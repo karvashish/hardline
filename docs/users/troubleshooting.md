@@ -182,7 +182,7 @@ You're running a development build, not a tagged release. The `git describe` use
 Almost every command accepts `--debug` (or `-d`) to print verbose internal state:
 
 ```bash
-hardline plan base-secure-ubuntu-24.04-lts -H example.com -u ubuntu -k ~/.ssh/id_ed25519 -d
+hardline plan starter-secure-ubuntu-24.04-lts -H example.com -u ubuntu -k ~/.ssh/id_ed25519 -d
 ```
 
 Combine with `--log-file PATH` to capture the full trace for a bug report.

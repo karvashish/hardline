@@ -1,6 +1,6 @@
 {
-  "id": "base-secure-ubuntu-24.04-lts",
-  "display_name": "Base Secure Ubuntu 24.04 LTS",
+  "id": "starter-secure-ubuntu-24.04-lts",
+  "display_name": "Starter Secure Ubuntu 24.04 LTS",
   "version": "1.0.0",
 
   "os": {

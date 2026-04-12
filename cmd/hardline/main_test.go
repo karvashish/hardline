@@ -362,7 +362,7 @@ func TestRun_RollbackDispatch(t *testing.T) {
 	defer restore()
 
 	parseCmd = func(command string, args []string) cli.Command {
-		return cli.Command{Name: command, Profile: "base-secure-ubuntu-24.04-lts", LogFile: "/tmp/rollback.log"}
+		return cli.Command{Name: command, Profile: "starter-secure-ubuntu-24.04-lts", LogFile: "/tmp/rollback.log"}
 	}
 	setDebugMode = func(bool) {}
 	var logFilePath string
@@ -391,7 +391,7 @@ func TestRun_RollbackDispatch(t *testing.T) {
 		return nil
 	}
 
-	code := run([]string{"hardline", "rollback", "base-secure-ubuntu-24.04-lts"})
+	code := run([]string{"hardline", "rollback", "starter-secure-ubuntu-24.04-lts"})
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
 	}
@@ -628,7 +628,7 @@ func TestRun_RollbackLogFileSetupFailure(t *testing.T) {
 	defer restore()
 
 	parseCmd = func(command string, args []string) cli.Command {
-		return cli.Command{Name: command, Profile: "base-secure-ubuntu-24.04-lts", LogFile: "/tmp/rollback.log"}
+		return cli.Command{Name: command, Profile: "starter-secure-ubuntu-24.04-lts", LogFile: "/tmp/rollback.log"}
 	}
 	setDebugMode = func(bool) {}
 	useLogFile = func(string) (func(), error) { return nil, fmt.Errorf("readonly") }
@@ -640,7 +640,7 @@ func TestRun_RollbackLogFileSetupFailure(t *testing.T) {
 		_, _ = fmt.Fprintf(&errOut, format, args...)
 	}
 
-	code := run([]string{"hardline", "rollback", "base-secure-ubuntu-24.04-lts"})
+	code := run([]string{"hardline", "rollback", "starter-secure-ubuntu-24.04-lts"})
 	if code != 1 {
 		t.Fatalf("expected exit code 1, got %d", code)
 	}

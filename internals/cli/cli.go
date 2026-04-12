@@ -58,7 +58,7 @@ Examples:
   hardline plan dev --overrides-file ./runtime/dev-overrides.json
   hardline plan dev --report-file ./reports/dev-plan.yaml
   hardline apply prod -H example.com -u deploy -k ~/.ssh/id_rsa --keep-local-rollback -d
-  hardline rollback base-secure-ubuntu-24.04-lts -H example.com -u deploy -k ~/.ssh/id_rsa
+  hardline rollback starter-secure-ubuntu-24.04-lts -H example.com -u deploy -k ~/.ssh/id_rsa
   hardline verify staging --debug
   hardline -V
 `
@@ -133,7 +133,7 @@ Flags:
   --debug, -d            enable debug output
 
 Example:
-  hardline rollback base-secure-ubuntu-24.04-lts -H example.com -u deploy -k ~/.ssh/id_rsa
+  hardline rollback starter-secure-ubuntu-24.04-lts -H example.com -u deploy -k ~/.ssh/id_rsa
 `
 	case "verify-profile":
 		return `Usage:

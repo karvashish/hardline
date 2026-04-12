@@ -26,7 +26,7 @@ ensure_base_bootstrap() {
       --debug
 
     ensure_file "${dir}/apply.log"
-    jq -er '.kind == "hardline_plan" and .profile.id == "base-secure-ubuntu-24.04-lts"' \
+    jq -er '.kind == "hardline_plan" and .profile.id == "starter-secure-ubuntu-24.04-lts"' \
       "${dir}/apply-plan.json" >/dev/null || fail "unexpected base bootstrap report contents"
     ssh_cmd "sudo mkdir -p /var/lib/hardline && printf '%s\n' '${base_manifest_sha}' | sudo tee ${quoted_marker} >/dev/null"
   fi

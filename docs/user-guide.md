@@ -23,4 +23,4 @@ This page is the user-facing docs hub. The detailed docs are split into smaller 
 
 ## Included Example
 
-The sample profile referenced across these docs lives in [`base-secure-ubuntu-24.04-lts/profile.json`](../base-secure-ubuntu-24.04-lts/profile.json).
+The sample profile referenced across these docs lives in [`starter-secure-ubuntu-24.04-lts/profile.json`](../starter-secure-ubuntu-24.04-lts/profile.json).

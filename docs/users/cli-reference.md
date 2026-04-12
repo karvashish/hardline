@@ -63,7 +63,7 @@ hardline plan <profile> [--host HOST| -H HOST] [--port PORT| -p PORT]
 Example:
 
 ```bash
-hardline plan base-secure-ubuntu-24.04-lts \
+hardline plan starter-secure-ubuntu-24.04-lts \
   --host example.com \
   --user ubuntu \
   --keypath ~/.ssh/id_ed25519 \
@@ -131,7 +131,7 @@ hardline rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT]
 Example:
 
 ```bash
-hardline rollback base-secure-ubuntu-24.04-lts \
+hardline rollback starter-secure-ubuntu-24.04-lts \
   -H example.com \
   -u deploy \
   -k ~/.ssh/id_rsa
@@ -204,7 +204,7 @@ Every command except `version` takes a profile directory as its **first position
 ```bash
 hardline verify-profile ./profiles/staging
 hardline verify-profile /etc/hardline/profiles/prod
-hardline verify-profile base-secure-ubuntu-24.04-lts
+hardline verify-profile starter-secure-ubuntu-24.04-lts
 ```
 
 The directory must contain `profile.json`, `manifest.json`, and `manifest.sig`. See [Profile Structure](../profiles/structure.md).

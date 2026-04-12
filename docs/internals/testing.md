@@ -34,7 +34,22 @@ Integration tests:
 - Terraform definitions in `integration-tests/terraform/`
 - scenarios in `integration-tests/lib/scenarios/`
 
-Those flows assume GCP, `gcloud`, and Terraform are available. The Makefile wraps common lifecycle tasks such as `itest-gcp-up`, `itest`, and `itest-scenarios`.
+Those flows bring up a real Ubuntu 24.04 target on GCP, extract SSH connection details from Terraform outputs, and exercise plan/apply/rollback plus plugin behavior against a live host.
+
+They assume GCP, `gcloud`, and Terraform are available. The Makefile wraps common lifecycle tasks such as `itest-gcp-up`, `itest`, and `itest-scenarios`.
+
+What the integration harness covers:
+
+- CLI and verification flows such as `version`, `verify-profile`, the `vp` alias, and rejection of unsigned or tampered profiles
+- planning behavior including report generation, read-only planning, idempotent follow-up plans, and diff-bearing plan output
+- apply and rollback behavior on a live host, including rollback journals, conflict handling, keep-local-rollback, and concurrent-apply locking
+- layered and multi-profile interactions, where one profile is rolled back without deleting another profile's managed state
+- built-in plugin behavior for packages, services, and firewall rules, plus external plugin loading through `firewall_template.so`
+- package install/purge/rollback cases, service enable/start/reload/restart policies, and nftables render/load/rollback behavior
+- safety and failure paths such as wrong-OS rejection, unreachable hosts, unknown plugins, managed-path enforcement, malformed profiles, missing templates, and version gates
+- runtime override behavior including auto-discovery, explicit override-file precedence, signature invariants, invalid override rejection, and remote apply/plan cases with overrides
+
+The source of truth for the current scenario set is `integration-tests/itest.sh`, which groups the suite into core CLI, rollback/journal, plugin, error-path, edge-case, and override sections.
 
 ## Good Places To Start Reading
 

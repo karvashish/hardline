@@ -28,6 +28,8 @@ The repo ships with:
 
 - the `hardline` CLI in [`cmd/hardline/main.go`](cmd/hardline/main.go)
 - the `profiletool` helper in [`cmd/profiletool/main.go`](cmd/profiletool/main.go)
+- repo-wide Go unit tests plus GitHub Actions badges for `main`
+- a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) for real Ubuntu 24.04 validation across plan/apply/rollback, plugins, overrides, and failure paths
 - built-in plugins for packages, templates, services, and nftables
 - an example Ubuntu 24.04 hardening profile in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
@@ -105,6 +107,7 @@ If you want to understand how the repo is wired together, extend it, or review t
 - [Plugin System](docs/internals/plugin-system.md) for the plugin contract and loading model
 - [Rollback](docs/internals/rollback.md) for journal lifecycle and conflict handling
 - [Safety And Trust](docs/internals/safety-and-trust.md) for signing, overrides, managed paths, and external plugin trust
+- [Testing](docs/internals/testing.md) for unit coverage, CI workflows, and the Terraform-backed integration harness
 - [Contributing Notes](Contributing.md) for project-specific style constraints
 - [Profile Schema](schema/profile.schema.json) and [Action Schema](schema/action-file.schema.json) for the generated JSON schemas used during validation
 

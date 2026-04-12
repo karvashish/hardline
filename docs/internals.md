@@ -22,10 +22,14 @@ This page is the internals docs hub. The detailed write-up is split into smaller
 4. [Plugin System](internals/plugin-system.md)
 5. [Rollback](internals/rollback.md)
 
+If you want to see how Hardline is tested, jump to [Testing](internals/testing.md) early. It covers both the local/unit test surface and the Terraform-backed integration harness used against real Ubuntu 24.04 hosts.
+
 ## Related Files
 
 - [`cmd/hardline/main.go`](../cmd/hardline/main.go)
 - [`cmd/profiletool/main.go`](../cmd/profiletool/main.go)
+- [`integration-tests/itest.sh`](../integration-tests/itest.sh)
+- [`integration-tests/terraform/main.tf`](../integration-tests/terraform/main.tf)
 - [`internals/plan/plan.go`](../internals/plan/plan.go)
 - [`pkg/profile/profile.go`](../pkg/profile/profile.go)
 - [`schema/profile.schema.json`](../schema/profile.schema.json)

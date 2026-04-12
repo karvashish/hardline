@@ -125,6 +125,8 @@ If you prefer building from a checkout instead of downloading a release, clone t
 
 Either add `./tmp` to your `PATH` for the rest of the session, or run commands with the explicit `tmp/` prefix (`tmp/hardline verify-profile ...`). If you relocate the binary after building, keep external plugins in a sibling `plugins/` directory next to it — see the note in the [Install Guide](install.md#put-hardline-on-your-path).
 
+There is also a Terraform-backed integration harness under `integration-tests/` for live-host validation. See [Internals → Testing](../internals/testing.md).
+
 Related:
 
 - [Overrides](overrides.md)

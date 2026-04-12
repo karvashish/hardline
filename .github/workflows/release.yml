@@ -15,8 +15,28 @@ permissions:
   contents: write
 
 jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: go test ./... -count=1
+
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: unit-tests
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +99,7 @@ jobs:
 
   build-windows:
     name: Build windows/${{ matrix.goarch }}
+    needs: unit-tests
     strategy:
       fail-fast: false
       matrix:
@@ -129,6 +150,7 @@ jobs:
 
   profile:
     name: Package base profile
+    needs: unit-tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

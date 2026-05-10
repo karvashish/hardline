@@ -11,22 +11,23 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -37,6 +38,8 @@ jobs:
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: unit-tests
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -50,13 +53,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -71,10 +74,13 @@ jobs:
 
       - name: Stage release archive
         id: stage
+        env:
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
-          PKG="hardline-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          PKG="hardline-${VERSION}-${GOOS}-${GOARCH}"
           STAGE="dist/${PKG}"
           mkdir -p "${STAGE}/plugins"
           install -m 0755 tmp/hardline "${STAGE}/hardline"
@@ -88,7 +94,7 @@ jobs:
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 
       - name: Upload archive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -100,6 +106,8 @@ jobs:
   build-windows:
     name: Build windows/${{ matrix.goarch }}
     needs: unit-tests
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -107,13 +115,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -123,14 +131,16 @@ jobs:
 
       - name: Stage release archive
         id: stage
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          PKG="hardline-${TAG}-windows-${{ matrix.goarch }}"
+          PKG="hardline-${TAG}-windows-${GOARCH}"
           STAGE="dist/${PKG}"
           mkdir -p "${STAGE}"
-          install -m 0755 tmp/windows/${{ matrix.goarch }}/hardline.exe "${STAGE}/hardline.exe"
-          install -m 0755 tmp/windows/${{ matrix.goarch }}/profiletool.exe "${STAGE}/profiletool.exe"
+          install -m 0755 "tmp/windows/${GOARCH}/hardline.exe" "${STAGE}/hardline.exe"
+          install -m 0755 "tmp/windows/${GOARCH}/profiletool.exe" "${STAGE}/profiletool.exe"
           install -m 0644 README.md "${STAGE}/README.md"
           install -m 0644 LICENSE "${STAGE}/LICENSE"
           ( cd dist && zip -qr "${PKG}.zip" "${PKG}" )
@@ -139,7 +149,7 @@ jobs:
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 
       - name: Upload archive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-windows-${{ matrix.goarch }}
           path: |
@@ -151,16 +161,18 @@ jobs:
   profile:
     name: Package base profile
     needs: unit-tests
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -170,9 +182,10 @@ jobs:
 
       - name: Create profile tarball
         id: pack
+        env:
+          VERSION: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
           PKG="starter-secure-ubuntu-24.04-lts-${VERSION}"
           mkdir -p dist
           tar -czf "dist/${PKG}.tar.gz" starter-secure-ubuntu-24.04-lts
@@ -180,7 +193,7 @@ jobs:
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 
       - name: Upload profile artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-profile
           path: |
@@ -192,10 +205,12 @@ jobs:
   release:
     name: Publish GitHub release
     needs: [build, build-windows, profile]
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           pattern: release-*
@@ -205,7 +220,7 @@ jobs:
         run: ls -la dist
 
       - name: Create or update release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}

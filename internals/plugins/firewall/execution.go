@@ -315,7 +315,7 @@ func currentFirewallState(host pluginapi.Host, family string, table string) (Nor
 
 func renderFirewallStateDiff(current NormalizedSpec, desired NormalizedSpec) []string {
 	diff := DiffNormalized(current, desired)
-	lines := make([]string, 0, len(diff.PolicyChanges)+len(diff.RulesToAdd)+len(diff.RulesToRemove))
+	var lines []string
 	for _, change := range diff.PolicyChanges {
 		lines = append(lines, change)
 	}
@@ -540,6 +540,9 @@ func NormalizeDesiredRule(rule Rule) ([]NormalizedRule, error) {
 		return nil, fmt.Errorf("unsupported rule proto %q", rule.Proto)
 	}
 
+	if len(rule.Ports) > 65535 {
+		return nil, fmt.Errorf("rule has too many ports (max 65535)")
+	}
 	ports := make([]int, 0, len(rule.Ports)+1)
 	if rule.Port != 0 {
 		ports = append(ports, rule.Port)
@@ -1186,6 +1189,11 @@ func RenderNormalizedRule(family string, r NormalizedRule) string {
 
 const firewallDiffPreviewLimit = 40
 
+// firewallDiffMaxLines bounds the inputs to the LCS diff so a malicious or
+// corrupt remote file can't trigger an O(n*m) DP table large enough to OOM
+// the local process. Beyond this, the diff degrades to a notice line.
+const firewallDiffMaxLines = 2000
+
 type firewallDiffEdit struct {
 	kind byte
 	line string
@@ -1241,6 +1249,13 @@ func formatFirewallDiffLine(kind byte, line string) string {
 func diffFirewallLines(current string, desired string) []firewallDiffEdit {
 	currentLines := splitFirewallDiffLines(current)
 	desiredLines := splitFirewallDiffLines(desired)
+
+	if len(currentLines) > firewallDiffMaxLines || len(desiredLines) > firewallDiffMaxLines {
+		return []firewallDiffEdit{{
+			kind: '!',
+			line: fmt.Sprintf("content too large to diff (%d/%d lines, max %d)", len(currentLines), len(desiredLines), firewallDiffMaxLines),
+		}}
+	}
 
 	dp := make([][]int, len(currentLines)+1)
 	for i := range dp {

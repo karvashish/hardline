@@ -162,6 +162,13 @@ func TestNormalizeRuleAndDecodeHelpers(t *testing.T) {
 	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "tcp", Port: 70000, Action: "accept"}); err == nil {
 		t.Fatalf("expected invalid port error")
 	}
+	tooMany := make([]int, 65536)
+	for i := range tooMany {
+		tooMany[i] = i + 1
+	}
+	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Proto: "tcp", Ports: tooMany, Action: "accept"}); err == nil {
+		t.Fatalf("expected too-many-ports error")
+	}
 	if _, err := NormalizeDesiredRule(Rule{Chain: "input", Action: "accept"}); err == nil {
 		t.Fatalf("expected missing matcher error")
 	}
@@ -350,6 +357,15 @@ func TestFirewallContentDiffHelpers(t *testing.T) {
 	}
 	if got := splitFirewallDiffLines("a\r\nb\r\n"); len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Fatalf("unexpected split lines: %#v", got)
+	}
+
+	oversized := strings.Repeat("x\n", firewallDiffMaxLines+1)
+	bigEdits := diffFirewallLines(oversized, "y\n")
+	if len(bigEdits) != 1 || bigEdits[0].kind != '!' {
+		t.Fatalf("expected single notice edit for oversized input, got %#v", bigEdits)
+	}
+	if !strings.Contains(bigEdits[0].line, "too large") {
+		t.Fatalf("expected oversize notice, got %q", bigEdits[0].line)
 	}
 }
 

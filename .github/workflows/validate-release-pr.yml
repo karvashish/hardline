@@ -1,0 +1,77 @@
+name: Validate Release PR
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release PR shape
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          release_re='^\[release\] version ([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'
+          merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          changed_files=$(git diff --name-only "$merge_base" "$HEAD_SHA")
+          touches_versionjson=false
+          if echo "$changed_files" | grep -qx 'internals/cli/version.json'; then
+            touches_versionjson=true
+          fi
+
+          if [[ "$PR_TITLE" =~ $release_re ]]; then
+            version="${BASH_REMATCH[1]}"
+            echo "Release PR detected: v$version"
+
+            commit_count=$(git rev-list --count "$merge_base..$HEAD_SHA")
+            if [ "$commit_count" -ne 1 ]; then
+              echo "::error::Release PR must contain exactly 1 commit (found $commit_count). Squash before re-running."
+              exit 1
+            fi
+
+            other=$(echo "$changed_files" | grep -vx 'internals/cli/version.json' || true)
+            if [ -n "$other" ]; then
+              echo "::error::Release PR must only modify internals/cli/version.json. Also changed:"
+              echo "$other"
+              exit 1
+            fi
+            if [ "$touches_versionjson" = false ]; then
+              echo "::error::Release PR must update internals/cli/version.json."
+              exit 1
+            fi
+
+            file_ver=$(jq -r .version internals/cli/version.json)
+            if [ "$file_ver" != "$version" ]; then
+              echo "::error::version.json says '$file_ver' but PR title says '$version'."
+              exit 1
+            fi
+
+            if git ls-remote --tags --exit-code origin "refs/tags/v$version" >/dev/null 2>&1; then
+              echo "::error::Tag v$version already exists on origin."
+              exit 1
+            fi
+
+            echo "Release PR is valid."
+          else
+            if [ "$touches_versionjson" = true ]; then
+              echo "::error::Non-release PR modifies internals/cli/version.json. Only PRs titled '[release] version X.Y.Z' may change this file."
+              exit 1
+            fi
+            echo "Non-release PR; skipping release checks."
+          fi

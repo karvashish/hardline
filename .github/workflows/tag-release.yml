@@ -22,6 +22,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+          token: ${{ secrets.RELEASE_TAG_PAT }}
 
       - name: Extract version and verify
         id: extract

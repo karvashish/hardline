@@ -45,6 +45,16 @@ The dispatch step is necessary because tags pushed by `GITHUB_TOKEN` do **not** 
 
 `release.yml` then runs unit tests, builds Linux (amd64/arm64) and Windows (amd64/arm64) binaries, packages the starter profile, and publishes a GitHub Release with all the artifacts attached and auto-generated release notes.
 
+### Required secret: `RELEASE_TAG_PAT`
+
+The "Release tags" ruleset blocks creation of `v*.*.*` tags by anyone without bypass. `GITHUB_TOKEN` (the default workflow identity) cannot be added as a bypass actor on personal repositories, so `tag-release.yml` checks out using a fine-grained PAT stored as the repo secret `RELEASE_TAG_PAT`. The PAT is owned by a maintainer with admin role, and that role's existing bypass on the ruleset is what allows the tag push to succeed.
+
+To rotate or initially provision:
+
+1. Generate a fine-grained PAT scoped to this repo only, with **Contents: Read and write**.
+2. Store as the repository secret named `RELEASE_TAG_PAT` (Settings → Secrets and variables → Actions).
+3. Default expiration is 1 year — rotate before then; an expired PAT will fail `tag-release.yml` with an authentication error on the next release.
+
 ## Why version.json instead of `git describe`
 
 The version is embedded into the binary at compile time by `//go:embed`-ing `internals/cli/version.json` (see [`internals/cli/version.go`](../internals/cli/version.go)). Keeping the source of truth in a tracked file (gated by the release-PR workflow) means:

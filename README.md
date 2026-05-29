@@ -109,6 +109,7 @@ If you want to understand how the repo is wired together, extend it, or review t
 - [Safety And Trust](docs/internals/safety-and-trust.md) for signing, overrides, managed paths, and external plugin trust
 - [Testing](docs/internals/testing.md) for unit coverage, CI workflows, and the Terraform-backed integration harness
 - [Contributing Notes](Contributing.md) for project-specific style constraints
+- [Releasing](docs/releasing.md) for how versions get cut, tagged, built, and published
 - [Profile Schema](schema/profile.schema.json) and [Action Schema](schema/action-file.schema.json) for the generated JSON schemas used during validation
 
 ## Main Commands

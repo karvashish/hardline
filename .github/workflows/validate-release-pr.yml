@@ -56,6 +56,16 @@ jobs:
               exit 1
             fi
 
+            expected_changelog="changelog/v$version.md"
+            if ! echo "$changed_files" | grep -qxF "$expected_changelog"; then
+              echo "::error::Release PR must add or update $expected_changelog (matching the title's version)."
+              exit 1
+            fi
+            if ! echo "$changed_files" | grep -qxF 'CHANGELOG.md'; then
+              echo "::error::Release PR must update the top-level CHANGELOG.md index."
+              exit 1
+            fi
+
             file_ver=$(jq -r .version internals/cli/version.json)
             if [ "$file_ver" != "$version" ]; then
               echo "::error::version.json says '$file_ver' but PR title says '$version'."

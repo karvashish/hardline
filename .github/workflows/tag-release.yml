@@ -1,0 +1,70 @@
+name: Tag Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Tag and dispatch release build
+    if: startsWith(github.event.head_commit.message, '[release] version ')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Extract version and verify
+        id: extract
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+
+          first_line=$(printf '%s' "$COMMIT_MSG" | head -n1)
+          release_re='^\[release\] version ([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$'
+          if [[ ! "$first_line" =~ $release_re ]]; then
+            echo "::error::Head commit subject does not match release pattern: $first_line"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          tag="v$version"
+
+          file_ver=$(jq -r .version internals/cli/version.json)
+          if [ "$file_ver" != "$version" ]; then
+            echo "::error::version.json says '$file_ver' but commit subject says '$version'."
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.extract.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --tags --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::notice::Tag $TAG already exists on origin; skipping create."
+          else
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "Pushed tag $TAG."
+          fi
+
+      - name: Dispatch release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.extract.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml -f tag="$TAG"
+          echo "Dispatched release.yml for $TAG."

@@ -44,8 +44,9 @@ What the integration harness covers:
 - planning behavior including report generation, read-only planning, idempotent follow-up plans, and diff-bearing plan output
 - apply and rollback behavior on a live host, including rollback journals, conflict handling, keep-local-rollback, and concurrent-apply locking
 - layered and multi-profile interactions, where one profile is rolled back without deleting another profile's managed state
-- built-in plugin behavior for packages, services, and firewall rules, plus external plugin loading through `firewall_template.so`
+- built-in plugin behavior for packages, services, firewall rules, and file metadata, plus external plugin loading through `firewall_template.so`
 - package install/purge/rollback cases, service enable/start/reload/restart policies, and nftables render/load/rollback behavior
+- file_meta cases covering mode/owner/group changes, immutable/append-only set and clear, lift→chmod→relock on an immutable target, directory-target stamping, idempotency, deterministic rollback, drift conflict detection, absent-target failure, and rejected paths
 - safety and failure paths such as wrong-OS rejection, unreachable hosts, unknown plugins, managed-path enforcement, malformed profiles, missing templates, and version gates
 - runtime override behavior including auto-discovery, explicit override-file precedence, signature invariants, invalid override rejection, and remote apply/plan cases with overrides
 

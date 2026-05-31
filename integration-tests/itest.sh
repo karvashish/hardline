@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# itest.sh — Hardline unified integration test suite (59 scenarios)
+# itest.sh — Hardline unified integration test suite (71 scenarios)
 # =============================================================================
 # Usage: itest.sh <SCENARIO> <PROFILE_DIR> <OUTPUTS_JSON> <BINARY_PATH>
 #
@@ -53,6 +53,7 @@ source "${LIB_DIR}/scenarios/rollback.sh"
 source "${LIB_DIR}/scenarios/plugins.sh"
 source "${LIB_DIR}/scenarios/errors.sh"
 source "${LIB_DIR}/scenarios/overrides.sh"
+source "${LIB_DIR}/scenarios/filemeta.sh"
 
 # ─── Validate prerequisites ─────────────────────────────────────────────────
 require_cmd jq
@@ -130,6 +131,11 @@ ALL_SCENARIOS=(
   overrides-explicit-flag-wins overrides-unknown-key-rejected
   overrides-invalid-json-rejected overrides-missing-flag-file
   overrides-apply-auto overrides-apply-flag
+  # File meta (60-71)
+  file-meta-mode file-meta-owner-group file-meta-immutable-set
+  file-meta-immutable-clear file-meta-append-only file-meta-mode-on-immutable
+  file-meta-directory file-meta-idempotent file-meta-rollback
+  file-meta-conflict file-meta-absent-target file-meta-rejected-paths
 )
 
 # Scenarios that require base bootstrap
@@ -209,6 +215,19 @@ run_scenario() {
     overrides-missing-flag-file)    scenario_overrides_missing_flag_file ;;
     overrides-apply-auto)           scenario_overrides_apply_auto ;;
     overrides-apply-flag)           scenario_overrides_apply_flag ;;
+    # File meta
+    file-meta-mode)              scenario_file_meta_mode ;;
+    file-meta-owner-group)       scenario_file_meta_owner_group ;;
+    file-meta-immutable-set)     scenario_file_meta_immutable_set ;;
+    file-meta-immutable-clear)   scenario_file_meta_immutable_clear ;;
+    file-meta-append-only)       scenario_file_meta_append_only ;;
+    file-meta-mode-on-immutable) scenario_file_meta_mode_on_immutable ;;
+    file-meta-directory)         scenario_file_meta_directory ;;
+    file-meta-idempotent)        scenario_file_meta_idempotent ;;
+    file-meta-rollback)          scenario_file_meta_rollback ;;
+    file-meta-conflict)          scenario_file_meta_conflict ;;
+    file-meta-absent-target)     scenario_file_meta_absent_target ;;
+    file-meta-rejected-paths)    scenario_file_meta_rejected_paths ;;
     *)
       fail "unknown scenario: ${name}"
       ;;

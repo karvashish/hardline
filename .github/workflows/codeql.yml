@@ -12,11 +12,15 @@ permissions: {}
 
 jobs:
   analyze:
-    name: Analyze (Go)
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     permissions:
       security-events: write
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, actions]
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -24,7 +28,8 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@7fd177fa680c9881b53cdab4d346d32574c9f7f4 # v3
         with:
-          languages: go
+          languages: ${{ matrix.language }}
+          queries: security-extended
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@7fd177fa680c9881b53cdab4d346d32574c9f7f4 # v3
@@ -32,4 +37,4 @@ jobs:
       - name: Perform analysis
         uses: github/codeql-action/analyze@7fd177fa680c9881b53cdab4d346d32574c9f7f4 # v3
         with:
-          category: "/language:go"
+          category: "/language:${{ matrix.language }}"

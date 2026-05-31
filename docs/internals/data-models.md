@@ -84,4 +84,12 @@ Each `StepRecord` stores:
 - after objects
 - notes
 
-Object records can represent files, services, packages, or validation or no-op objects depending on the plugin capture logic.
+Object records are typed by `Kind` (`pkg/pluginapi`). The kinds are:
+
+- `file` — a `FileSnapshot` (path, existence, mode, base64 contents); used by `template` and `firewall`.
+- `file_meta` — a `FileMetaSnapshot` (path, existence, mode, owner, group, and the managed chattr letters `i`/`a` in `attrs`); used by the `file_meta` plugin to re-stamp metadata on an existing path without recording its contents.
+- `service` — a `ServiceState` (unit, enabled, active, known).
+- `package` — a `PackageState` (name, installed, version, requested install/purge).
+- `validate` — a no-op marker for validation-only steps.
+
+Which kinds a step records depends on the plugin's capture logic.

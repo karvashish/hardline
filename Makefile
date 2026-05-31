@@ -27,7 +27,7 @@ PROFILE_DIRS := \
 WIN_GOARCH ?= amd64
 WIN_OUTDIR := $(OUTDIR)/windows/$(WIN_GOARCH)
 
-.PHONY: all test build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+.PHONY: all test build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -206,6 +206,7 @@ itest-gcp-up: itest-gcp-init
 	$(TERRAFORM) apply -auto-approve $$TFVARS_ARG && \
 	$(TERRAFORM) output -json > "$(ITEST_TF_OUTPUTS)"
 	@echo "wrote outputs to $(ITEST_TF_OUTPUTS)"
+	@integration-tests/wait-host-ready.sh "$(ITEST_TF_OUTPUTS)"
 
 itest-gcp-down: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
@@ -226,3 +227,18 @@ itest-scenario:
 itest-scenarios:
 	@$(MAKE) itest-gcp-up
 	@integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
+
+# One-shot full run: build a fresh binary, provision (itest-gcp-up now blocks
+# until the host is ready), run every scenario, then ALWAYS tear the host down.
+# Exits with the scenario status; flags a failed teardown loudly so a billable
+# VM is never left running silently.
+itest-all: build
+	@scen=0; down=0; \
+	if $(MAKE) itest-gcp-up; then \
+		integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))" || scen=$$?; \
+	else \
+		scen=1; \
+	fi; \
+	$(MAKE) itest-gcp-down || down=$$?; \
+	if [ $$down -ne 0 ]; then echo "WARNING: teardown failed (down=$$down) — destroy the leftover VM with: make itest-gcp-down"; exit $$down; fi; \
+	exit $$scen

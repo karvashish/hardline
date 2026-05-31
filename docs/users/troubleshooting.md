@@ -147,9 +147,9 @@ sudo nft list ruleset
 
 Use `--report-format json`, `yaml`, or `md`. If you pass only `--report-file`, Hardline infers the format from the extension (`.json`, `.yaml`, `.yml`, `.md`). Any other extension is an error.
 
-### `report file already exists`
+### `permission denied` or `is a directory` while writing a report
 
-Hardline does not overwrite existing report files. Delete the old one, pick a different path, or use a versioned filename.
+Hardline creates missing parent directories automatically and overwrites an existing report file if one is already there. These errors mean the destination path itself is not writable, or that you pointed `--report-file` at a directory instead of a filename.
 
 ## Rollback
 
@@ -173,9 +173,15 @@ The `hardline` binary is not on your `PATH`. Either:
 - Run commands with the full path: `/path/to/hardline verify-profile ...`
 - If you built from source, the binary is at `tmp/hardline` relative to the repo root
 
-### `hardline version` reports `dev` or a commit hash instead of a tag
+### `hardline version` reports an unexpected version
 
-You're running a development build, not a tagged release. The `git describe` used at build time prints `dev` when there are no tags, or `<short-sha>-dirty` when there are uncommitted changes in the checkout. This is expected for source builds between releases.
+Hardline reports the version embedded from `internals/cli/version.json`. Source builds no longer derive the CLI version string from `git describe`.
+
+If the version looks wrong:
+
+- Inspect `internals/cli/version.json`
+- Rebuild the binaries after updating it
+- If this is meant to be a release build, check the release workflow or release PR metadata rather than the git working tree state
 
 ## Getting More Detail
 

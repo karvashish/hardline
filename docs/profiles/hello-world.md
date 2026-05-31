@@ -91,7 +91,7 @@ sudo profiletool sign \
   --private-key /etc/hardline/profile_signing.key
 ```
 
-`profiletool sign` writes `manifest.json` (hashes of every file in the directory) and `manifest.sig` (signature over the manifest) into `hello-world/`.
+`profiletool sign` writes `manifest.json` (hashes of the regular profile files, excluding manifest metadata and `profile.overrides.json`) and `manifest.sig` (signature over the manifest) into `hello-world/`.
 
 Your directory now looks like:
 
@@ -116,7 +116,7 @@ hardline verify-profile hello-world --allow-local-key
 
 If you built `hardline` from source using the same key, `--allow-local-key` is unnecessary — the binary already trusts the embedded key.
 
-A successful verify prints the profile's ID, the action files it walked, and confirms plugin availability. No SSH connection is attempted.
+A successful verify ends with `ok` and confirms the profile passed local integrity, schema, template, override, and plugin checks. No SSH connection is attempted.
 
 ## Step 6 — Plan (Optional)
 
@@ -158,7 +158,7 @@ hardline rollback hello-world \
   --allow-local-key
 ```
 
-The packages plugin captured that `htop` was not installed before the apply, so rollback will `purge` it. If someone installed another package `htop` depends on between apply and rollback, the conflict check stops the rollback — that is intentional. See [Failure And Recovery](../users/failure-and-recovery.md#rollback-conflicts).
+The packages plugin captured that `htop` was not installed before the apply, so rollback will `purge` it. If someone installs, removes, or upgrades `htop` itself between apply and rollback, the conflict check stops the rollback — that is intentional. See [Failure And Recovery](../users/failure-and-recovery.md#rollback-conflicts).
 
 ## Next Steps
 

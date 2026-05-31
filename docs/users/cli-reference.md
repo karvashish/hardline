@@ -181,11 +181,11 @@ hardline version
 | Code | Meaning |
 | --- | --- |
 | `0` | Success, or help/version printed and exited normally. |
-| `1` | Missing or unrecognized command, or a required positional argument is missing. |
+| `1` | Generic command failure: unknown command, missing required positional argument, failed verification/plan/apply/rollback, or a gracefully interrupted apply. |
 | `2` | Invalid or unknown flags. |
-| `130` | Interrupted by SIGINT (Ctrl-C). Hardline catches SIGINT during remote work, attempts a graceful stop of the current step, and exits `130`. |
+| `130` | Forced interrupt during `apply`. Hardline uses this only after a second `SIGINT`/`SIGTERM`, when it aborts immediately instead of waiting for graceful cleanup. |
 
-Any other non-zero exit means the operation itself failed — profile verification, remote connection, a step that returned an error, or a rollback conflict. Hardline prints the failure reason on stderr before exiting. For recovery guidance, see [Failure And Recovery](failure-and-recovery.md).
+Any non-zero exit means the command did not complete successfully. Hardline prints the failure reason on stderr before exiting. For recovery guidance, see [Failure And Recovery](failure-and-recovery.md).
 
 ## Report Formats
 

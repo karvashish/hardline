@@ -23,7 +23,7 @@ What Hardline does **not** guarantee:
 
 Hardline installs a signal handler during `apply`:
 
-- **First `SIGINT` or `SIGTERM`** cancels the apply context. The current plugin step runs to completion, any already-completed steps are rolled back via the journal, and Hardline exits with the rollback's exit status. This is the graceful path.
+- **First `SIGINT` or `SIGTERM`** cancels the apply context. The current plugin step runs to completion, any already-completed steps are rolled back via the journal, and Hardline exits non-zero because the apply did not complete. Today that graceful interrupted path surfaces as exit code `1`.
 - **Second signal** exits immediately with code `130`. Any in-flight plugin step is left in whatever state it was in. The local journal is still on disk, so you can inspect it later.
 
 If you accidentally hit Ctrl-C and want Hardline to finish cleanly, **do not press it again**. Let the graceful rollback run.
@@ -68,10 +68,10 @@ To clear a stale lock:
 
 1. **Confirm no other `apply` is actually running.** Check processes on the target (`pgrep hardline`, `ps aux | grep hardline`) and on any other runner that might be targeting the same host.
 2. **Confirm no partially-applied state is in flight.** If an apply was actively mutating the host when it crashed, check for a local journal on the runner that crashed — it tells you what was captured before the crash.
-3. **Remove the lock directory** on the target:
+3. **Remove the empty lock directory** on the target:
 
    ```bash
-   sudo rm -rf /var/lib/hardline/.apply-lock.d
+   sudo rmdir /var/lib/hardline/.apply-lock.d
    ```
 
 4. Re-run `hardline plan <profile> --host ...` to see the current drift, then decide whether to re-apply or roll back via the last persisted remote journal.

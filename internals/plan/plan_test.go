@@ -198,9 +198,9 @@ func TestPrintPlan(t *testing.T) {
 		{
 			PlanResult: pluginapi.PlanResult{
 				WillChange: true,
-				Summary: "render file",
-				Details: []string{"line1", "line2"},
-				Diff:    []string{"mode /etc/example.conf: 0600 -> 0644"},
+				Summary:    "render file",
+				Details:    []string{"line1", "line2"},
+				Diff:       []string{"mode /etc/example.conf: 0600 -> 0644"},
 			},
 			StepID:   "s1",
 			StepType: "custom",
@@ -464,17 +464,17 @@ func TestReportRenderingAndValidation(t *testing.T) {
 		},
 	}
 
-	report := buildPlanReport(p, steps, "host-1", "/tmp/dev-overrides.json")
+	report := buildPlanReport(p, steps, "./profiles/starter-secure-ubuntu-24.04-lts", "host-1", "/tmp/dev-overrides.json")
 	if report.Kind != "hardline_plan" || report.Summary.StepsInspected != 2 {
 		t.Fatalf("unexpected report summary %+v", report.Summary)
 	}
 	if report.Summary.AlreadyAligned != 1 || report.Summary.NeedsAttention != 1 {
 		t.Fatalf("unexpected report counts %+v", report.Summary)
 	}
-	if report.NextSteps.ApplyCommand != `hardline apply starter-secure-ubuntu-24.04-lts --host host-1 --overrides-file "/tmp/dev-overrides.json"` {
+	if report.NextSteps.ApplyCommand != `hardline apply ./profiles/starter-secure-ubuntu-24.04-lts --host host-1 --overrides-file "/tmp/dev-overrides.json"` {
 		t.Fatalf("unexpected apply command %q", report.NextSteps.ApplyCommand)
 	}
-	if report.NextSteps.RollbackCommand != `hardline rollback starter-secure-ubuntu-24.04-lts --host host-1` {
+	if report.NextSteps.RollbackCommand != `hardline rollback ./profiles/starter-secure-ubuntu-24.04-lts --host host-1` {
 		t.Fatalf("unexpected rollback command %q", report.NextSteps.RollbackCommand)
 	}
 

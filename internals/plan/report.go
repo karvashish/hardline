@@ -82,7 +82,7 @@ func writePlanArtifacts(profile profile.Profile, steps []StepPlan, options planR
 		return "", err
 	}
 
-	report := buildPlanReport(profile, steps, options.Host, options.OverridesFile)
+	report := buildPlanReport(profile, steps, options.ProfileArg, options.Host, options.OverridesFile)
 	body, err := renderPlanArtifact(report, format)
 	if err != nil {
 		return "", err
@@ -153,8 +153,12 @@ func writePlanArtifactFile(path string, body []byte) error {
 	return os.WriteFile(path, body, 0o644)
 }
 
-func buildPlanReport(profile profile.Profile, steps []StepPlan, host string, overridesFile string) planFileReport {
+func buildPlanReport(profile profile.Profile, steps []StepPlan, profileArg string, host string, overridesFile string) planFileReport {
 	counts := dispositionCounts(steps)
+	profileRef := strings.TrimSpace(profileArg)
+	if profileRef == "" {
+		profileRef = profile.ID
+	}
 	report := planFileReport{
 		Kind: "hardline_plan",
 		Profile: planFileProfile{
@@ -178,8 +182,8 @@ func buildPlanReport(profile profile.Profile, steps []StepPlan, host string, ove
 		NeedsAttention: collectAttentionNotes(steps),
 		Steps:          make([]planFileStep, 0, len(steps)),
 		NextSteps: planFileNextSteps{
-			ApplyCommand:    applyCommand(profile.ID, host, overridesFile),
-			RollbackCommand: rollbackCommand(profile.ID, host),
+			ApplyCommand:    applyCommand(profileRef, host, overridesFile),
+			RollbackCommand: rollbackCommand(profileRef, host),
 		},
 	}
 

@@ -56,7 +56,7 @@ The generated report includes:
 - target host plus OS family and version
 - summary counts for aligned, planned, and attention states
 - per-step `status`, `summary`, `operator_summary`, `details`, `diff`, `highlights`, and `will_change`
-- suggested next-step commands for apply and rollback
+- suggested next-step commands for apply and rollback, reusing the original profile argument path
 
 ## Apply And Reports
 

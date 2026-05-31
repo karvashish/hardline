@@ -31,6 +31,7 @@ var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 type planRunOptions struct {
 	Host          string
+	ProfileArg    string
 	OverridesFile string
 	ReportFile    string
 	ReportFormat  string
@@ -120,6 +121,7 @@ func Plan(c cli.Command) error {
 
 	if err := runPlanForProfile(sshClient, p, planRunOptions{
 		Host:          c.Host,
+		ProfileArg:    c.Profile,
 		OverridesFile: c.OverridesFile,
 		ReportFile:    c.ReportFile,
 		ReportFormat:  c.ReportFormat,

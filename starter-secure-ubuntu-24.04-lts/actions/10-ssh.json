@@ -1,6 +1,16 @@
 {
   "steps": [
     {
+      "id": "sshd-config-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/ssh/sshd_config",
+        "mode": "0600",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
       "id": "ssh-template-apply",
       "plugin": "template",
       "config": {

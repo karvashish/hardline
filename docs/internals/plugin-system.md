@@ -11,6 +11,8 @@ type Plugin struct {
     Apply              func(Context, profile.Step) error
     Plan               func(Context, profile.Step) (PlanResult, error)
     Capture            func(Context, profile.Step) (CaptureResult, error)
+    Rollback           func(Host, ObjectRecord) error
+    DetectConflict     func(Host, ObjectRecord) []string
 }
 ```
 
@@ -21,8 +23,12 @@ Every plugin must provide:
 - `Apply`
 - `Plan`
 - `Capture`
+- `Rollback`
+- `DetectConflict`
 
 Missing any of those is a registry error.
+
+`Rollback` restores one captured `ObjectRecord`, and `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. The rollback orchestrator in `internals/rollback` no longer switches on object kind itself — it looks up the step's plugin and delegates to these two funcs, so each plugin owns the restore and conflict logic for the object kinds it emits.
 
 Plugin names are normalized to lowercase when registered and when looked up from step definitions.
 

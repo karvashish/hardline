@@ -23,6 +23,7 @@ Each step is implemented by a plugin that can:
 - plan desired changes
 - apply changes
 - capture state for rollback
+- roll back captured state and detect post-apply conflicts
 
 ## Main Binaries
 
@@ -69,7 +70,7 @@ Reusable packages:
 Some important architectural choices show up repeatedly in the code:
 
 - verification is local and happens before remote mutation
-- plugins own the operational details of planning, applying, and capturing state
+- plugins own the operational details of planning, applying, capturing, rolling back, and conflict-detecting state
 - the remote host is abstracted behind a narrow `pluginapi.Host` interface
 - apply and rollback are journal-based rather than "diff from desired state" only
 - external plugins are supported, but treated as a separate trust boundary

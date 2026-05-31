@@ -108,7 +108,7 @@ Two profiles that write the **same managed file** on the same host produce journ
 
 This is a file-specific problem. For packages and services the overlap is self-cancelling: if profile A installs `htop`, profile B's attempt to install it lands with `Before.WasInstalled = true` and `After.WasInstalled = true` — identical snapshots — so B's step is treated as a no-op and [skipped during rollback](../../internals/rollback/rollback.go#L133). Service state is the same coarse binary (`enabled`, `active`), and service restarts are idempotent. File contents are not binary and not idempotent — every byte-level divergence between A and B is a real change that the journal records and that rollback will act on.
 
-Each step's journal entry holds `Before` (pre-apply content) and `After` (post-apply content) snapshots. Rollback restores `Before`. Before restoring, it compares the **current** remote file to `After` and refuses if they differ (see [`checkStepConflicts` in rollback.go](../../internals/rollback/rollback.go#L250)). The overlap trap works like this:
+Each step's journal entry holds `Before` (pre-apply content) and `After` (post-apply content) snapshots. Rollback restores `Before`. Before restoring, it compares the **current** remote file to `After` and refuses if they differ (see [`checkStepConflicts` in rollback.go](../../internals/rollback/rollback.go#L246)). The overlap trap works like this:
 
 1. Apply profile **A**. A's journal: `Before = original`, `After = A's contents`.
 2. Apply profile **B**, which writes to the same file. B's journal: `Before = A's contents`, `After = B's contents`. The file on disk now holds `B's contents`.

@@ -52,13 +52,15 @@ func TestNewDefaultRegistryPanicsOnRegisterError(t *testing.T) {
 	noopCapture := func(_ pluginapi.Context, _ profile.Step) (pluginapi.CaptureResult, error) {
 		return pluginapi.CaptureResult{}, nil
 	}
+	noopRollback := func(_ pluginapi.Host, _ pluginapi.ObjectRecord) error { return nil }
+	noopConflict := func(_ pluginapi.Host, _ pluginapi.ObjectRecord) []string { return nil }
 
 	// Return two plugins with the same name to trigger a duplicate registration panic.
 	orig := defaultPlugins
 	defaultPlugins = func() []pluginapi.Plugin {
 		return []pluginapi.Plugin{
-			{Name: "dup", InternalValidation: true, Apply: noop, Plan: noopPlan, Capture: noopCapture},
-			{Name: "dup", InternalValidation: true, Apply: noop, Plan: noopPlan, Capture: noopCapture},
+			{Name: "dup", InternalValidation: true, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
+			{Name: "dup", InternalValidation: true, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
 		}
 	}
 	defer func() { defaultPlugins = orig }()

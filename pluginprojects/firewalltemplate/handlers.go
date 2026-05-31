@@ -43,6 +43,25 @@ func Plugin() pluginapi.Plugin {
 
 			return Capture(ctx, step.ID, spec)
 		},
+		Rollback: func(host pluginapi.Host, obj pluginapi.ObjectRecord) error {
+			switch obj.Kind {
+			case pluginapi.ObjectFile:
+				if obj.File == nil {
+					return fmt.Errorf("firewall_template rollback: missing file snapshot")
+				}
+				return pluginapi.RestoreFileSnapshot(host, *obj.File)
+			case pluginapi.ObjectValidate:
+				return nil
+			default:
+				return fmt.Errorf("firewall_template plugin cannot roll back kind %q", obj.Kind)
+			}
+		},
+		DetectConflict: func(host pluginapi.Host, after pluginapi.ObjectRecord) []string {
+			if after.Kind == pluginapi.ObjectFile && after.File != nil {
+				return pluginapi.FileSnapshotConflict(host, *after.File)
+			}
+			return nil
+		},
 	}
 }
 

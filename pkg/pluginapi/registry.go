@@ -104,6 +104,8 @@ type Plugin struct {
 	Apply              func(Context, profile.Step) error
 	Plan               func(Context, profile.Step) (PlanResult, error)
 	Capture            func(Context, profile.Step) (CaptureResult, error)
+	Rollback           func(Host, ObjectRecord) error
+	DetectConflict     func(Host, ObjectRecord) []string
 }
 
 type Registry struct {
@@ -131,6 +133,12 @@ func preparePlugin(p Plugin) (Plugin, error) {
 	}
 	if p.Capture == nil {
 		return Plugin{}, fmt.Errorf("plugin %q is missing Capture func", name)
+	}
+	if p.Rollback == nil {
+		return Plugin{}, fmt.Errorf("plugin %q is missing Rollback func", name)
+	}
+	if p.DetectConflict == nil {
+		return Plugin{}, fmt.Errorf("plugin %q is missing DetectConflict func", name)
 	}
 
 	p.Name = name

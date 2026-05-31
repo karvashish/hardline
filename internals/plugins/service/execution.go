@@ -240,7 +240,7 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	}
 
 	unit := normalizeServiceUnit(spec.Name)
-	state, err := pluginapi.SnapshotServiceState(ctx.Host, unit)
+	state, err := snapshotServiceState(ctx.Host, unit)
 	if err != nil {
 		return record, fmt.Errorf("capture service snapshot for %q: %w", unit, err)
 	}
@@ -295,6 +295,76 @@ func serviceIsActive(host pluginapi.Host, unit string) bool {
 	}
 	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", strconv.Quote(unit))
 	return host.RunRoot(cmd) == nil
+}
+
+func snapshotServiceState(host pluginapi.Host, unit string) (pluginapi.ServiceState, error) {
+	if host == nil {
+		return pluginapi.ServiceState{}, fmt.Errorf("host is required")
+	}
+
+	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + strconv.Quote(unit) + " 2>/dev/null || true")
+	if err != nil {
+		return pluginapi.ServiceState{}, err
+	}
+
+	activeOut, err := host.RunRootWithOutput("systemctl is-active " + strconv.Quote(unit) + " 2>/dev/null || true")
+	if err != nil {
+		return pluginapi.ServiceState{}, err
+	}
+
+	enabledVal := strings.TrimSpace(enabledOut)
+	activeVal := strings.TrimSpace(activeOut)
+	return pluginapi.ServiceState{
+		Unit:    unit,
+		Enabled: enabledVal == "enabled",
+		Active:  activeVal == "active",
+		Known:   enabledVal != "" || activeVal != "",
+	}, nil
+}
+
+func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) error {
+	unit := strings.TrimSpace(state.Unit)
+	if unit == "" {
+		return fmt.Errorf("service unit is empty")
+	}
+	if !state.Known {
+		return fmt.Errorf("service state for %q is unknown", unit)
+	}
+
+	enableCmd := "systemctl disable " + strconv.Quote(unit)
+	if state.Enabled {
+		enableCmd = "systemctl enable " + strconv.Quote(unit)
+	}
+	if err := host.RunRoot(enableCmd); err != nil {
+		return fmt.Errorf("restore service enabled state for %q: %w", unit, err)
+	}
+
+	activeCmd := "systemctl stop " + strconv.Quote(unit)
+	if state.Active {
+		activeCmd = "systemctl restart " + strconv.Quote(unit)
+	}
+	if err := host.RunRoot(activeCmd); err != nil {
+		return fmt.Errorf("restore service active state for %q: %w", unit, err)
+	}
+	return nil
+}
+
+func serviceStateConflict(host pluginapi.Host, state pluginapi.ServiceState) []string {
+	if !state.Known {
+		return nil
+	}
+	unit := strings.TrimSpace(state.Unit)
+	if unit == "" {
+		return nil
+	}
+	var conflicts []string
+	if currentEnabled := serviceIsEnabled(host, unit); currentEnabled != state.Enabled {
+		conflicts = append(conflicts, fmt.Sprintf("service %q: enabled state is %v but journal recorded %v after apply (changed since apply)", unit, currentEnabled, state.Enabled))
+	}
+	if currentActive := serviceIsActive(host, unit); currentActive != state.Active {
+		conflicts = append(conflicts, fmt.Sprintf("service %q: active state is %v but journal recorded %v after apply (changed since apply)", unit, currentActive, state.Active))
+	}
+	return conflicts
 }
 
 func formatBoolPtr(b *bool) string {

@@ -43,6 +43,25 @@ func Plugin() pluginapi.Plugin {
 
 			return Capture(ctx, step.ID, spec)
 		},
+		Rollback: func(host pluginapi.Host, obj pluginapi.ObjectRecord) error {
+			switch obj.Kind {
+			case pluginapi.ObjectService:
+				if obj.Service == nil {
+					return fmt.Errorf("service rollback: missing service snapshot")
+				}
+				return restoreServiceState(host, *obj.Service)
+			case pluginapi.ObjectValidate:
+				return nil
+			default:
+				return fmt.Errorf("service plugin cannot roll back kind %q", obj.Kind)
+			}
+		},
+		DetectConflict: func(host pluginapi.Host, after pluginapi.ObjectRecord) []string {
+			if after.Kind == pluginapi.ObjectService && after.Service != nil {
+				return serviceStateConflict(host, *after.Service)
+			}
+			return nil
+		},
 	}
 }
 

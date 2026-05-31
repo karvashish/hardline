@@ -751,3 +751,56 @@ func packagesSentence(parts []string) string {
 	text := strings.Join(parts, "; ")
 	return strings.ToUpper(text[:1]) + text[1:]
 }
+
+func restorePackageBestEffort(host pluginapi.Host, p pluginapi.PackageState) error {
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return fmt.Errorf("package name is empty")
+	}
+
+	if p.RequestedInstall && !p.WasInstalled {
+		if err := host.RunRoot("apt-get purge -y " + shellQuote(name)); err != nil {
+			return fmt.Errorf("purge package %q: %w", name, err)
+		}
+	}
+
+	if p.RequestedPurge && p.WasInstalled {
+		if p.Version != "" {
+			withVersion := name + "=" + p.Version
+			if err := host.RunRoot("DEBIAN_FRONTEND=noninteractive apt-get install -y " + shellQuote(withVersion)); err == nil {
+				return nil
+			}
+		}
+		if err := host.RunRoot("DEBIAN_FRONTEND=noninteractive apt-get install -y " + shellQuote(name)); err != nil {
+			return fmt.Errorf("reinstall package %q: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
+func packageStateConflict(host pluginapi.Host, p pluginapi.PackageState) []string {
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return nil
+	}
+	var conflicts []string
+	currentInstalled := packageInstalled(host, name)
+	if currentInstalled != p.WasInstalled {
+		conflicts = append(conflicts, fmt.Sprintf("package %q: installed=%v but journal recorded installed=%v after apply (changed since apply)", name, currentInstalled, p.WasInstalled))
+	} else if currentInstalled && p.WasInstalled && p.Version != "" {
+		currentVersion := queryPackageVersion(host, name)
+		if currentVersion != "" && currentVersion != p.Version {
+			conflicts = append(conflicts, fmt.Sprintf("package %q: version is %q but journal recorded %q after apply (upgraded since apply)", name, currentVersion, p.Version))
+		}
+	}
+	return conflicts
+}
+
+func queryPackageVersion(host pluginapi.Host, name string) string {
+	out, err := host.RunRootWithOutput("dpkg-query -W -f='${Version}' " + shellQuote(name) + " 2>/dev/null")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}

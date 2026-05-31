@@ -1,6 +1,7 @@
 package pluginapi
 
 import (
+	"encoding/base64"
 	"errors"
 	"os"
 	"strings"
@@ -93,75 +94,11 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 }
 
-func TestSnapshotServiceState(t *testing.T) {
-	t.Run("host required", func(t *testing.T) {
-		_, err := SnapshotServiceState(nil, "ssh")
-		if err == nil || !strings.Contains(err.Error(), "host is required") {
-			t.Fatalf("expected host-required error, got %v", err)
-		}
-	})
-
-	t.Run("known state", func(t *testing.T) {
-		calls := 0
-		state, err := SnapshotServiceState(pluginAPIHostStub{
-			runRootWithOutput: func(string) (string, error) {
-				calls++
-				if calls == 1 {
-					return "enabled\n", nil
-				}
-				return "active\n", nil
-			},
-		}, "ssh")
-		if err != nil {
-			t.Fatalf("SnapshotServiceState failed: %v", err)
-		}
-		if !state.Enabled || !state.Active || !state.Known || state.Unit != "ssh" {
-			t.Fatalf("unexpected state: %+v", state)
-		}
-	})
-
-	t.Run("unknown state", func(t *testing.T) {
-		state, err := SnapshotServiceState(pluginAPIHostStub{
-			runRootWithOutput: func(string) (string, error) { return "\n", nil },
-		}, "ssh")
-		if err != nil {
-			t.Fatalf("SnapshotServiceState failed: %v", err)
-		}
-		if state.Known {
-			t.Fatalf("expected unknown state, got %+v", state)
-		}
-	})
-
-	t.Run("enabled query error", func(t *testing.T) {
-		_, err := SnapshotServiceState(pluginAPIHostStub{
-			runRootWithOutput: func(string) (string, error) { return "", errors.New("enabled boom") },
-		}, "ssh")
-		if err == nil || !strings.Contains(err.Error(), "enabled boom") {
-			t.Fatalf("expected enabled query error, got %v", err)
-		}
-	})
-
-	t.Run("active query error", func(t *testing.T) {
-		calls := 0
-		_, err := SnapshotServiceState(pluginAPIHostStub{
-			runRootWithOutput: func(string) (string, error) {
-				calls++
-				if calls == 1 {
-					return "enabled", nil
-				}
-				return "", errors.New("active boom")
-			},
-		}, "ssh")
-		if err == nil || !strings.Contains(err.Error(), "active boom") {
-			t.Fatalf("expected active query error, got %v", err)
-		}
-	})
-}
-
 type pluginAPIHostStub struct {
 	runRoot           func(string) error
 	runRootWithOutput func(string) (string, error)
 	readRootFile      func(string) (string, error)
+	writeRootFile     func(string, []byte, os.FileMode) error
 }
 
 func (s pluginAPIHostStub) RunRoot(cmd string) error {
@@ -191,7 +128,12 @@ func (s pluginAPIHostStub) ReadRootFile(path string) (string, error) {
 	return s.readRootFile(path)
 }
 
-func (pluginAPIHostStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
+func (s pluginAPIHostStub) WriteRootFile(path string, data []byte, mode os.FileMode) error {
+	if s.writeRootFile == nil {
+		return nil
+	}
+	return s.writeRootFile(path, data, mode)
+}
 
 var _ Host = pluginAPIHostStub{}
 
@@ -232,5 +174,94 @@ func TestCapturesDiffer(t *testing.T) {
 	b := CaptureResult{Objects: []ObjectRecord{}}
 	if !CapturesDiffer(a, b) {
 		t.Fatal("different object counts should differ")
+	}
+}
+
+const managedTestPath = "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"
+
+func TestRestoreFileSnapshot(t *testing.T) {
+	t.Run("unmanaged path rejected", func(t *testing.T) {
+		err := RestoreFileSnapshot(pluginAPIHostStub{}, FileSnapshot{Path: "/tmp/99-hardline.conf", Existed: true})
+		if err == nil || !strings.Contains(err.Error(), "outside /etc") {
+			t.Fatalf("expected managed-path error, got %v", err)
+		}
+	})
+
+	t.Run("absent file removed", func(t *testing.T) {
+		var got string
+		err := RestoreFileSnapshot(pluginAPIHostStub{
+			runRoot: func(cmd string) error { got = cmd; return nil },
+		}, FileSnapshot{Path: managedTestPath, Existed: false})
+		if err != nil {
+			t.Fatalf("RestoreFileSnapshot failed: %v", err)
+		}
+		if !strings.HasPrefix(got, "rm -f ") || !strings.Contains(got, managedTestPath) {
+			t.Fatalf("expected rm -f command, got %q", got)
+		}
+	})
+
+	t.Run("existing file rewritten", func(t *testing.T) {
+		var gotData []byte
+		var gotMode os.FileMode
+		err := RestoreFileSnapshot(pluginAPIHostStub{
+			runRoot: func(string) error { return nil },
+			writeRootFile: func(_ string, data []byte, mode os.FileMode) error {
+				gotData = data
+				gotMode = mode
+				return nil
+			},
+		}, FileSnapshot{
+			Path:       managedTestPath,
+			Existed:    true,
+			Mode:       "640",
+			ContentB64: base64.StdEncoding.EncodeToString([]byte("hello")),
+		})
+		if err != nil {
+			t.Fatalf("RestoreFileSnapshot failed: %v", err)
+		}
+		if string(gotData) != "hello" || gotMode != os.FileMode(0o640) {
+			t.Fatalf("unexpected write: data=%q mode=%o", gotData, gotMode)
+		}
+	})
+
+	t.Run("bad content decode", func(t *testing.T) {
+		err := RestoreFileSnapshot(pluginAPIHostStub{
+			runRoot: func(string) error { return nil },
+		}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: "!!!not-base64!!!"})
+		if err == nil || !strings.Contains(err.Error(), "decode snapshot content") {
+			t.Fatalf("expected decode error, got %v", err)
+		}
+	})
+}
+
+func TestFileSnapshotConflict(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte("expected"))
+
+	if c := FileSnapshotConflict(pluginAPIHostStub{}, FileSnapshot{Path: managedTestPath, Existed: false}); c != nil {
+		t.Fatalf("absent file should report no conflict, got %v", c)
+	}
+
+	if c := FileSnapshotConflict(pluginAPIHostStub{}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: "!!!"}); c != nil {
+		t.Fatalf("undecodable journal content should be skipped, got %v", c)
+	}
+
+	readErr := FileSnapshotConflict(pluginAPIHostStub{
+		readRootFile: func(string) (string, error) { return "", errors.New("nope") },
+	}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: encoded})
+	if len(readErr) != 1 || !strings.Contains(readErr[0], "cannot be read") {
+		t.Fatalf("expected read conflict, got %v", readErr)
+	}
+
+	drift := FileSnapshotConflict(pluginAPIHostStub{
+		readRootFile: func(string) (string, error) { return "tampered", nil },
+	}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: encoded})
+	if len(drift) != 1 || !strings.Contains(drift[0], "differs") {
+		t.Fatalf("expected drift conflict, got %v", drift)
+	}
+
+	if c := FileSnapshotConflict(pluginAPIHostStub{
+		readRootFile: func(string) (string, error) { return "expected", nil },
+	}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: encoded}); c != nil {
+		t.Fatalf("matching content should report no conflict, got %v", c)
 	}
 }

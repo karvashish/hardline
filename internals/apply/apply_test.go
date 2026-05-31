@@ -747,6 +747,8 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 			Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
 				return pluginapi.CaptureResult{}, errors.New("capture failed")
 			},
+			Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
+			DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
 		}); err != nil {
 			t.Fatalf("register plugin failed: %v", err)
 		}

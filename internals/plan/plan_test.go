@@ -67,6 +67,8 @@ func TestPlanProfile(t *testing.T) {
 			Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
 				return pluginapi.CaptureResult{}, nil
 			},
+			Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
+			DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
 		}); err != nil {
 			t.Fatalf("register plugin: %v", err)
 		}

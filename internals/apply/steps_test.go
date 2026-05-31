@@ -36,6 +36,8 @@ func TestHandleStepDispatch(t *testing.T) {
 		Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
 			return pluginapi.CaptureResult{}, nil
 		},
+		Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
+		DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
 	})
 	if err != nil {
 		t.Fatalf("register plugin failed: %v", err)
@@ -78,6 +80,8 @@ func TestHandleStepValidationPolicy(t *testing.T) {
 		Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
 			return pluginapi.CaptureResult{}, nil
 		},
+		Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
+		DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
 	})
 	if err != nil {
 		t.Fatalf("register external plugin failed: %v", err)
@@ -131,6 +135,8 @@ func TestRegisterPlugin(t *testing.T) {
 		Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
 			return pluginapi.CaptureResult{RollbackMode: pluginapi.ModeNoop}, nil
 		},
+		Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
+		DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
 	})
 	if err != nil {
 		t.Fatalf("register plugin failed: %v", err)

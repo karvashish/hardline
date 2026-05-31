@@ -43,6 +43,25 @@ func Plugin() pluginapi.Plugin {
 
 			return Capture(ctx, step.ID, spec)
 		},
+		Rollback: func(host pluginapi.Host, obj pluginapi.ObjectRecord) error {
+			switch obj.Kind {
+			case pluginapi.ObjectPackage:
+				if obj.Package == nil {
+					return fmt.Errorf("packages rollback: missing package snapshot")
+				}
+				return restorePackageBestEffort(host, *obj.Package)
+			case pluginapi.ObjectValidate:
+				return nil
+			default:
+				return fmt.Errorf("packages plugin cannot roll back kind %q", obj.Kind)
+			}
+		},
+		DetectConflict: func(host pluginapi.Host, after pluginapi.ObjectRecord) []string {
+			if after.Kind == pluginapi.ObjectPackage && after.Package != nil {
+				return packageStateConflict(host, *after.Package)
+			}
+			return nil
+		},
 	}
 }
 

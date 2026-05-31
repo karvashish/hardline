@@ -3,6 +3,7 @@ package pluginapi
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -100,27 +101,60 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	return snap, nil
 }
 
-func SnapshotServiceState(host Host, unit string) (ServiceState, error) {
-	if host == nil {
-		return ServiceState{}, fmt.Errorf("host is required")
+// RestoreFileSnapshot reverts a managed file to the state captured in snap:
+// deleting it when it did not previously exist, otherwise rewriting its content
+// and mode. Shared by the template and firewall plugins, which both emit
+// ObjectFile.
+func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
+	if err := EnforceManagedPath(snap.Path); err != nil {
+		return err
 	}
 
-	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + strconv.Quote(unit) + " 2>/dev/null || true")
+	if !snap.Existed {
+		return host.RunRoot("rm -f " + strconv.Quote(snap.Path))
+	}
+
+	mode := os.FileMode(0o600)
+	if strings.TrimSpace(snap.Mode) != "" {
+		if parsed, err := strconv.ParseUint(strings.TrimSpace(snap.Mode), 8, 32); err == nil {
+			mode = os.FileMode(parsed)
+		}
+	}
+
+	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
 	if err != nil {
-		return ServiceState{}, err
+		return fmt.Errorf("decode snapshot content for %q: %w", snap.Path, err)
 	}
 
-	activeOut, err := host.RunRootWithOutput("systemctl is-active " + strconv.Quote(unit) + " 2>/dev/null || true")
+	dir := path.Dir(snap.Path)
+	if dir != "" && dir != "." {
+		if err := host.RunRoot("mkdir -p " + strconv.Quote(dir)); err != nil {
+			return fmt.Errorf("ensure directory %q: %w", dir, err)
+		}
+	}
+
+	if err := host.WriteRootFile(snap.Path, content, mode); err != nil {
+		return fmt.Errorf("restore file %q: %w", snap.Path, err)
+	}
+	return nil
+}
+
+// FileSnapshotConflict reports whether the remote file drifted from the
+// post-apply content recorded in snap. An empty result means no conflict.
+func FileSnapshotConflict(host Host, snap FileSnapshot) []string {
+	if !snap.Existed {
+		return nil
+	}
+	expectedContent, err := base64.StdEncoding.DecodeString(snap.ContentB64)
 	if err != nil {
-		return ServiceState{}, err
+		return nil
 	}
-
-	enabledVal := strings.TrimSpace(enabledOut)
-	activeVal := strings.TrimSpace(activeOut)
-	return ServiceState{
-		Unit:    unit,
-		Enabled: enabledVal == "enabled",
-		Active:  activeVal == "active",
-		Known:   enabledVal != "" || activeVal != "",
-	}, nil
+	current, err := host.ReadRootFile(snap.Path)
+	if err != nil {
+		return []string{fmt.Sprintf("%s: journal expects file to exist but it cannot be read (%v)", snap.Path, err)}
+	}
+	if current != string(expectedContent) {
+		return []string{fmt.Sprintf("%s: current content differs from what this profile wrote (modified since apply)", snap.Path)}
+	}
+	return nil
 }

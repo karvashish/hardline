@@ -1,17 +1,43 @@
 package rollback
 
 import (
-	"encoding/base64"
 	"errors"
-	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
+
+// fakeBehavior scripts a plugin's rollback/conflict behavior for orchestration
+// tests. Nil funcs default to no-ops, mirroring the required-but-trivial contract.
+type fakeBehavior struct {
+	rollback       func(pluginapi.Host, pluginapi.ObjectRecord) error
+	detectConflict func(pluginapi.Host, pluginapi.ObjectRecord) []string
+}
+
+func installPlugins(t *testing.T, m map[string]fakeBehavior) {
+	prev := lookupPlugin
+	lookupPlugin = func(name string) (pluginapi.Plugin, bool) {
+		b, ok := m[name]
+		if !ok {
+			return pluginapi.Plugin{}, false
+		}
+		rb := b.rollback
+		if rb == nil {
+			rb = func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil }
+		}
+		dc := b.detectConflict
+		if dc == nil {
+			dc = func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil }
+		}
+		return pluginapi.Plugin{Name: name, Rollback: rb, DetectConflict: dc}, true
+	}
+	t.Cleanup(func() { lookupPlugin = prev })
+}
 
 func TestRollbackCommand_TargetValidationAndLoadError(t *testing.T) {
 	t.Run("missing state", func(t *testing.T) {
@@ -59,6 +85,14 @@ func TestRollbackCommand_Success(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
 
+	var rolled []pluginapi.ObjectRecord
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {rollback: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) error {
+			rolled = append(rolled, obj)
+			return nil
+		}},
+	})
+
 	j := NewJournal("example.com", "profile", "profile-dir")
 	j.Status = "success"
 	j.Steps = []StepRecord{
@@ -67,13 +101,7 @@ func TestRollbackCommand_Success(t *testing.T) {
 			Type:         "template",
 			RollbackMode: pluginapi.ModeDeterministic,
 			Before: []pluginapi.ObjectRecord{
-				{
-					Kind: pluginapi.ObjectFile,
-					File: &pluginapi.FileSnapshot{
-						Path:    "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
-						Existed: false,
-					},
-				},
+				{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}},
 			},
 		},
 	}
@@ -86,11 +114,6 @@ func TestRollbackCommand_Success(t *testing.T) {
 	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
 	deleteJournal = func(_ *remote.Client, _, _ string) error { return nil }
-	var cmds []string
-	runRootCmd = func(_ *remote.Client, cmd string) error {
-		cmds = append(cmds, cmd)
-		return nil
-	}
 
 	err := rollbackCommand(cli.Command{
 		Profile: "starter-secure-ubuntu-24.04-lts",
@@ -105,8 +128,8 @@ func TestRollbackCommand_Success(t *testing.T) {
 	if seenCfg.Host != "example.com" || seenCfg.User != "root" || seenCfg.KeyPath != "/tmp/key" {
 		t.Fatalf("unexpected ssh config: %+v", seenCfg)
 	}
-	if len(cmds) != 1 || !strings.Contains(cmds[0], "rm -f") {
-		t.Fatalf("unexpected rollback commands: %#v", cmds)
+	if len(rolled) != 1 || rolled[0].Kind != pluginapi.ObjectFile {
+		t.Fatalf("expected one file rollback, got %#v", rolled)
 	}
 }
 
@@ -156,6 +179,9 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("step rollback error", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
+		installPlugins(t, map[string]fakeBehavior{
+			"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
+		})
 
 		j := NewJournal("example.com", "profile", "profile-dir")
 		j.Status = "success"
@@ -165,7 +191,7 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 				Type:         "template",
 				RollbackMode: pluginapi.ModeDeterministic,
 				Before: []pluginapi.ObjectRecord{
-					{Kind: pluginapi.ObjectFile, File: nil},
+					{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}},
 				},
 			},
 		}
@@ -221,6 +247,9 @@ func TestRollbackSteps(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+		installPlugins(t, map[string]fakeBehavior{
+			"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
+		})
 
 		err := RollbackSteps(nil, []StepRecord{
 			{
@@ -228,7 +257,7 @@ func TestRollbackSteps(t *testing.T) {
 				Type:         "template",
 				RollbackMode: pluginapi.ModeDeterministic,
 				Before: []pluginapi.ObjectRecord{
-					{Kind: pluginapi.ObjectFile, File: nil},
+					{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}},
 				},
 			},
 		})
@@ -252,11 +281,11 @@ func TestRollbackSteps(t *testing.T) {
 		defer restore()
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 
-		var cmds []string
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		}
+		var order []string
+		installPlugins(t, map[string]fakeBehavior{
+			"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { order = append(order, "template"); return nil }},
+			"service":  {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { order = append(order, "service"); return nil }},
+		})
 
 		err := RollbackSteps(nil, []StepRecord{
 			{
@@ -264,13 +293,7 @@ func TestRollbackSteps(t *testing.T) {
 				Type:         "template",
 				RollbackMode: pluginapi.ModeDeterministic,
 				Before: []pluginapi.ObjectRecord{
-					{
-						Kind: pluginapi.ObjectFile,
-						File: &pluginapi.FileSnapshot{
-							Path:    "/etc/nftables.d/99-hardline-itest.nft",
-							Existed: false,
-						},
-					},
+					{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/nftables.d/99-hardline-itest.nft", Existed: false}},
 				},
 			},
 			{
@@ -278,30 +301,15 @@ func TestRollbackSteps(t *testing.T) {
 				Type:         "service",
 				RollbackMode: pluginapi.ModeDeterministic,
 				Before: []pluginapi.ObjectRecord{
-					{
-						Kind: pluginapi.ObjectService,
-						Service: &pluginapi.ServiceState{
-							Unit:    "nftables",
-							Known:   true,
-							Enabled: true,
-							Active:  true,
-						},
-					},
+					{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "nftables", Known: true, Enabled: true, Active: true}},
 				},
 			},
 		})
 		if err != nil {
 			t.Fatalf("RollbackSteps failed: %v", err)
 		}
-
-		if len(cmds) != 3 {
-			t.Fatalf("expected 3 rollback commands, got %#v", cmds)
-		}
-		if !strings.Contains(cmds[0], "rm -f") {
-			t.Fatalf("expected file removal before service restore, got %#v", cmds)
-		}
-		if !strings.Contains(cmds[1], "enable") || !strings.Contains(cmds[2], "restart") {
-			t.Fatalf("unexpected service restore commands: %#v", cmds)
+		if len(order) != 2 || order[0] != "template" || order[1] != "service" {
+			t.Fatalf("expected files restored before services, got %#v", order)
 		}
 	})
 }
@@ -310,6 +318,9 @@ func TestRollbackStepsStrict(t *testing.T) {
 	t.Run("best-effort errors are fatal in strict mode", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
+		installPlugins(t, map[string]fakeBehavior{
+			"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
+		})
 
 		err := executeRollbackSteps(nil, []StepRecord{
 			{
@@ -317,7 +328,7 @@ func TestRollbackStepsStrict(t *testing.T) {
 				Type:         "packages",
 				RollbackMode: pluginapi.ModeBestEffort,
 				Before: []pluginapi.ObjectRecord{
-					{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: " "}},
+					{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "x"}},
 				},
 			},
 		}, false, true, false)
@@ -337,13 +348,19 @@ func TestRollbackStepsStrict(t *testing.T) {
 }
 
 func TestRollbackStepModes(t *testing.T) {
+	fileObj := pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}}
+
 	t.Run("best effort continues", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		installPlugins(t, map[string]fakeBehavior{
+			"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
+		})
 		step := StepRecord{
 			ID:           "pkg",
+			Type:         "packages",
 			RollbackMode: pluginapi.ModeBestEffort,
-			Before: []pluginapi.ObjectRecord{
-				{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: ""}},
-			},
+			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{}}},
 		}
 		if err := rollbackStepWithMode(nil, step, false); err != nil {
 			t.Fatalf("expected best-effort step to continue, got %v", err)
@@ -351,12 +368,16 @@ func TestRollbackStepModes(t *testing.T) {
 	})
 
 	t.Run("deterministic fails", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		installPlugins(t, map[string]fakeBehavior{
+			"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
+		})
 		step := StepRecord{
 			ID:           "file",
+			Type:         "template",
 			RollbackMode: pluginapi.ModeDeterministic,
-			Before: []pluginapi.ObjectRecord{
-				{Kind: pluginapi.ObjectFile, File: nil},
-			},
+			Before:       []pluginapi.ObjectRecord{fileObj},
 		}
 		if err := rollbackStepWithMode(nil, step, false); err == nil {
 			t.Fatal("expected deterministic step error")
@@ -364,357 +385,44 @@ func TestRollbackStepModes(t *testing.T) {
 	})
 
 	t.Run("noop", func(t *testing.T) {
-		step := StepRecord{ID: "v", RollbackMode: pluginapi.ModeNoop}
+		step := StepRecord{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}
 		if err := rollbackStepWithMode(nil, step, false); err != nil {
 			t.Fatalf("expected noop success, got %v", err)
 		}
 	})
 
 	t.Run("after snapshots are ignored", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		installPlugins(t, map[string]fakeBehavior{
+			"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil }},
+		})
 		step := StepRecord{
-			ID:           "validate",
+			ID:           "tmpl",
+			Type:         "template",
 			RollbackMode: pluginapi.ModeDeterministic,
-			Before: []pluginapi.ObjectRecord{
-				{Kind: pluginapi.ObjectValidate, Message: "noop"},
-			},
-			After: []pluginapi.ObjectRecord{
-				{Kind: pluginapi.ObjectFile, File: nil},
-			},
+			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectValidate, Message: "noop"}},
+			After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: nil}},
 		}
 		if err := rollbackStepWithMode(nil, step, false); err != nil {
 			t.Fatalf("expected rollback to use before snapshots only, got %v", err)
 		}
 	})
-}
 
-func TestRollbackObjectBranches(t *testing.T) {
-	t.Run("service missing payload", func(t *testing.T) {
-		err := rollbackObject(nil, pluginapi.ObjectRecord{Kind: pluginapi.ObjectService})
-		if err == nil || !strings.Contains(err.Error(), "missing snapshot payload") {
-			t.Fatalf("expected service payload error, got %v", err)
-		}
-	})
-
-	t.Run("package missing payload", func(t *testing.T) {
-		err := rollbackObject(nil, pluginapi.ObjectRecord{Kind: pluginapi.ObjectPackage})
-		if err == nil || !strings.Contains(err.Error(), "missing snapshot payload") {
-			t.Fatalf("expected package payload error, got %v", err)
-		}
-	})
-
-	t.Run("validate noop", func(t *testing.T) {
-		if err := rollbackObject(nil, pluginapi.ObjectRecord{Kind: pluginapi.ObjectValidate}); err != nil {
-			t.Fatalf("expected validate noop success, got %v", err)
-		}
-	})
-
-	t.Run("unsupported kind", func(t *testing.T) {
-		err := rollbackObject(nil, pluginapi.ObjectRecord{Kind: "other"})
-		if err == nil || !strings.Contains(err.Error(), "unsupported rollback object kind") {
-			t.Fatalf("expected unsupported kind error, got %v", err)
-		}
-	})
-}
-
-func TestRestoreFileAndServiceAndPackage(t *testing.T) {
-	t.Run("restore file existing", func(t *testing.T) {
+	t.Run("unregistered plugin", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-
-		var cmds []string
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
+		installPlugins(t, map[string]fakeBehavior{})
+		step := StepRecord{
+			ID:           "ghost",
+			Type:         "ghost",
+			RollbackMode: pluginapi.ModeDeterministic,
+			Before:       []pluginapi.ObjectRecord{fileObj},
 		}
-		writeRootFile = func(_ *remote.Client, dest string, data []byte, mode os.FileMode) error {
-			if dest != "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" {
-				t.Fatalf("unexpected dest: %q", dest)
-			}
-			if string(data) != "abc" {
-				t.Fatalf("unexpected data: %q", string(data))
-			}
-			if mode != 0o640 {
-				t.Fatalf("unexpected mode: %#o", mode)
-			}
-			return nil
-		}
-
-		snap := pluginapi.FileSnapshot{
-			Path:       "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
-			Existed:    true,
-			Mode:       "0640",
-			ContentB64: base64.StdEncoding.EncodeToString([]byte("abc")),
-		}
-		if err := restoreFile(nil, snap); err != nil {
-			t.Fatalf("restoreFile failed: %v", err)
-		}
-		if len(cmds) == 0 || !strings.Contains(cmds[0], "mkdir -p") {
-			t.Fatalf("expected mkdir command, got %#v", cmds)
+		if err := rollbackStepWithMode(nil, step, false); err == nil || !strings.Contains(err.Error(), "not registered") {
+			t.Fatalf("expected unregistered plugin error, got %v", err)
 		}
 	})
-
-	t.Run("restore file unmanaged path", func(t *testing.T) {
-		err := restoreFile(nil, pluginapi.FileSnapshot{Path: "/tmp/99-hardline.conf", Existed: false})
-		if err == nil || !strings.Contains(err.Error(), "outside /etc managed scope") {
-			t.Fatalf("expected managed path error, got %v", err)
-		}
-	})
-
-	t.Run("restore file decode error", func(t *testing.T) {
-		err := restoreFile(nil, pluginapi.FileSnapshot{
-			Path:       "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
-			Existed:    true,
-			ContentB64: "!!!",
-		})
-		if err == nil || !strings.Contains(err.Error(), "decode snapshot content") {
-			t.Fatalf("expected decode error, got %v", err)
-		}
-	})
-
-	t.Run("restore file mkdir error", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			if strings.Contains(cmd, "mkdir -p") {
-				return errors.New("mkdir boom")
-			}
-			return nil
-		}
-		err := restoreFile(nil, pluginapi.FileSnapshot{
-			Path:       "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
-			Existed:    true,
-			ContentB64: base64.StdEncoding.EncodeToString([]byte("abc")),
-		})
-		if err == nil || !strings.Contains(err.Error(), "ensure directory") {
-			t.Fatalf("expected mkdir error, got %v", err)
-		}
-	})
-
-	t.Run("restore file write error", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, _ string) error { return nil }
-		writeRootFile = func(_ *remote.Client, _ string, _ []byte, _ os.FileMode) error {
-			return errors.New("write boom")
-		}
-		err := restoreFile(nil, pluginapi.FileSnapshot{
-			Path:       "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
-			Existed:    true,
-			ContentB64: base64.StdEncoding.EncodeToString([]byte("abc")),
-		})
-		if err == nil || !strings.Contains(err.Error(), "restore file") {
-			t.Fatalf("expected write error, got %v", err)
-		}
-	})
-
-	t.Run("restore file remove", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		var cmd string
-		runRootCmd = func(_ *remote.Client, in string) error {
-			cmd = in
-			return nil
-		}
-		if err := restoreFile(nil, pluginapi.FileSnapshot{
-			Path:    "/etc/nftables.d/99-hardline-firewall.nft",
-			Existed: false,
-		}); err != nil {
-			t.Fatalf("restoreFile failed: %v", err)
-		}
-		if !strings.Contains(cmd, "rm -f") {
-			t.Fatalf("expected rm command, got %q", cmd)
-		}
-	})
-
-	t.Run("service unknown error", func(t *testing.T) {
-		err := restoreService(nil, pluginapi.ServiceState{Unit: "ssh", Known: false})
-		if err == nil || !strings.Contains(err.Error(), "unknown") {
-			t.Fatalf("expected unknown service state error, got %v", err)
-		}
-	})
-
-	t.Run("service empty unit", func(t *testing.T) {
-		err := restoreService(nil, pluginapi.ServiceState{Known: true})
-		if err == nil || !strings.Contains(err.Error(), "service unit is empty") {
-			t.Fatalf("expected empty unit error, got %v", err)
-		}
-	})
-
-	t.Run("service restore success", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		var cmds []string
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		}
-		err := restoreService(nil, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: false})
-		if err != nil {
-			t.Fatalf("restoreService failed: %v", err)
-		}
-		if len(cmds) != 2 || !strings.Contains(cmds[0], "enable") || !strings.Contains(cmds[1], "stop") {
-			t.Fatalf("unexpected service cmds: %#v", cmds)
-		}
-	})
-
-	t.Run("service restore active restarts", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		var cmds []string
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		}
-		err := restoreService(nil, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: true})
-		if err != nil {
-			t.Fatalf("restoreService failed: %v", err)
-		}
-		if len(cmds) != 2 || !strings.Contains(cmds[0], "enable") || !strings.Contains(cmds[1], "restart") {
-			t.Fatalf("unexpected service cmds: %#v", cmds)
-		}
-	})
-
-	t.Run("service enable error", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			if strings.Contains(cmd, "enable") {
-				return errors.New("enable boom")
-			}
-			return nil
-		}
-		err := restoreService(nil, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: true})
-		if err == nil || !strings.Contains(err.Error(), "enabled state") {
-			t.Fatalf("expected enabled state error, got %v", err)
-		}
-	})
-
-	t.Run("service active error", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			if strings.Contains(cmd, "restart") || strings.Contains(cmd, "stop") {
-				return errors.New("active boom")
-			}
-			return nil
-		}
-		err := restoreService(nil, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: false, Active: true})
-		if err == nil || !strings.Contains(err.Error(), "active state") {
-			t.Fatalf("expected active state error, got %v", err)
-		}
-	})
-
-	t.Run("package rollback", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		var cmds []string
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		}
-
-		if err := rollbackPackageBestEffort(nil, pluginapi.PackageState{
-			Name:             "fail2ban",
-			RequestedInstall: true,
-			WasInstalled:     false,
-		}); err != nil {
-			t.Fatalf("rollbackPackageBestEffort install->purge failed: %v", err)
-		}
-
-		if err := rollbackPackageBestEffort(nil, pluginapi.PackageState{
-			Name:           "telnet",
-			RequestedPurge: true,
-			WasInstalled:   true,
-			Version:        "1.2.3",
-		}); err != nil {
-			t.Fatalf("rollbackPackageBestEffort purge->install failed: %v", err)
-		}
-
-		if len(cmds) < 2 {
-			t.Fatalf("expected rollback package commands, got %#v", cmds)
-		}
-	})
-
-	t.Run("package purge error", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			if strings.Contains(cmd, "apt-get purge") {
-				return errors.New("purge boom")
-			}
-			return nil
-		}
-		err := rollbackPackageBestEffort(nil, pluginapi.PackageState{
-			Name:             "pkg",
-			RequestedInstall: true,
-			WasInstalled:     false,
-		})
-		if err == nil || !strings.Contains(err.Error(), "purge package") {
-			t.Fatalf("expected purge package error, got %v", err)
-		}
-	})
-
-	t.Run("package reinstall fallback", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		count := 0
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			count++
-			if strings.Contains(cmd, "pkg=1.0") {
-				return errors.New("version unavailable")
-			}
-			return nil
-		}
-		err := rollbackPackageBestEffort(nil, pluginapi.PackageState{
-			Name:           "pkg",
-			RequestedPurge: true,
-			WasInstalled:   true,
-			Version:        "1.0",
-		})
-		if err != nil {
-			t.Fatalf("rollbackPackageBestEffort failed: %v", err)
-		}
-		if count < 2 {
-			t.Fatalf("expected versioned + fallback install commands, count=%d", count)
-		}
-	})
-
-	t.Run("package reinstall fallback fails", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			if strings.Contains(cmd, "apt-get install -y") {
-				return errors.New("install boom")
-			}
-			return nil
-		}
-		err := rollbackPackageBestEffort(nil, pluginapi.PackageState{
-			Name:           "pkg",
-			RequestedPurge: true,
-			WasInstalled:   true,
-			Version:        "1.0",
-		})
-		if err == nil || !strings.Contains(err.Error(), "reinstall package") {
-			t.Fatalf("expected reinstall package error, got %v", err)
-		}
-	})
-
-	t.Run("package empty name", func(t *testing.T) {
-		err := rollbackPackageBestEffort(nil, pluginapi.PackageState{Name: " "})
-		if err == nil || !strings.Contains(err.Error(), "package name is empty") {
-			t.Fatalf("expected empty package name error, got %v", err)
-		}
-	})
-}
-
-func TestEnforceManagedPathUsesPluginAPI(t *testing.T) {
-	if err := pluginapi.EnforceManagedPath("/etc/ssh/sshd_config.d/99-hardline-ssh.conf"); err != nil {
-		t.Fatalf("expected managed path to pass, got %v", err)
-	}
-	if err := pluginapi.EnforceManagedPath("/tmp/99-hardline-ssh.conf"); err == nil {
-		t.Fatal("expected /tmp path to fail")
-	}
 }
 
 func TestStepActuallyChanged(t *testing.T) {
@@ -762,6 +470,11 @@ func TestDeltaOnlyRollback(t *testing.T) {
 	defer restore()
 	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 
+	var count int
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { count++; return nil }},
+	})
+
 	obj := pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{
 		Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false,
 	}}
@@ -782,317 +495,118 @@ func TestDeltaOnlyRollback(t *testing.T) {
 		},
 	}
 
-	var cmds []string
-	runRootCmd = func(_ *remote.Client, cmd string) error {
-		cmds = append(cmds, cmd)
-		return nil
-	}
-
 	if err := RollbackSteps(nil, steps); err != nil {
 		t.Fatalf("RollbackSteps failed: %v", err)
 	}
-
-	// Only the changed step should produce a rollback command; idempotent step is skipped.
-	if len(cmds) != 1 || !strings.Contains(cmds[0], "rm -f") {
-		t.Fatalf("expected exactly one rollback command for changed step, got %#v", cmds)
+	if count != 1 {
+		t.Fatalf("expected exactly one rollback for the changed step, got %d", count)
 	}
 }
 
-func TestCheckStepConflicts(t *testing.T) {
-	validB64 := base64.StdEncoding.EncodeToString([]byte("expected-content"))
+func TestExecuteRollbackSteps_Conflicts(t *testing.T) {
+	step := StepRecord{
+		ID:           "s",
+		Type:         "template",
+		RollbackMode: pluginapi.ModeDeterministic,
+		Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}}},
+		After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: "x"}}},
+	}
+	conflicting := map[string]fakeBehavior{
+		"template": {detectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return []string{"drifted since apply"} }},
+	}
 
-	t.Run("no conflict when current matches journal after", func(t *testing.T) {
+	t.Run("blocks without force", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		readRemoteFile = func(_ *remote.Client, _ string) (string, error) { return "expected-content", nil }
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: validB64}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts, got %v", got)
-		}
-	})
-
-	t.Run("conflict when current differs from journal after", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		readRemoteFile = func(_ *remote.Client, _ string) (string, error) { return "something-else", nil }
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: validB64}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) != 1 || !strings.Contains(got[0], "modified since apply") {
-			t.Fatalf("expected one conflict, got %v", got)
-		}
-	})
-
-	t.Run("skips when after.Existed is false", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts for deleted-file after, got %v", got)
-		}
-	})
-
-	t.Run("skips invalid base64 in journal", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: "!!!not-valid-base64!!!"}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts for invalid base64, got %v", got)
-		}
-	})
-
-	t.Run("conflict when file unreadable but journal says existed", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		readRemoteFile = func(_ *remote.Client, _ string) (string, error) { return "", errors.New("permission denied") }
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: validB64}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) != 1 || !strings.Contains(got[0], "cannot be read") {
-			t.Fatalf("expected unreadable-file conflict, got %v", got)
-		}
-	})
-
-	t.Run("executeRollbackSteps blocks on conflict without force", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		readRemoteFile = func(_ *remote.Client, _ string) (string, error) { return "tampered", nil }
-
-		step := StepRecord{
-			ID:           "s",
-			Type:         "template",
-			RollbackMode: pluginapi.ModeDeterministic,
-			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}}},
-			After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: validB64}}},
-		}
+		installPlugins(t, conflicting)
 		err := executeRollbackSteps(nil, []StepRecord{step}, false, false, false)
 		if err == nil || !strings.Contains(err.Error(), "force-rollback") {
 			t.Fatalf("expected force-rollback error, got %v", err)
 		}
 	})
 
-	t.Run("executeRollbackSteps proceeds with force on conflict", func(t *testing.T) {
+	t.Run("proceeds with force", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		readRemoteFile = func(_ *remote.Client, _ string) (string, error) { return "tampered", nil }
-		runRootCmd = func(_ *remote.Client, _ string) error { return nil }
-
-		step := StepRecord{
-			ID:           "s",
-			Type:         "template",
-			RollbackMode: pluginapi.ModeDeterministic,
-			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}}},
-			After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: validB64}}},
-		}
+		installPlugins(t, conflicting)
 		if err := executeRollbackSteps(nil, []StepRecord{step}, false, false, true); err != nil {
 			t.Fatalf("expected force rollback to succeed, got %v", err)
 		}
 	})
 }
 
-func TestCheckStepConflicts_ServiceAndPackage(t *testing.T) {
-	t.Run("service: no conflict when state matches journal", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, _ string) error { return nil } // is-enabled and is-active both succeed
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts, got %v", got)
-		}
-	})
-
-	t.Run("service: conflict when enabled state differs", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error {
-			if strings.Contains(cmd, "is-enabled") {
-				return errors.New("disabled") // service is now disabled
-			}
-			return nil // is-active succeeds
-		}
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) == 0 || !strings.Contains(got[0], "enabled state") {
-			t.Fatalf("expected enabled-state conflict, got %v", got)
-		}
-	})
-
-	t.Run("service: skipped when Known=false", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "nginx", Known: false}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts for Unknown service, got %v", got)
-		}
-	})
-
-	t.Run("service: skipped when unit is empty", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "", Known: true}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts for empty unit, got %v", got)
-		}
-	})
-
-	t.Run("package: no conflict when installed state matches", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, _ string) error { return nil } // dpkg -s succeeds = installed
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "curl", WasInstalled: true}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts, got %v", got)
-		}
-	})
-
-	t.Run("package: conflict when installed state differs", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, _ string) error { return errors.New("not installed") }
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "curl", WasInstalled: true}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) == 0 || !strings.Contains(got[0], "changed since apply") {
-			t.Fatalf("expected package conflict, got %v", got)
-		}
-	})
-
-	t.Run("package: skipped when name is empty", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "", WasInstalled: true}},
-		}}
-		if got := checkStepConflicts(nil, step); len(got) != 0 {
-			t.Fatalf("expected no conflicts for empty package name, got %v", got)
-		}
-	})
-}
-
-func TestRollbackWrapperExitHook(t *testing.T) {
+func TestCheckStepConflictsUnregistered(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
+	installPlugins(t, map[string]fakeBehavior{})
 
-	runRollbackCommand = func(cli.Command) error { return errors.New("boom") }
-	exitCode := 0
-	exitProcess = func(code int) { exitCode = code }
-
-	Rollback(cli.Command{})
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitCode)
+	step := StepRecord{Type: "ghost", After: []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{}}}}
+	if got := checkStepConflicts(nil, step); got != nil {
+		t.Fatalf("expected nil for unregistered plugin, got %v", got)
 	}
 }
 
-func TestCheckStepConflicts_PackageVersionMismatch(t *testing.T) {
-	t.Run("version mismatch detected", func(t *testing.T) {
+func TestRollbackWrapperExitHook(t *testing.T) {
+	t.Run("error exits non-zero", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error { return nil } // dpkg -s succeeds = installed
-		runRootWithOutputCmd = func(_ *remote.Client, cmd string) (string, error) {
-			return "2.0.0", nil // current version differs from journal
-		}
 
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "curl", WasInstalled: true, Version: "1.0.0"}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) != 1 || !strings.Contains(got[0], "upgraded since apply") {
-			t.Fatalf("expected version conflict, got %v", got)
+		runRollbackCommand = func(cli.Command) error { return errors.New("boom") }
+		exitCode := -1
+		exitProcess = func(code int) { exitCode = code }
+
+		Rollback(cli.Command{})
+		if exitCode != 1 {
+			t.Fatalf("expected exit code 1, got %d", exitCode)
 		}
 	})
 
-	t.Run("version matches no conflict", func(t *testing.T) {
+	t.Run("success does not exit", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error { return nil }
-		runRootWithOutputCmd = func(_ *remote.Client, cmd string) (string, error) {
-			return "1.0.0", nil
-		}
 
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "curl", WasInstalled: true, Version: "1.0.0"}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) != 0 {
-			t.Fatalf("expected no conflicts, got %v", got)
+		runRollbackCommand = func(cli.Command) error { return nil }
+		called := false
+		exitProcess = func(int) { called = true }
+
+		Rollback(cli.Command{})
+		if called {
+			t.Fatal("expected no exit on success")
 		}
 	})
+}
 
-	t.Run("empty journal version skips check", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		runRootCmd = func(_ *remote.Client, cmd string) error { return nil }
-		runRootWithOutputCmd = func(_ *remote.Client, cmd string) (string, error) {
-			return "2.0.0", nil
+func TestFormatRollbackDuration(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want string
+	}{
+		{-time.Second, "0ms"},
+		{250 * time.Millisecond, "250ms"},
+		{1500 * time.Millisecond, "1.5s"},
+		{90 * time.Second, "1m30s"},
+	}
+	for _, tc := range cases {
+		if got := formatRollbackDuration(tc.d); got != tc.want {
+			t.Fatalf("formatRollbackDuration(%v) = %q, want %q", tc.d, got, tc.want)
 		}
-
-		step := StepRecord{After: []pluginapi.ObjectRecord{
-			{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "curl", WasInstalled: true, Version: ""}},
-		}}
-		got := checkStepConflicts(nil, step)
-		if len(got) != 0 {
-			t.Fatalf("expected no conflicts for empty version, got %v", got)
-		}
-	})
+	}
 }
 
 func stubRollbackHooks() func() {
 	prevNewSSH := newSSHClient
-	prevRunRoot := runRootCmd
-	prevWriteRoot := writeRootFile
 	prevEnsureSudo := ensureRollbackSudo
 	prevLoadRemoteJournal := loadRemoteJournal
 	prevDeleteJournal := deleteJournal
-	prevReadRemoteFile := readRemoteFile
-	prevRunRootWithOutput := runRootWithOutputCmd
 	prevLoadProfileID := loadProfileID
 	prevRunRollbackCommand := runRollbackCommand
 	prevExit := exitProcess
 
-	// Default stub: no conflicts (current content matches journal after).
-	readRemoteFile = func(_ *remote.Client, _ string) (string, error) { return "", nil }
-	runRootWithOutputCmd = func(_ *remote.Client, _ string) (string, error) { return "", nil }
-
 	return func() {
 		newSSHClient = prevNewSSH
-		runRootCmd = prevRunRoot
-		writeRootFile = prevWriteRoot
 		ensureRollbackSudo = prevEnsureSudo
 		loadRemoteJournal = prevLoadRemoteJournal
 		deleteJournal = prevDeleteJournal
-		readRemoteFile = prevReadRemoteFile
-		runRootWithOutputCmd = prevRunRootWithOutput
 		loadProfileID = prevLoadProfileID
 		runRollbackCommand = prevRunRollbackCommand
 		exitProcess = prevExit

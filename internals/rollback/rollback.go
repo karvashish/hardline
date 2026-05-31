@@ -1,11 +1,9 @@
 package rollback
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
+	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/internals/utils"
 	"github.com/karvashish/hardline/pkg/logger"
@@ -23,8 +22,6 @@ var rollbackNow = time.Now
 
 var (
 	newSSHClient       = connection.NewSSHClient
-	runRootCmd         = (*remote.Client).RunRoot
-	writeRootFile      = (*remote.Client).WriteRootFile
 	ensureRollbackSudo = connection.EnsureNonInteractiveSudo
 	runRollbackCommand = rollbackCommand
 	loadRemoteJournal  = func(client *remote.Client, profileID string) (*Journal, error) {
@@ -33,10 +30,9 @@ var (
 	deleteJournal = func(client *remote.Client, profileID, runID string) error {
 		return DeleteRemoteJournal(client, profileID, runID)
 	}
-	readRemoteFile       = (*remote.Client).ReadRootFile
-	runRootWithOutputCmd = (*remote.Client).RunRootWithOutput
-	loadProfileID        = defaultLoadProfileID
-	exitProcess          = os.Exit
+	lookupPlugin  = registry.Shared().Lookup
+	loadProfileID = defaultLoadProfileID
+	exitProcess   = os.Exit
 )
 
 func Rollback(c cli.Command) {
@@ -244,77 +240,17 @@ func formatRollbackDuration(d time.Duration) string {
 	return strconv.Itoa(minutes) + "m" + strconv.Itoa(seconds) + "s"
 }
 
-// checkStepConflicts reads the current remote state for each object in a step and
-// compares it against the journal's after snapshot. If they differ, another profile or
-// manual edit changed the state after this profile ran. Returns one message per conflict.
+// checkStepConflicts delegates to the step's owning plugin to compare the
+// journal's after snapshot against live remote state. A non-empty result means
+// the state changed after this profile ran.
 func checkStepConflicts(client *remote.Client, step StepRecord) []string {
+	plug, ok := lookupPlugin(step.Type)
+	if !ok {
+		return nil
+	}
 	var conflicts []string
 	for _, afterObj := range step.After {
-		switch afterObj.Kind {
-		case pluginapi.ObjectFile:
-			if afterObj.File == nil {
-				continue
-			}
-			snap := afterObj.File
-			// If this profile deleted the file (after.Existed=false), nothing to compare.
-			if !snap.Existed {
-				continue
-			}
-			// Decode the content the journal recorded as the post-apply state.
-			expectedContent, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-			if err != nil {
-				// Malformed ContentB64 in journal — skip conflict check for this object.
-				continue
-			}
-			current, err := readRemoteFile(client, snap.Path)
-			if err != nil {
-				conflicts = append(conflicts, fmt.Sprintf("%s: journal expects file to exist but it cannot be read (%v)", snap.Path, err))
-				continue
-			}
-			if current != string(expectedContent) {
-				conflicts = append(conflicts, fmt.Sprintf("%s: current content differs from what this profile wrote (modified since apply)", snap.Path))
-			}
-
-		case pluginapi.ObjectService:
-			if afterObj.Service == nil {
-				continue
-			}
-			snap := afterObj.Service
-			if !snap.Known {
-				continue
-			}
-			unit := strings.TrimSpace(snap.Unit)
-			if unit == "" {
-				continue
-			}
-			currentEnabled := runRootCmd(client, "systemctl is-enabled "+strconv.Quote(unit)+" >/dev/null 2>&1") == nil
-			currentActive := runRootCmd(client, "systemctl is-active "+strconv.Quote(unit)+" >/dev/null 2>&1") == nil
-			if currentEnabled != snap.Enabled {
-				conflicts = append(conflicts, fmt.Sprintf("service %q: enabled state is %v but journal recorded %v after apply (changed since apply)", unit, currentEnabled, snap.Enabled))
-			}
-			if currentActive != snap.Active {
-				conflicts = append(conflicts, fmt.Sprintf("service %q: active state is %v but journal recorded %v after apply (changed since apply)", unit, currentActive, snap.Active))
-			}
-
-		case pluginapi.ObjectPackage:
-			if afterObj.Package == nil {
-				continue
-			}
-			snap := afterObj.Package
-			name := strings.TrimSpace(snap.Name)
-			if name == "" {
-				continue
-			}
-			currentInstalled := runRootCmd(client, "dpkg -s "+strconv.Quote(name)+" >/dev/null 2>&1") == nil
-			if currentInstalled != snap.WasInstalled {
-				conflicts = append(conflicts, fmt.Sprintf("package %q: installed=%v but journal recorded installed=%v after apply (changed since apply)", name, currentInstalled, snap.WasInstalled))
-			} else if currentInstalled && snap.WasInstalled && snap.Version != "" {
-				currentVersion := queryPackageVersion(client, name)
-				if currentVersion != "" && currentVersion != snap.Version {
-					conflicts = append(conflicts, fmt.Sprintf("package %q: version is %q but journal recorded %q after apply (upgraded since apply)", name, currentVersion, snap.Version))
-				}
-			}
-		}
+		conflicts = append(conflicts, plug.DetectConflict(client, afterObj)...)
 	}
 	return conflicts
 }
@@ -333,9 +269,14 @@ func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffo
 		return nil
 	}
 
+	plug, ok := lookupPlugin(step.Type)
+	if !ok {
+		return fmt.Errorf("rollback step %q: plugin %q is not registered", step.ID, step.Type)
+	}
+
 	for i := len(step.Before) - 1; i >= 0; i-- {
 		obj := step.Before[i]
-		err := rollbackObject(client, obj)
+		err := plug.Rollback(client, obj)
 		if err == nil {
 			continue
 		}
@@ -347,125 +288,4 @@ func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffo
 	}
 
 	return nil
-}
-
-func rollbackObject(client *remote.Client, obj pluginapi.ObjectRecord) error {
-	switch obj.Kind {
-	case pluginapi.ObjectFile:
-		if obj.File == nil {
-			return fmt.Errorf("file rollback object missing snapshot payload")
-		}
-		return restoreFile(client, *obj.File)
-	case pluginapi.ObjectService:
-		if obj.Service == nil {
-			return fmt.Errorf("service rollback object missing snapshot payload")
-		}
-		return restoreService(client, *obj.Service)
-	case pluginapi.ObjectPackage:
-		if obj.Package == nil {
-			return fmt.Errorf("package rollback object missing snapshot payload")
-		}
-		return rollbackPackageBestEffort(client, *obj.Package)
-	case pluginapi.ObjectValidate:
-		return nil
-	default:
-		return fmt.Errorf("unsupported rollback object kind %q", obj.Kind)
-	}
-}
-
-func restoreFile(client *remote.Client, snap pluginapi.FileSnapshot) error {
-	if err := pluginapi.EnforceManagedPath(snap.Path); err != nil {
-		return err
-	}
-
-	if !snap.Existed {
-		return runRootCmd(client, "rm -f "+strconv.Quote(snap.Path))
-	}
-
-	mode := os.FileMode(0o600)
-	if strings.TrimSpace(snap.Mode) != "" {
-		if parsed, err := strconv.ParseUint(strings.TrimSpace(snap.Mode), 8, 32); err == nil {
-			mode = os.FileMode(parsed)
-		}
-	}
-
-	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-	if err != nil {
-		return fmt.Errorf("decode snapshot content for %q: %w", snap.Path, err)
-	}
-
-	dir := path.Dir(snap.Path)
-	if dir != "" && dir != "." {
-		if err := runRootCmd(client, "mkdir -p "+strconv.Quote(dir)); err != nil {
-			return fmt.Errorf("ensure directory %q: %w", dir, err)
-		}
-	}
-
-	if err := writeRootFile(client, snap.Path, content, mode); err != nil {
-		return fmt.Errorf("restore file %q: %w", snap.Path, err)
-	}
-	return nil
-}
-
-func restoreService(client *remote.Client, state pluginapi.ServiceState) error {
-	unit := strings.TrimSpace(state.Unit)
-	if unit == "" {
-		return fmt.Errorf("service unit is empty")
-	}
-	if !state.Known {
-		return fmt.Errorf("service state for %q is unknown", unit)
-	}
-
-	enableCmd := "systemctl disable " + strconv.Quote(unit)
-	if state.Enabled {
-		enableCmd = "systemctl enable " + strconv.Quote(unit)
-	}
-	if err := runRootCmd(client, enableCmd); err != nil {
-		return fmt.Errorf("restore service enabled state for %q: %w", unit, err)
-	}
-
-	activeCmd := "systemctl stop " + strconv.Quote(unit)
-	if state.Active {
-
-		activeCmd = "systemctl restart " + strconv.Quote(unit)
-	}
-	if err := runRootCmd(client, activeCmd); err != nil {
-		return fmt.Errorf("restore service active state for %q: %w", unit, err)
-	}
-	return nil
-}
-
-func rollbackPackageBestEffort(client *remote.Client, p pluginapi.PackageState) error {
-	name := strings.TrimSpace(p.Name)
-	if name == "" {
-		return fmt.Errorf("package name is empty")
-	}
-
-	if p.RequestedInstall && !p.WasInstalled {
-		if err := runRootCmd(client, "apt-get purge -y "+strconv.Quote(name)); err != nil {
-			return fmt.Errorf("purge package %q: %w", name, err)
-		}
-	}
-
-	if p.RequestedPurge && p.WasInstalled {
-		if p.Version != "" {
-			withVersion := name + "=" + p.Version
-			if err := runRootCmd(client, "DEBIAN_FRONTEND=noninteractive apt-get install -y "+strconv.Quote(withVersion)); err == nil {
-				return nil
-			}
-		}
-		if err := runRootCmd(client, "DEBIAN_FRONTEND=noninteractive apt-get install -y "+strconv.Quote(name)); err != nil {
-			return fmt.Errorf("reinstall package %q: %w", name, err)
-		}
-	}
-
-	return nil
-}
-
-func queryPackageVersion(client *remote.Client, name string) string {
-	out, err := runRootWithOutputCmd(client, "dpkg-query -W -f='${Version}' "+strconv.Quote(name)+" 2>/dev/null")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out)
 }

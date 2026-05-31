@@ -21,7 +21,9 @@
     "actions/30-firewall.json",
     "actions/35-fail2ban.json",
     "actions/40-audit.json",
-    "actions/50-journald.json"
+    "actions/50-journald.json",
+    "actions/55-cron.json",
+    "actions/60-grub.json"
   ],
   "templates": [
     "templates/15-unattended-upgrades.tmpl",

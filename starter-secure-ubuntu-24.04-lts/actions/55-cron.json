@@ -1,0 +1,64 @@
+{
+  "steps": [
+    {
+      "id": "crontab-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/crontab",
+        "mode": "0600",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
+      "id": "cron-d-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/cron.d",
+        "mode": "0700",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
+      "id": "cron-hourly-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/cron.hourly",
+        "mode": "0700",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
+      "id": "cron-daily-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/cron.daily",
+        "mode": "0700",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
+      "id": "cron-weekly-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/cron.weekly",
+        "mode": "0700",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
+      "id": "cron-monthly-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/cron.monthly",
+        "mode": "0700",
+        "owner": "root",
+        "group": "root"
+      }
+    }
+  ]
+}

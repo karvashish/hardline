@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "id": "grub-cfg-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/boot/grub/grub.cfg",
+        "mode": "0600",
+        "owner": "root",
+        "group": "root"
+      }
+    }
+  ]
+}

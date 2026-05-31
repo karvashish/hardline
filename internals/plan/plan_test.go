@@ -171,7 +171,7 @@ func TestPrintPlanNextSteps(t *testing.T) {
 	if !strings.Contains(out, "NEXT STEPS") {
 		t.Fatalf("expected NEXT STEPS section, got %q", out)
 	}
-	if !strings.Contains(out, `hardline apply my-profile --host 10.0.0.1 --overrides-file "overrides.json"`) {
+	if !strings.Contains(out, "hardline apply my-profile --host 10.0.0.1 --overrides-file overrides.json") {
 		t.Fatalf("expected apply command with host and overrides-file, got %q", out)
 	}
 	if strings.Contains(out, "rollback") {
@@ -471,7 +471,7 @@ func TestReportRenderingAndValidation(t *testing.T) {
 	if report.Summary.AlreadyAligned != 1 || report.Summary.NeedsAttention != 1 {
 		t.Fatalf("unexpected report counts %+v", report.Summary)
 	}
-	if report.NextSteps.ApplyCommand != `hardline apply ./profiles/starter-secure-ubuntu-24.04-lts --host host-1 --overrides-file "/tmp/dev-overrides.json"` {
+	if report.NextSteps.ApplyCommand != "hardline apply ./profiles/starter-secure-ubuntu-24.04-lts --host host-1 --overrides-file /tmp/dev-overrides.json" {
 		t.Fatalf("unexpected apply command %q", report.NextSteps.ApplyCommand)
 	}
 	if report.NextSteps.RollbackCommand != `hardline rollback ./profiles/starter-secure-ubuntu-24.04-lts --host host-1` {
@@ -536,14 +536,20 @@ func TestReportRenderingAndValidation(t *testing.T) {
 	if got := applyCommand("profile-1", "host-1", ""); got != "hardline apply profile-1 --host host-1" {
 		t.Fatalf("unexpected apply command with host %q", got)
 	}
-	if got := applyCommand("profile-1", "host-1", "/tmp/dev-overrides.json"); got != `hardline apply profile-1 --host host-1 --overrides-file "/tmp/dev-overrides.json"` {
+	if got := applyCommand("profile-1", "host-1", "/tmp/dev-overrides.json"); got != "hardline apply profile-1 --host host-1 --overrides-file /tmp/dev-overrides.json" {
 		t.Fatalf("unexpected apply command with overrides file %q", got)
+	}
+	if got := applyCommand("./my profiles/base.json", "user@host name", "/tmp/o'verrides.json"); got != `hardline apply './my profiles/base.json' --host 'user@host name' --overrides-file '/tmp/o'"'"'verrides.json'` {
+		t.Fatalf("unexpected apply command with unsafe args %q", got)
 	}
 	if got := rollbackCommand("profile-1", ""); got != "hardline rollback profile-1" {
 		t.Fatalf("unexpected rollback command without host %q", got)
 	}
 	if got := rollbackCommand("profile-1", "host-1"); got != "hardline rollback profile-1 --host host-1" {
 		t.Fatalf("unexpected rollback command with host %q", got)
+	}
+	if got := rollbackCommand("./my profiles/base.json", "10.0.0.1"); got != `hardline rollback './my profiles/base.json' --host 10.0.0.1` {
+		t.Fatalf("unexpected rollback command with unsafe profile %q", got)
 	}
 	if got := displayTargetHost(""); got != "(host not set)" {
 		t.Fatalf("unexpected display target host %q", got)

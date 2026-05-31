@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/karvashish/hardline/internals/cli"
@@ -320,22 +319,43 @@ func displayTargetHost(host string) string {
 }
 
 func applyCommand(profileID string, host string, overridesFile string) string {
-	cmd := "hardline apply " + profileID
+	cmd := "hardline apply " + shellArg(profileID)
 	if host = strings.TrimSpace(host); host != "" {
-		cmd += " --host " + host
+		cmd += " --host " + shellArg(host)
 	}
 	if overridesFile = strings.TrimSpace(overridesFile); overridesFile != "" {
-		cmd += " --overrides-file " + strconv.Quote(overridesFile)
+		cmd += " --overrides-file " + shellArg(overridesFile)
 	}
 	return cmd
 }
 
 func rollbackCommand(profileID string, host string) string {
-	cmd := "hardline rollback " + profileID
+	cmd := "hardline rollback " + shellArg(profileID)
 	if host = strings.TrimSpace(host); host != "" {
-		cmd += " --host " + host
+		cmd += " --host " + shellArg(host)
 	}
 	return cmd
+}
+
+// shellArg renders s as a copy-pastable shell argument, leaving simple values
+// unquoted and POSIX single-quoting anything with shell-unsafe characters.
+func shellArg(s string) string {
+	if s != "" && isShellSafe(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func isShellSafe(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case strings.ContainsRune("-_./:=@%+,", r):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func markdownValue(text string) string {

@@ -16,6 +16,7 @@ const (
 	ModeNoop          = "noop"
 
 	ObjectFile     = "file"
+	ObjectFileMeta = "file_meta"
 	ObjectService  = "service"
 	ObjectPackage  = "package"
 	ObjectValidate = "validate"
@@ -26,6 +27,17 @@ type FileSnapshot struct {
 	Existed    bool   `json:"existed"`
 	Mode       string `json:"mode,omitempty"`
 	ContentB64 string `json:"content_b64,omitempty"`
+}
+
+// FileMetaSnapshot records path metadata for file-meta rollback; unlike
+// FileSnapshot it carries no file content.
+type FileMetaSnapshot struct {
+	Path    string `json:"path"`
+	Existed bool   `json:"existed"`
+	Mode    string `json:"mode,omitempty"`
+	Owner   string `json:"owner,omitempty"`
+	Group   string `json:"group,omitempty"`
+	Attrs   string `json:"attrs,omitempty"`
 }
 
 type ServiceState struct {
@@ -44,11 +56,12 @@ type PackageState struct {
 }
 
 type ObjectRecord struct {
-	Kind    string        `json:"kind"`
-	File    *FileSnapshot `json:"file,omitempty"`
-	Service *ServiceState `json:"service,omitempty"`
-	Package *PackageState `json:"package,omitempty"`
-	Message string        `json:"message,omitempty"`
+	Kind     string            `json:"kind"`
+	File     *FileSnapshot     `json:"file,omitempty"`
+	FileMeta *FileMetaSnapshot `json:"file_meta,omitempty"`
+	Service  *ServiceState     `json:"service,omitempty"`
+	Package  *PackageState     `json:"package,omitempty"`
+	Message  string            `json:"message,omitempty"`
 }
 
 type CaptureResult struct {

@@ -26,6 +26,17 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.File.Existed != a.File.Existed || b.File.ContentB64 != a.File.ContentB64 {
 				return true
 			}
+		case ObjectFileMeta:
+			if b.FileMeta == nil || a.FileMeta == nil {
+				return b.FileMeta != a.FileMeta
+			}
+			if b.FileMeta.Existed != a.FileMeta.Existed ||
+				b.FileMeta.Mode != a.FileMeta.Mode ||
+				b.FileMeta.Owner != a.FileMeta.Owner ||
+				b.FileMeta.Group != a.FileMeta.Group ||
+				b.FileMeta.Attrs != a.FileMeta.Attrs {
+				return true
+			}
 		case ObjectService:
 			if b.Service == nil || a.Service == nil {
 				return b.Service != a.Service

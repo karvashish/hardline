@@ -8,7 +8,7 @@
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "24485f68084be5a3ed53a55023ed35471a2b96ee6ef987db821546ba89a8d7b5"
+      "sha256": "1bb51baef4f1e6efa959ede379ed867e490b714ae94f2922a3478630246d85d5"
     },
     {
       "path": "actions/15-unattended-upgrades.json",
@@ -39,8 +39,16 @@
       "sha256": "20bbfcddf222d52371998fdbb4f25940e0f262f5a463599906d72091508d0024"
     },
     {
+      "path": "actions/55-cron.json",
+      "sha256": "bde9636052f4aa9bc31a2ef68628e892670091a1a6866c4ba37f118cabdf9a9a"
+    },
+    {
+      "path": "actions/60-grub.json",
+      "sha256": "d47cc6794a1ad09848b05af4855de82c45056e35acd334f98704ec3cd3051ae9"
+    },
+    {
       "path": "profile.json",
-      "sha256": "dde171b11409d2e861b4eebd11d94818d8716b5cb4866ae63a0baf0d3c157be5"
+      "sha256": "a479129a823707b2a09050ad537ad3a45589ab9079d4ccf5983b74dd39912b09"
     },
     {
       "path": "templates/10-ssh-sshd-config.tmpl",

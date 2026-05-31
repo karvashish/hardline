@@ -477,3 +477,76 @@ EOJSON
   sign_profile "${dir}"
   echo "${dir}"
 }
+
+# File meta: stamp metadata on an existing path.
+# $1=name $2=path $3=mode $4=owner $5=group $6=immutable $7=append_only
+# Optional fields are omitted when passed empty. $6/$7 are JSON booleans:
+# pass "true", "false", or "" to leave that attr unmanaged.
+make_profile_file_meta() {
+  local name="$1" path="$2" mode="${3:-}" owner="${4:-}" group="${5:-}" immutable="${6:-}" append_only="${7:-}"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+
+  local cfg="\"path\": \"${path}\""
+  [[ -n "${mode}" ]]        && cfg+=", \"mode\": \"${mode}\""
+  [[ -n "${owner}" ]]       && cfg+=", \"owner\": \"${owner}\""
+  [[ -n "${group}" ]]       && cfg+=", \"group\": \"${group}\""
+  [[ -n "${immutable}" ]]   && cfg+=", \"immutable\": ${immutable}"
+  [[ -n "${append_only}" ]] && cfg+=", \"append_only\": ${append_only}"
+
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-file-meta.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-file-meta.json" <<EOJSON
+{
+  "steps": [{
+    "id": "stamp-meta",
+    "plugin": "file_meta",
+    "config": { ${cfg} }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# File meta with a verbatim path value injected into the JSON, used to exercise
+# path rejection (relative, traversal, control-char, non-ASCII). $2 is inserted
+# inside the JSON string literal as-is, so callers may pass JSON unicode escapes.
+make_profile_file_meta_badpath() {
+  local name="$1" json_path="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-file-meta.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-file-meta.json" <<EOJSON
+{
+  "steps": [{
+    "id": "stamp-meta",
+    "plugin": "file_meta",
+    "config": { "path": "${json_path}", "mode": "0600" }
+  }]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}

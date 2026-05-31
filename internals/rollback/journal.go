@@ -238,6 +238,10 @@ func cloneObjectRecords(records []pluginapi.ObjectRecord) []pluginapi.ObjectReco
 			file := *record.File
 			cloned[i].File = &file
 		}
+		if record.FileMeta != nil {
+			fileMeta := *record.FileMeta
+			cloned[i].FileMeta = &fileMeta
+		}
 		if record.Service != nil {
 			service := *record.Service
 			cloned[i].Service = &service

@@ -265,3 +265,32 @@ func TestFileSnapshotConflict(t *testing.T) {
 		t.Fatalf("matching content should report no conflict, got %v", c)
 	}
 }
+
+func TestCapturesDifferFileMeta(t *testing.T) {
+	meta := func(s FileMetaSnapshot) CaptureResult {
+		return CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFileMeta, FileMeta: &s}}}
+	}
+	base := FileMetaSnapshot{Existed: true, Mode: "640", Owner: "root", Group: "root", Attrs: "i"}
+
+	if CapturesDiffer(meta(base), meta(base)) {
+		t.Fatal("identical metadata should not differ")
+	}
+	mutations := []FileMetaSnapshot{
+		{Existed: true, Mode: "600", Owner: "root", Group: "root", Attrs: "i"},
+		{Existed: true, Mode: "640", Owner: "bin", Group: "root", Attrs: "i"},
+		{Existed: true, Mode: "640", Owner: "root", Group: "bin", Attrs: "i"},
+		{Existed: true, Mode: "640", Owner: "root", Group: "root", Attrs: ""},
+		{Existed: false, Mode: "640", Owner: "root", Group: "root", Attrs: "i"},
+	}
+	for _, m := range mutations {
+		if !CapturesDiffer(meta(base), meta(m)) {
+			t.Fatalf("expected difference for %+v", m)
+		}
+	}
+
+	a := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFileMeta, FileMeta: &base}}}
+	b := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFileMeta}}}
+	if !CapturesDiffer(a, b) {
+		t.Fatal("nil vs non-nil FileMeta should differ")
+	}
+}

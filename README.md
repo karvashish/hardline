@@ -7,12 +7,13 @@ Hardline is a signed-profile runner for applying opinionated system configuratio
 
 ## What's In The Trusted Execution Surface
 
-A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is four typed plugin configs:
+A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is five typed plugin configs:
 
 - `packages` — install / purge named packages
 - `template` — render a file to a managed destination path with a fixed mode
 - `service` — enable / disable / restart named systemd units
 - `firewall` — declarative nftables rules
+- `file_meta` — re-stamp mode / owner / group / immutable / append-only flags on existing paths
 
 That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects — signing the manifest is signing the full set of instructions, not a wrapper around them.
 
@@ -30,11 +31,11 @@ The repo ships with:
 - the `profiletool` helper in [`cmd/profiletool/main.go`](cmd/profiletool/main.go)
 - repo-wide Go unit tests plus GitHub Actions badges for `main`
 - a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) for real Ubuntu 24.04 validation across plan/apply/rollback, plugins, overrides, and failure paths
-- built-in plugins for packages, templates, services, and nftables
+- built-in plugins for packages, templates, services, nftables, and file metadata
 - an example Ubuntu 24.04 hardening profile in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 
-**Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The four [built-in plugins](#whats-in-the-trusted-execution-surface) cover the common cases and ship compiled into the binary on every platform.
+**Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The five [built-in plugins](#whats-in-the-trusted-execution-surface) cover the common cases and ship compiled into the binary on every platform.
 
 ## Install
 
@@ -147,4 +148,4 @@ External plugins are loaded from a `plugins/` directory adjacent to the `hardlin
 
 Hardline applies configuration to remote Linux hosts over SSH. The Windows builds exist so you can run the CLI from a Windows workstation to manage Linux targets — they are not intended for applying profiles *to* a Windows host.
 
-External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages`, `templates`, `services`, `firewall`) are compiled into the binary and remain available on every platform.
+External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages`, `templates`, `services`, `firewall`, `file_meta`) are compiled into the binary and remain available on every platform.

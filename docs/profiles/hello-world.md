@@ -67,7 +67,7 @@ Create `hello-world/actions/10-packages.json`:
 Notes:
 
 - `id` is any stable string you choose — it shows up in logs and the rollback journal.
-- `plugin` must match a registered plugin. `packages`, `template`, `service`, and `firewall` are built in.
+- `plugin` must match a registered plugin. `packages`, `template`, `service`, `firewall`, and `file_meta` are built in.
 - `config` is plugin-specific. See [Packages Plugin](packages-plugin.md) for all fields.
 
 ## Step 4 — Sign The Profile

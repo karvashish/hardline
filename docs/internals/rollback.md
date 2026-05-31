@@ -13,6 +13,7 @@ Hardline's rollback story is built on captured remote state, not on guessed "inv
 Rollback fidelity comes from plugin `Capture` results. A capture records typed objects such as:
 
 - files
+- file metadata (mode/owner/group/attrs on an existing path)
 - services
 - packages
 
@@ -137,6 +138,7 @@ Plugins declare a `RollbackMode` in their capture result. Today the important mo
 - `template`
 - `firewall`
 - `service`
+- `file_meta`
 
 `best_effort` means the step can be meaningfully reversed, but not with strong transactional guarantees. The built-in `packages` plugin uses this mode because package-manager operations like `apt update`, `upgrade`, and `autoremove` are not losslessly reversible.
 
@@ -145,6 +147,7 @@ Plugins declare a `RollbackMode` in their capture result. Today the important mo
 In practice:
 
 - file rollback restores the previous file contents and mode, or removes the file if it did not exist before
+- file-metadata rollback restores the previous mode/owner/group and managed `i`/`a` attrs on the existing path; it clears managed attrs first so an immutable target does not reject the restoring `chmod`/`chown`, and it never re-creates a path that has since been deleted
 - service rollback restores enabled/active state
 - package rollback removes packages that this run installed when they were absent before, reinstalls packages that this run purged when they were present before, prefers the recorded pre-apply version when available, and skips no-op runs whose before/after package state is identical
 
@@ -159,6 +162,7 @@ The package plugin also records notes when rollback is inherently lossy, such as
 The object snapshots are typed, not raw shell output:
 
 - file snapshots record path, existence, mode, and base64-encoded contents
+- file-metadata snapshots record path, existence, mode, owner, group, and the managed `i`/`a` chattr letters — and deliberately no file contents
 - service snapshots record unit name plus enabled/active/known state
 - package snapshots record package name, whether it was installed, the version when known, and whether the step requested install or purge
 
@@ -211,6 +215,7 @@ If the answer is no, then something changed after apply, and rollback should not
 That check currently covers:
 
 - file contents
+- file metadata (mode/owner/group/attrs)
 - service enabled state
 - service active state
 - package installed state
@@ -219,6 +224,7 @@ That check currently covers:
 More specifically:
 
 - for files, rollback reads the current remote file and compares it to the journal's recorded post-apply contents
+- for file metadata, rollback re-reads the target's current mode/owner/group/attrs and compares them to the recorded post-apply snapshot; a path that is now absent (or whose metadata cannot be read) also counts as a conflict
 - for services, rollback compares current `systemctl is-enabled` and `systemctl is-active` results to the recorded post-apply service state
 - for packages, rollback compares whether the package is installed now to whether it was installed after apply, and when the package is still installed and the journal has a version, it also compares versions
 

@@ -1,0 +1,861 @@
+2026-06-01T16:48:07Z # hardline rollback profile=starter-secure-ubuntu-24.04-lts host=203.0.113.10 version=0.1.2 time=2026-06-01T16:48:07Z
+2026-06-01T16:48:07Z plugins: loading 1 external plugin(s) from "/home/user/hardline/tmp/plugins" — these run as root and are not signature-verified; ensure this directory is not world-writable
+2026-06-01T16:48:07Z == PHASE: VERIFY ==
+2026-06-01T16:48:07Z profile verification passed
+2026-06-01T16:48:07Z == PHASE: ROLLBACK ==
+2026-06-01T16:48:07Z rollback starter-secure-ubuntu-24.04-lts
+2026-06-01T16:48:14Z journal starter-secure-ubuntu-24.04-lts (run 20260601T164309.978526271Z applied 2026-06-01T16:43:09.978526271Z):
+2026-06-01T16:48:14Z {
+2026-06-01T16:48:14Z   "version": 2,
+2026-06-01T16:48:14Z   "run_id": "20260601T164309.978526271Z",
+2026-06-01T16:48:14Z   "created_at": "2026-06-01T16:43:09.978526271Z",
+2026-06-01T16:48:14Z   "host": "203.0.113.10",
+2026-06-01T16:48:14Z   "profile_id": "starter-secure-ubuntu-24.04-lts",
+2026-06-01T16:48:14Z   "profile_path": "starter-secure-ubuntu-24.04-lts",
+2026-06-01T16:48:14Z   "status": "success",
+2026-06-01T16:48:14Z   "steps": [
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "packages-starter-secure",
+2026-06-01T16:48:14Z       "type": "packages",
+2026-06-01T16:48:14Z       "rollback_mode": "best_effort",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "auditd",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "cups",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "fail2ban",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "ftp",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "20230507-2build3",
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "landscape-client",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "nfs-common",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "nftables",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "1.0.9-1ubuntu0.1",
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "rpcbind",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "rsh-client",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "telnet",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "0.17+2.5-3ubuntu4.1",
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "tftp",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "unattended-upgrades",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "2.9.1+nmu4ubuntu1",
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "auditd",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "1:3.1.2-2.1build1.1",
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "cups",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "fail2ban",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "1.0.2-3ubuntu0.1",
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "ftp",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "landscape-client",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "nfs-common",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "nftables",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "1.0.9-1ubuntu0.1",
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "rpcbind",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "rsh-client",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "telnet",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "tftp",
+2026-06-01T16:48:14Z             "was_installed": false,
+2026-06-01T16:48:14Z             "requested_purge": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         },
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "package",
+2026-06-01T16:48:14Z           "package": {
+2026-06-01T16:48:14Z             "name": "unattended-upgrades",
+2026-06-01T16:48:14Z             "was_installed": true,
+2026-06-01T16:48:14Z             "version": "2.9.1+nmu4ubuntu1",
+2026-06-01T16:48:14Z             "requested_install": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "notes": [
+2026-06-01T16:48:14Z         "apt update is not directly reversible",
+2026-06-01T16:48:14Z         "apt upgrade rollback is best-effort",
+2026-06-01T16:48:14Z         "apt autoremove rollback is best-effort"
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "sshd-config-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/ssh/sshd_config",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/ssh/sshd_config",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "600",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "ssh-template-apply",
+2026-06-01T16:48:14Z       "type": "template",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "600",
+2026-06-01T16:48:14Z             "content_b64": "UHJvdG9jb2wgMgpQYXNzd29yZEF1dGhlbnRpY2F0aW9uIG5vClBlcm1pdFJvb3RMb2dpbiBubwpDaGFsbGVuZ2VSZXNwb25zZUF1dGhlbnRpY2F0aW9uIG5vClVzZVBBTSB5ZXMKWDExRm9yd2FyZGluZyBubwpBbGxvd1RjcEZvcndhcmRpbmcgbm8KQWxsb3dBZ2VudEZvcndhcmRpbmcgbm8KTG9nTGV2ZWwgVkVSQk9TRQpNYXhBdXRoVHJpZXMgNApQdWJrZXlBdXRoZW50aWNhdGlvbiB5ZXMK"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "ssh-service-reload",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "ssh",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "ssh",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "unattended-upgrades-auto",
+2026-06-01T16:48:14Z       "type": "template",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "content_b64": "QVBUOjpQZXJpb2RpYzo6VXBkYXRlLVBhY2thZ2UtTGlzdHMgIjEiOwpBUFQ6OlBlcmlvZGljOjpEb3dubG9hZC1VcGdyYWRlYWJsZS1QYWNrYWdlcyAiMSI7CkFQVDo6UGVyaW9kaWM6OkF1dG9jbGVhbkludGVydmFsICI3IjsKQVBUOjpQZXJpb2RpYzo6VW5hdHRlbmRlZC1VcGdyYWRlICIxIjsK"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "sysctl-hardening-template",
+2026-06-01T16:48:14Z       "type": "template",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/sysctl.d/99-hardline-hardening.conf",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/sysctl.d/99-hardline-hardening.conf",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "content_b64": "bmV0LmlwdjQuaXBfZm9yd2FyZCA9IDAKbmV0LmlwdjQuY29uZi5hbGwucnBfZmlsdGVyID0gMQpuZXQuaXB2NC5jb25mLmRlZmF1bHQucnBfZmlsdGVyID0gMQpuZXQuaXB2NC5jb25mLmFsbC5hY2NlcHRfcmVkaXJlY3RzID0gMApuZXQuaXB2NC5jb25mLmRlZmF1bHQuYWNjZXB0X3JlZGlyZWN0cyA9IDAKbmV0LmlwdjQuY29uZi5hbGwuc2VjdXJlX3JlZGlyZWN0cyA9IDAKbmV0LmlwdjQuY29uZi5kZWZhdWx0LnNlY3VyZV9yZWRpcmVjdHMgPSAwCm5ldC5pcHY0LmljbXBfZWNob19pZ25vcmVfYnJvYWRjYXN0cyA9IDEKa2VybmVsLmtwdHJfcmVzdHJpY3QgPSAyCmtlcm5lbC5kbWVzZ19yZXN0cmljdCA9IDEKZnMucHJvdGVjdGVkX2hhcmRsaW5rcyA9IDEKZnMucHJvdGVjdGVkX3N5bWxpbmtzID0gMQo="
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "sysctl-apply",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "systemd-sysctl",
+2026-06-01T16:48:14Z             "enabled": false,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "systemd-sysctl",
+2026-06-01T16:48:14Z             "enabled": false,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "timesyncd-enable",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "chrony",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "chrony",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "firewall-default-deny",
+2026-06-01T16:48:14Z       "type": "firewall",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/nftables.d/99-hardline-firewall.nft",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/nftables.d/99-hardline-firewall.nft",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "content_b64": "dGFibGUgaW5ldCBmaWx0ZXIgewogIGNoYWluIGlucHV0IHsKICAgIHR5cGUgZmlsdGVyIGhvb2sgaW5wdXQgcHJpb3JpdHkgMDsKICAgIHBvbGljeSBkcm9wOwoKICAgIGlwNiBuZXh0aGRyIGljbXB2NiBhY2NlcHQKICAgIGlwIHByb3RvY29sIGljbXAgYWNjZXB0CiAgICB0Y3AgZHBvcnQgMjIgYWNjZXB0CiAgICBpaWYgImxvIiBhY2NlcHQKICAgIGN0IHN0YXRlIGVzdGFibGlzaGVkLHJlbGF0ZWQgYWNjZXB0CiAgICBjdCBzdGF0ZSBpbnZhbGlkIGRyb3AKICB9Cn0K"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "firewall-service-restart",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "nftables",
+2026-06-01T16:48:14Z             "enabled": false,
+2026-06-01T16:48:14Z             "active": false,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "nftables",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "fail2ban-ssh-config",
+2026-06-01T16:48:14Z       "type": "template",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "content_b64": "W3NzaGRdCmVuYWJsZWQgPSB0cnVlCm1heHJldHJ5ID0gNQpmaW5kdGltZSA9IDYwMApiYW50aW1lID0gMzYwMAo="
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "fail2ban-service-enable",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "fail2ban",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "fail2ban",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "auditd-rules-template",
+2026-06-01T16:48:14Z       "type": "template",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/audit/rules.d/99-hardline.rules",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/audit/rules.d/99-hardline.rules",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "640",
+2026-06-01T16:48:14Z             "content_b64": "IyMgQ2xlYXIgYW55IGV4aXN0aW5nIHJ1bGVzCi1ECgojIyBCdWZmZXIgc2l6ZSAoa2VlcCBtb2Rlc3QpCi1iIDgxOTIKCiMjIE9uIGZhaWx1cmU6IGxvZyBidXQgZG8gbm90IGhhcmQtc3RvcCB0aGUgYm94Ci1mIDEKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIEF1ZGl0IGNvbmZpZ3VyYXRpb24KIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvYXVkaXQvIC1wIHdhIC1rIGF1ZGl0X2NvbmZpZwotdyAvZXRjL2xpYmF1ZGl0LmNvbmYgLXAgd2EgLWsgYXVkaXRfY29uZmlnCi13IC9ldGMvYXVkaXNwLyAtcCB3YSAtayBhdWRpdF9jb25maWcKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIElkZW50aXR5IGFuZCBhY2Nlc3MKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvcGFzc3dkIC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvZ3JvdXAgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9zaGFkb3cgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9nc2hhZG93IC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvc2VjdXJpdHkvIC1wIHdhIC1rIGlkZW50aXR5CgojIyBTdWRvZXJzIGNoYW5nZXMKLXcgL2V0Yy9zdWRvZXJzIC1wIHdhIC1rIHByaXZpbGVnZWQKLXcgL2V0Yy9zdWRvZXJzLmQvIC1wIHdhIC1rIHByaXZpbGVnZWQKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIFRpbWUgY2hhbmdlcwojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLWEgYWx3YXlzLGV4aXQgLUYgYXJjaD1iNjQgLVMgYWRqdGltZXggLVMgc2V0dGltZW9mZGF5IC1TIGNsb2NrX3NldHRpbWUgLUYgYXVpZD49MTAwMCAtRiBhdWlkIT00Mjk0OTY3Mjk1IC1rIHRpbWVfY2hhbmdlCi13IC9ldGMvbG9jYWx0aW1lIC1wIHdhIC1rIHRpbWVfY2hhbmdlCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBLZXJuZWwgbW9kdWxlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIGluaXRfbW9kdWxlIC1TIGZpbml0X21vZHVsZSAtUyBkZWxldGVfbW9kdWxlIC1GIGF1aWQ+PTEwMDAgLUYgYXVpZCE9NDI5NDk2NzI5NSAtayBrZXJuZWxfbW9kdWxlcwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgUHJpdmlsZWdlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIHNldHVpZCAtUyBzZXRnaWQgLVMgc2V0cmV1aWQgLVMgc2V0cmVnaWQgLVMgc2V0cmVzdWlkIC1TIHNldHJlc2dpZCAtRiBhdWlkPj0xMDAwIC1GIGF1aWQhPTQyOTQ5NjcyOTUgLWsgcHJpdl9jaGFuZ2UKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIExvZ2luIHRyYWNraW5nCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotdyAvdmFyL2xvZy9mYWlsbG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy9sYXN0bG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy90YWxseWxvZyAtcCB3YSAtayBsb2dpbnMKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIE1ha2UgcnVsZXMgYWN0aXZlCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotZSAxCg=="
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "auditd-service-enable",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "auditd",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "auditd",
+2026-06-01T16:48:14Z             "enabled": true,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "journald-configure-persistence",
+2026-06-01T16:48:14Z       "type": "template",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/systemd/journald.conf.d/99-hardline.conf",
+2026-06-01T16:48:14Z             "existed": false
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file",
+2026-06-01T16:48:14Z           "file": {
+2026-06-01T16:48:14Z             "path": "/etc/systemd/journald.conf.d/99-hardline.conf",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "content_b64": "W0pvdXJuYWxdClN0b3JhZ2U9cGVyc2lzdGVudApDb21wcmVzcz15ZXMKU3lzdGVtTWF4VXNlPTUxMk0KU3lzdGVtS2VlcEZyZWU9NTBNCk1heFJldGVudGlvblNlYz0xMGRheQpNYXhGaWxlU2VjPTFkYXkKUmF0ZUxpbWl0SW50ZXJ2YWxTZWM9MzBzClJhdGVMaW1pdEJ1cnN0PTIwMDAK"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "journald-reload",
+2026-06-01T16:48:14Z       "type": "service",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "systemd-journald",
+2026-06-01T16:48:14Z             "enabled": false,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "service",
+2026-06-01T16:48:14Z           "service": {
+2026-06-01T16:48:14Z             "unit": "systemd-journald",
+2026-06-01T16:48:14Z             "enabled": false,
+2026-06-01T16:48:14Z             "active": true,
+2026-06-01T16:48:14Z             "known": true
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "crontab-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/crontab",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "644",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/crontab",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "600",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "cron-d-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.d",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "755",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.d",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "700",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "cron-hourly-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.hourly",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "755",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.hourly",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "700",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "cron-daily-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.daily",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "755",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.daily",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "700",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "cron-weekly-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.weekly",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "755",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.weekly",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "700",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "cron-monthly-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.monthly",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "755",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/etc/cron.monthly",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "700",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     },
+2026-06-01T16:48:14Z     {
+2026-06-01T16:48:14Z       "id": "grub-cfg-perms",
+2026-06-01T16:48:14Z       "type": "file_meta",
+2026-06-01T16:48:14Z       "rollback_mode": "deterministic",
+2026-06-01T16:48:14Z       "before": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/boot/grub/grub.cfg",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "600",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ],
+2026-06-01T16:48:14Z       "after": [
+2026-06-01T16:48:14Z         {
+2026-06-01T16:48:14Z           "kind": "file_meta",
+2026-06-01T16:48:14Z           "file_meta": {
+2026-06-01T16:48:14Z             "path": "/boot/grub/grub.cfg",
+2026-06-01T16:48:14Z             "existed": true,
+2026-06-01T16:48:14Z             "mode": "600",
+2026-06-01T16:48:14Z             "owner": "root",
+2026-06-01T16:48:14Z             "group": "root"
+2026-06-01T16:48:14Z           }
+2026-06-01T16:48:14Z         }
+2026-06-01T16:48:14Z       ]
+2026-06-01T16:48:14Z     }
+2026-06-01T16:48:14Z   ],
+2026-06-01T16:48:14Z   "checksum": "000a858298180fe281fc7295e84faebaf4937ae738e597b345d21b411b0154b0"
+2026-06-01T16:48:14Z }
+2026-06-01T16:48:14Z
+2026-06-01T16:48:14Z Reverting 01/23 grub-cfg-perms [file_meta] SKIPPED (no delta)
+2026-06-01T16:48:19Z Reverting 02/23 cron-monthly-perms [file_meta] ✓ REVERTED (3.4s)
+2026-06-01T16:48:24Z Reverting 03/23 cron-weekly-perms [file_meta] ✓ REVERTED (3.1s)
+2026-06-01T16:48:28Z Reverting 04/23 cron-daily-perms [file_meta] ✓ REVERTED (3.0s)
+2026-06-01T16:48:33Z Reverting 05/23 cron-hourly-perms [file_meta] ✓ REVERTED (3.3s)
+2026-06-01T16:48:38Z Reverting 06/23 cron-d-perms [file_meta] ✓ REVERTED (2.9s)
+2026-06-01T16:48:43Z Reverting 07/23 crontab-perms [file_meta] ✓ REVERTED (3.2s)
+2026-06-01T16:48:43Z Reverting 08/23 journald-reload [service] SKIPPED (no delta)
+2026-06-01T16:48:44Z Reverting 09/23 journald-configure-persistence [template] ✓ REVERTED (584ms)
+2026-06-01T16:48:44Z Reverting 10/23 auditd-service-enable [service] SKIPPED (no delta)
+2026-06-01T16:48:45Z Reverting 11/23 auditd-rules-template [template] ✓ REVERTED (606ms)
+2026-06-01T16:48:45Z Reverting 12/23 fail2ban-service-enable [service] SKIPPED (no delta)
+2026-06-01T16:48:47Z Reverting 13/23 fail2ban-ssh-config [template] ✓ REVERTED (574ms)
+2026-06-01T16:48:49Z Reverting 14/23 firewall-default-deny [firewall] ✓ REVERTED (580ms)
+2026-06-01T16:48:49Z Reverting 15/23 timesyncd-enable [service] SKIPPED (no delta)
+2026-06-01T16:48:49Z Reverting 16/23 sysctl-apply [service] SKIPPED (no delta)
+2026-06-01T16:48:50Z Reverting 17/23 sysctl-hardening-template [template] ✓ REVERTED (577ms)
+2026-06-01T16:48:51Z Reverting 18/23 unattended-upgrades-auto [template] ✓ REVERTED (577ms)
+2026-06-01T16:48:51Z Reverting 19/23 ssh-service-reload [service] SKIPPED (no delta)
+2026-06-01T16:48:53Z Reverting 20/23 ssh-template-apply [template] ✓ REVERTED (577ms)
+2026-06-01T16:48:57Z Reverting 21/23 sshd-config-perms [file_meta] ✓ REVERTED (3.0s)
+2026-06-01T16:49:31Z Reverting 22/23 packages-starter-secure [packages] ✓ REVERTED (23.9s)
+2026-06-01T16:49:32Z Reverting 23/23 firewall-service-restart [service] ✓ REVERTED (1.9s)
+2026-06-01T16:49:32Z
+2026-06-01T16:49:32Z ROLLBACK COMPLETE
+2026-06-01T16:49:32Z ------------------------------------------------------------
+2026-06-01T16:49:32Z Profile  : starter-secure-ubuntu-24.04-lts
+2026-06-01T16:49:32Z Run ID   : 20260601T164309.978526271Z
+2026-06-01T16:49:32Z Steps    : 23
+2026-06-01T16:49:32Z Duration : 1m26s
+2026-06-01T16:49:32Z

@@ -1,0 +1,822 @@
+{
+  "version": 2,
+  "run_id": "20260601T164309.978526271Z",
+  "created_at": "2026-06-01T16:43:09.978526271Z",
+  "host": "203.0.113.10",
+  "profile_id": "starter-secure-ubuntu-24.04-lts",
+  "profile_path": "starter-secure-ubuntu-24.04-lts",
+  "status": "success",
+  "steps": [
+    {
+      "id": "packages-starter-secure",
+      "type": "packages",
+      "rollback_mode": "best_effort",
+      "before": [
+        {
+          "kind": "package",
+          "package": {
+            "name": "auditd",
+            "was_installed": false,
+            "requested_install": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "cups",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "fail2ban",
+            "was_installed": false,
+            "requested_install": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "ftp",
+            "was_installed": true,
+            "version": "20230507-2build3",
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "landscape-client",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "nfs-common",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "nftables",
+            "was_installed": true,
+            "version": "1.0.9-1ubuntu0.1",
+            "requested_install": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "rpcbind",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "rsh-client",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "telnet",
+            "was_installed": true,
+            "version": "0.17+2.5-3ubuntu4.1",
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "tftp",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "unattended-upgrades",
+            "was_installed": true,
+            "version": "2.9.1+nmu4ubuntu1",
+            "requested_install": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "package",
+          "package": {
+            "name": "auditd",
+            "was_installed": true,
+            "version": "1:3.1.2-2.1build1.1",
+            "requested_install": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "cups",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "fail2ban",
+            "was_installed": true,
+            "version": "1.0.2-3ubuntu0.1",
+            "requested_install": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "ftp",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "landscape-client",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "nfs-common",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "nftables",
+            "was_installed": true,
+            "version": "1.0.9-1ubuntu0.1",
+            "requested_install": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "rpcbind",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "rsh-client",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "telnet",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "tftp",
+            "was_installed": false,
+            "requested_purge": true
+          }
+        },
+        {
+          "kind": "package",
+          "package": {
+            "name": "unattended-upgrades",
+            "was_installed": true,
+            "version": "2.9.1+nmu4ubuntu1",
+            "requested_install": true
+          }
+        }
+      ],
+      "notes": [
+        "apt update is not directly reversible",
+        "apt upgrade rollback is best-effort",
+        "apt autoremove rollback is best-effort"
+      ]
+    },
+    {
+      "id": "sshd-config-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/ssh/sshd_config",
+            "existed": true,
+            "mode": "644",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/ssh/sshd_config",
+            "existed": true,
+            "mode": "600",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ssh-template-apply",
+      "type": "template",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+            "existed": true,
+            "mode": "600",
+            "content_b64": "UHJvdG9jb2wgMgpQYXNzd29yZEF1dGhlbnRpY2F0aW9uIG5vClBlcm1pdFJvb3RMb2dpbiBubwpDaGFsbGVuZ2VSZXNwb25zZUF1dGhlbnRpY2F0aW9uIG5vClVzZVBBTSB5ZXMKWDExRm9yd2FyZGluZyBubwpBbGxvd1RjcEZvcndhcmRpbmcgbm8KQWxsb3dBZ2VudEZvcndhcmRpbmcgbm8KTG9nTGV2ZWwgVkVSQk9TRQpNYXhBdXRoVHJpZXMgNApQdWJrZXlBdXRoZW50aWNhdGlvbiB5ZXMK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ssh-service-reload",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "ssh",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "ssh",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "unattended-upgrades-auto",
+      "type": "template",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
+            "existed": true,
+            "mode": "644",
+            "content_b64": "QVBUOjpQZXJpb2RpYzo6VXBkYXRlLVBhY2thZ2UtTGlzdHMgIjEiOwpBUFQ6OlBlcmlvZGljOjpEb3dubG9hZC1VcGdyYWRlYWJsZS1QYWNrYWdlcyAiMSI7CkFQVDo6UGVyaW9kaWM6OkF1dG9jbGVhbkludGVydmFsICI3IjsKQVBUOjpQZXJpb2RpYzo6VW5hdHRlbmRlZC1VcGdyYWRlICIxIjsK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "sysctl-hardening-template",
+      "type": "template",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/sysctl.d/99-hardline-hardening.conf",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/sysctl.d/99-hardline-hardening.conf",
+            "existed": true,
+            "mode": "644",
+            "content_b64": "bmV0LmlwdjQuaXBfZm9yd2FyZCA9IDAKbmV0LmlwdjQuY29uZi5hbGwucnBfZmlsdGVyID0gMQpuZXQuaXB2NC5jb25mLmRlZmF1bHQucnBfZmlsdGVyID0gMQpuZXQuaXB2NC5jb25mLmFsbC5hY2NlcHRfcmVkaXJlY3RzID0gMApuZXQuaXB2NC5jb25mLmRlZmF1bHQuYWNjZXB0X3JlZGlyZWN0cyA9IDAKbmV0LmlwdjQuY29uZi5hbGwuc2VjdXJlX3JlZGlyZWN0cyA9IDAKbmV0LmlwdjQuY29uZi5kZWZhdWx0LnNlY3VyZV9yZWRpcmVjdHMgPSAwCm5ldC5pcHY0LmljbXBfZWNob19pZ25vcmVfYnJvYWRjYXN0cyA9IDEKa2VybmVsLmtwdHJfcmVzdHJpY3QgPSAyCmtlcm5lbC5kbWVzZ19yZXN0cmljdCA9IDEKZnMucHJvdGVjdGVkX2hhcmRsaW5rcyA9IDEKZnMucHJvdGVjdGVkX3N5bWxpbmtzID0gMQo="
+          }
+        }
+      ]
+    },
+    {
+      "id": "sysctl-apply",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "systemd-sysctl",
+            "enabled": false,
+            "active": true,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "systemd-sysctl",
+            "enabled": false,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "timesyncd-enable",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "chrony",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "chrony",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "firewall-default-deny",
+      "type": "firewall",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/nftables.d/99-hardline-firewall.nft",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/nftables.d/99-hardline-firewall.nft",
+            "existed": true,
+            "mode": "644",
+            "content_b64": "dGFibGUgaW5ldCBmaWx0ZXIgewogIGNoYWluIGlucHV0IHsKICAgIHR5cGUgZmlsdGVyIGhvb2sgaW5wdXQgcHJpb3JpdHkgMDsKICAgIHBvbGljeSBkcm9wOwoKICAgIGlwNiBuZXh0aGRyIGljbXB2NiBhY2NlcHQKICAgIGlwIHByb3RvY29sIGljbXAgYWNjZXB0CiAgICB0Y3AgZHBvcnQgMjIgYWNjZXB0CiAgICBpaWYgImxvIiBhY2NlcHQKICAgIGN0IHN0YXRlIGVzdGFibGlzaGVkLHJlbGF0ZWQgYWNjZXB0CiAgICBjdCBzdGF0ZSBpbnZhbGlkIGRyb3AKICB9Cn0K"
+          }
+        }
+      ]
+    },
+    {
+      "id": "firewall-service-restart",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "nftables",
+            "enabled": false,
+            "active": false,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "nftables",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fail2ban-ssh-config",
+      "type": "template",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
+            "existed": true,
+            "mode": "644",
+            "content_b64": "W3NzaGRdCmVuYWJsZWQgPSB0cnVlCm1heHJldHJ5ID0gNQpmaW5kdGltZSA9IDYwMApiYW50aW1lID0gMzYwMAo="
+          }
+        }
+      ]
+    },
+    {
+      "id": "fail2ban-service-enable",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "fail2ban",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "fail2ban",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "auditd-rules-template",
+      "type": "template",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/audit/rules.d/99-hardline.rules",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/audit/rules.d/99-hardline.rules",
+            "existed": true,
+            "mode": "640",
+            "content_b64": "IyMgQ2xlYXIgYW55IGV4aXN0aW5nIHJ1bGVzCi1ECgojIyBCdWZmZXIgc2l6ZSAoa2VlcCBtb2Rlc3QpCi1iIDgxOTIKCiMjIE9uIGZhaWx1cmU6IGxvZyBidXQgZG8gbm90IGhhcmQtc3RvcCB0aGUgYm94Ci1mIDEKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIEF1ZGl0IGNvbmZpZ3VyYXRpb24KIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvYXVkaXQvIC1wIHdhIC1rIGF1ZGl0X2NvbmZpZwotdyAvZXRjL2xpYmF1ZGl0LmNvbmYgLXAgd2EgLWsgYXVkaXRfY29uZmlnCi13IC9ldGMvYXVkaXNwLyAtcCB3YSAtayBhdWRpdF9jb25maWcKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIElkZW50aXR5IGFuZCBhY2Nlc3MKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvcGFzc3dkIC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvZ3JvdXAgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9zaGFkb3cgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9nc2hhZG93IC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvc2VjdXJpdHkvIC1wIHdhIC1rIGlkZW50aXR5CgojIyBTdWRvZXJzIGNoYW5nZXMKLXcgL2V0Yy9zdWRvZXJzIC1wIHdhIC1rIHByaXZpbGVnZWQKLXcgL2V0Yy9zdWRvZXJzLmQvIC1wIHdhIC1rIHByaXZpbGVnZWQKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIFRpbWUgY2hhbmdlcwojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLWEgYWx3YXlzLGV4aXQgLUYgYXJjaD1iNjQgLVMgYWRqdGltZXggLVMgc2V0dGltZW9mZGF5IC1TIGNsb2NrX3NldHRpbWUgLUYgYXVpZD49MTAwMCAtRiBhdWlkIT00Mjk0OTY3Mjk1IC1rIHRpbWVfY2hhbmdlCi13IC9ldGMvbG9jYWx0aW1lIC1wIHdhIC1rIHRpbWVfY2hhbmdlCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBLZXJuZWwgbW9kdWxlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIGluaXRfbW9kdWxlIC1TIGZpbml0X21vZHVsZSAtUyBkZWxldGVfbW9kdWxlIC1GIGF1aWQ+PTEwMDAgLUYgYXVpZCE9NDI5NDk2NzI5NSAtayBrZXJuZWxfbW9kdWxlcwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgUHJpdmlsZWdlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIHNldHVpZCAtUyBzZXRnaWQgLVMgc2V0cmV1aWQgLVMgc2V0cmVnaWQgLVMgc2V0cmVzdWlkIC1TIHNldHJlc2dpZCAtRiBhdWlkPj0xMDAwIC1GIGF1aWQhPTQyOTQ5NjcyOTUgLWsgcHJpdl9jaGFuZ2UKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIExvZ2luIHRyYWNraW5nCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotdyAvdmFyL2xvZy9mYWlsbG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy9sYXN0bG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy90YWxseWxvZyAtcCB3YSAtayBsb2dpbnMKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIE1ha2UgcnVsZXMgYWN0aXZlCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotZSAxCg=="
+          }
+        }
+      ]
+    },
+    {
+      "id": "auditd-service-enable",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "auditd",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "auditd",
+            "enabled": true,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "journald-configure-persistence",
+      "type": "template",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/systemd/journald.conf.d/99-hardline.conf",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/systemd/journald.conf.d/99-hardline.conf",
+            "existed": true,
+            "mode": "644",
+            "content_b64": "W0pvdXJuYWxdClN0b3JhZ2U9cGVyc2lzdGVudApDb21wcmVzcz15ZXMKU3lzdGVtTWF4VXNlPTUxMk0KU3lzdGVtS2VlcEZyZWU9NTBNCk1heFJldGVudGlvblNlYz0xMGRheQpNYXhGaWxlU2VjPTFkYXkKUmF0ZUxpbWl0SW50ZXJ2YWxTZWM9MzBzClJhdGVMaW1pdEJ1cnN0PTIwMDAK"
+          }
+        }
+      ]
+    },
+    {
+      "id": "journald-reload",
+      "type": "service",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "systemd-journald",
+            "enabled": false,
+            "active": true,
+            "known": true
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "service",
+          "service": {
+            "unit": "systemd-journald",
+            "enabled": false,
+            "active": true,
+            "known": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "crontab-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/crontab",
+            "existed": true,
+            "mode": "644",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/crontab",
+            "existed": true,
+            "mode": "600",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cron-d-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.d",
+            "existed": true,
+            "mode": "755",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.d",
+            "existed": true,
+            "mode": "700",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cron-hourly-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.hourly",
+            "existed": true,
+            "mode": "755",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.hourly",
+            "existed": true,
+            "mode": "700",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cron-daily-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.daily",
+            "existed": true,
+            "mode": "755",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.daily",
+            "existed": true,
+            "mode": "700",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cron-weekly-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.weekly",
+            "existed": true,
+            "mode": "755",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.weekly",
+            "existed": true,
+            "mode": "700",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cron-monthly-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.monthly",
+            "existed": true,
+            "mode": "755",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/etc/cron.monthly",
+            "existed": true,
+            "mode": "700",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    },
+    {
+      "id": "grub-cfg-perms",
+      "type": "file_meta",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/boot/grub/grub.cfg",
+            "existed": true,
+            "mode": "600",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file_meta",
+          "file_meta": {
+            "path": "/boot/grub/grub.cfg",
+            "existed": true,
+            "mode": "600",
+            "owner": "root",
+            "group": "root"
+          }
+        }
+      ]
+    }
+  ],
+  "checksum": "000a858298180fe281fc7295e84faebaf4937ae738e597b345d21b411b0154b0"
+}

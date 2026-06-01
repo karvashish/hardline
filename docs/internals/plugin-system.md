@@ -28,7 +28,7 @@ Every plugin must provide:
 
 Missing any of those is a registry error.
 
-`Rollback` restores one captured `ObjectRecord`, and `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. The rollback orchestrator in `internals/rollback` no longer switches on object kind itself — it looks up the step's plugin and delegates to these two funcs, so each plugin owns the restore and conflict logic for the object kinds it emits.
+`Rollback` restores one captured `ObjectRecord`, and `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. The rollback orchestrator in `internals/rollback` no longer switches on object kind itself - it looks up the step's plugin and delegates to these two funcs, so each plugin owns the restore and conflict logic for the object kinds it emits.
 
 Plugin names are normalized to lowercase when registered and when looked up from step definitions.
 
@@ -103,3 +103,7 @@ The example external plugin in `pluginprojects/firewalltemplate` shows the expec
 
 - exported symbol: `HardlinePluginV1`
 - type: `*pluginapi.Plugin`
+
+## Build And Platform Constraints
+
+External plugins are native Go shared objects (`-buildmode=plugin`). They must be rebuilt against every `hardline` release - the Go toolchain and dependency versions have to match the host binary byte-for-byte, or `plugin.Open` rejects the `.so`. They are unsupported on Windows: the Windows builds are statically linked with `CGO_ENABLED=0`, and Go's plugin system is only available on Linux, FreeBSD, and macOS. The five built-in plugins are compiled into the binary and ship on every platform.

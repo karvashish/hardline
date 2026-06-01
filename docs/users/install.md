@@ -24,7 +24,7 @@ Every archive has a companion `.sha256` file published next to it. Always verify
 
 ## Linux
 
-Hardline is installed system-wide under `/etc/hardline`. Everything sensitive — binaries, external plugins, and (if you generate one) your profile signing key — lives in that single root-owned directory. Hardline refuses to load external plugins from a world-writable directory, so getting permissions right here matters.
+Hardline is installed system-wide under `/etc/hardline`. Everything sensitive - binaries, external plugins, and (if you generate one) your profile signing key - lives in that single root-owned directory. Hardline refuses to load external plugins from a world-writable directory, so getting permissions right here matters.
 
 ### Download And Verify
 
@@ -66,7 +66,7 @@ The resulting layout:
 
 ### Put Hardline On Your PATH
 
-External plugins are loaded from a `plugins/` directory *adjacent* to the `hardline` binary. Keep the real binaries under `/etc/hardline` and symlink them into `/usr/local/bin` — Go resolves the symlink before looking for `plugins/`, so loading still works:
+External plugins are loaded from a `plugins/` directory *adjacent* to the `hardline` binary. Keep the real binaries under `/etc/hardline` and symlink them into `/usr/local/bin` - Go resolves the symlink before looking for `plugins/`, so loading still works:
 
 ```bash
 sudo ln -sf /etc/hardline/hardline    /usr/local/bin/hardline
@@ -79,7 +79,7 @@ If you copy the binary somewhere without its sibling `plugins/`, the external `f
 
 ### Profile Signing Key (Optional)
 
-If you author your own profiles, keep the private signing key in the same root-owned directory — not in your home folder:
+If you author your own profiles, keep the private signing key in the same root-owned directory - not in your home folder:
 
 ```bash
 sudo profiletool keygen \
@@ -129,7 +129,20 @@ cd "hardline-$Version-windows-$Arch"
 
 Add the extracted directory to `PATH` via **System Properties → Environment Variables**, or use `$env:PATH` for the current shell session.
 
-**External plugins are not supported on Windows** — the Windows builds are statically linked with CGO disabled, and Go's plugin system only works on Linux, FreeBSD, and macOS. Built-in plugins (`packages`, `template`, `service`, `firewall`) are compiled into the binary and work normally. Hardline on Windows is intended as a workstation CLI for managing remote Linux hosts over SSH — not for applying profiles to a Windows host. See the [Platform Support](../../README.md#platform-support) table for the full matrix.
+**External plugins are not supported on Windows** - the Windows builds are statically linked with CGO disabled, and Go's plugin system only works on Linux, FreeBSD, and macOS. Built-in plugins (`packages`, `template`, `service`, `firewall`) are compiled into the binary and work normally. Hardline on Windows is intended as a workstation CLI for managing remote Linux hosts over SSH - not for applying profiles to a Windows host. See the [Platform Support](#platform-support) table below for the full matrix.
+
+## Platform Support
+
+| Platform | `hardline` CLI | `profiletool` | Built-in plugins | External plugins |
+|---|---|---|---|---|
+| Linux amd64 | yes | yes | yes | yes |
+| Linux arm64 | yes | yes | yes | yes |
+| Windows amd64 | yes | yes | yes | **no** |
+| Windows arm64 | yes | yes | yes | **no** |
+
+Hardline applies configuration to remote Linux hosts over SSH. The Windows builds exist so you can run the CLI from a Windows workstation to manage Linux targets - they are not intended for applying profiles *to* a Windows host.
+
+External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages`, `template`, `service`, `firewall`, `file_meta`) are compiled into the binary and remain available on every platform.
 
 ## Verify The Install
 

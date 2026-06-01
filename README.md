@@ -1,4 +1,4 @@
-# Hardline
+# Hardline - Signed-Profile Linux Hardening
 
 [![Unit Tests](https://github.com/karvashish/hardline/actions/workflows/unit-tests.yml/badge.svg?branch=main&event=push)](https://github.com/karvashish/hardline/actions/workflows/unit-tests.yml)
 [![Build](https://github.com/karvashish/hardline/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/karvashish/hardline/actions/workflows/build.yml)
@@ -9,19 +9,19 @@ Hardline is a signed-profile runner for applying opinionated system configuratio
 
 A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is five typed plugin configs:
 
-- `packages` — install / purge named packages
-- `template` — render a file to a managed destination path with a fixed mode
-- `service` — enable / disable / restart named systemd units
-- `firewall` — declarative nftables rules
-- `file_meta` — re-stamp mode / owner / group / immutable / append-only flags on existing paths
+- `packages` - install / purge named packages
+- `template` - render a file to a managed destination path with a fixed mode
+- `service` - enable / disable / restart named systemd units
+- `firewall` - declarative nftables rules
+- `file_meta` - re-stamp mode / owner / group / immutable / append-only flags on existing paths
 
-That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects — signing the manifest is signing the full set of instructions, not a wrapper around them.
+That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects - signing the manifest is signing the full set of instructions, not a wrapper around them.
 
-Hardline runs the hardening step, and only the hardening step. Provisioning stays where it is — Terraform, cloud-init, or Ansible brings the host up and creates the admin user. Hardline takes over once the host is ready.
+Hardline runs the hardening step, and only the hardening step. Provisioning stays where it is - Terraform, cloud-init, or Ansible brings the host up and creates the admin user. Hardline takes over once the host is ready.
 
 Beyond the narrow vocabulary, three supporting properties worth knowing:
 
-- **Runtime signature verification.** The runner verifies the profile's signature against a trusted key before any step executes — not at git-clone time, not at CI time, at the moment of apply.
+- **Runtime signature verification.** The runner verifies the profile's signature against a trusted key before any step executes - not at git-clone time, not at CI time, at the moment of apply.
 - **Rollback journal with conflict detection.** Each step records before/after snapshots. Rollback restores the before state and refuses to proceed if the current remote state has drifted since apply (unless `--force-rollback` is passed).
 - **Apply lock on the target.** Only one apply per host at a time; concurrent runs would corrupt the journal.
 
@@ -34,8 +34,6 @@ The repo ships with:
 - built-in plugins for packages, templates, services, nftables, and file metadata
 - an example Ubuntu 24.04 hardening profile in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
-
-**Note on external plugins:** they are native Go (`-buildmode=plugin`), must be rebuilt against every `hardline` release (toolchain and dep versions must match byte-for-byte), and are not supported on Windows. The five [built-in plugins](#whats-in-the-trusted-execution-surface) cover the common cases and ship compiled into the binary on every platform.
 
 ## Install
 
@@ -69,9 +67,9 @@ Notes:
 
 ## Supported Targets
 
-The only profile that ships with Hardline targets **Ubuntu 24.04 LTS**. The built-in `packages` plugin talks to `apt-get`, the `service` plugin talks to `systemctl`, and the `firewall` plugin renders an `nftables` include under `/etc/nftables.d/`. In practice this means the runtime is viable on modern Debian-family systems with systemd and nftables — Ubuntu 22.04 and 24.04 LTS, Debian 12+ — though only Ubuntu 24.04 is exercised by the integration tests. Other distros (RHEL / Rocky / Alma, Arch, Alpine) are **not** supported today: the apt-only packages plugin is the hard blocker, not the rest of the design. Adding an rpm or pacman plugin is a real path forward, just not one anyone has walked yet.
+Hardline targets Linux hosts. Current support covers Debian-family systems with systemd and nftables: the `packages` plugin uses `apt-get`, the `service` plugin uses `systemctl`, and the `firewall` plugin renders an `nftables` include under `/etc/nftables.d/`. Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, and Debian 12 or later are supported, with the integration tests and the shipped starter profile currently targeting Ubuntu 24.04 LTS; coverage of the other releases is pending additional testing.
 
-Hardline's CLI runs on Linux (amd64, arm64) and Windows (amd64, arm64). Windows builds are intended for running the CLI from a workstation to manage remote Linux hosts over SSH — see the [Platform Support](#platform-support) section below for details.
+Support for RHEL-family distributions (Rocky, Alma, RHEL 9 or later) is planned. The `packages` plugin is the only distribution-specific component; the remaining functionality is distribution-independent. See issue [#20](https://github.com/karvashish/hardline/issues/20).
 
 ## For Users
 
@@ -136,16 +134,3 @@ For every flag, environment variable, and exit code, see the [CLI Reference](doc
 - `tmp/plugins/firewall_template.so`
 
 External plugins are loaded from a `plugins/` directory adjacent to the `hardline` binary, so if you move the binary, move the plugin directory with it.
-
-## Platform Support
-
-| Platform | `hardline` CLI | `profiletool` | Built-in plugins | External plugins |
-|---|---|---|---|---|
-| Linux amd64 | yes | yes | yes | yes |
-| Linux arm64 | yes | yes | yes | yes |
-| Windows amd64 | yes | yes | yes | **no** |
-| Windows arm64 | yes | yes | yes | **no** |
-
-Hardline applies configuration to remote Linux hosts over SSH. The Windows builds exist so you can run the CLI from a Windows workstation to manage Linux targets — they are not intended for applying profiles *to* a Windows host.
-
-External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages`, `templates`, `services`, `firewall`, `file_meta`) are compiled into the binary and remain available on every platform.

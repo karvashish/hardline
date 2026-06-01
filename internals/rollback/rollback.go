@@ -95,17 +95,23 @@ func rollbackCommand(c cli.Command) error {
 
 func writeRollbackFooter(journal *Journal, duration time.Duration) {
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString(logger.ColorCyan + logger.ColorBold + "ROLLBACK COMPLETE" + logger.ColorReset + "\n")
-	b.WriteString(strings.Repeat("-", 60) + "\n")
-	if journal != nil {
-		b.WriteString(logger.ColorBold + "Profile" + logger.ColorReset + "  : " + journal.ProfileID + "\n")
-		if journal.RunID != "" {
-			b.WriteString(logger.ColorBold + "Run ID" + logger.ColorReset + "   : " + journal.RunID + "\n")
-		}
-		b.WriteString(logger.ColorBold + "Steps" + logger.ColorReset + "    : " + strconv.Itoa(len(journal.Steps)) + "\n")
+	row := func(label, value string) {
+		b.WriteString(label)
+		b.WriteString(value)
+		b.WriteString("\n")
 	}
-	b.WriteString(logger.ColorBold + "Duration" + logger.ColorReset + " : " + formatRollbackDuration(duration) + "\n\n")
+
+	b.WriteString("\n" + logger.ColorCyan + logger.ColorBold + "ROLLBACK COMPLETE" + logger.ColorReset + "\n")
+	row("", strings.Repeat("-", 60))
+	if journal != nil {
+		row(logger.ColorBold+"Profile"+logger.ColorReset+"  : ", journal.ProfileID)
+		if journal.RunID != "" {
+			row(logger.ColorBold+"Run ID"+logger.ColorReset+"   : ", journal.RunID)
+		}
+		row(logger.ColorBold+"Steps"+logger.ColorReset+"    : ", strconv.Itoa(len(journal.Steps)))
+	}
+	row(logger.ColorBold+"Duration"+logger.ColorReset+" : ", formatRollbackDuration(duration))
+	b.WriteString("\n")
 	logger.Infof("%s", b.String())
 }
 

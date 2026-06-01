@@ -246,24 +246,29 @@ func countApplySteps(p *profile.Profile) int {
 
 func writeApplyFooter(p *profile.Profile, journal *rollback.Journal, total, changed, aligned int, duration time.Duration) {
 	var b strings.Builder
-
-	b.WriteString("\n")
-	b.WriteString(logger.ColorCyan + logger.ColorBold + "APPLY COMPLETE" + logger.ColorReset + "\n")
-	b.WriteString(strings.Repeat("-", 60) + "\n")
-	if p != nil {
-		b.WriteString(logger.ColorBold + "Profile" + logger.ColorReset + "  : " + p.DisplayName + "\n")
-		b.WriteString(logger.ColorBold + "Version" + logger.ColorReset + "  : " + p.Version + "\n")
+	row := func(label, value string) {
+		b.WriteString(label)
+		b.WriteString(value)
+		b.WriteString("\n")
 	}
-	b.WriteString(logger.ColorBold + "Steps" + logger.ColorReset + "    : " + strconv.Itoa(total) + "\n")
-	b.WriteString(logger.ColorBold + "Changed" + logger.ColorReset + "  : " + logger.ColorBlue + strconv.Itoa(changed) + logger.ColorReset + "\n")
-	b.WriteString(logger.ColorBold + "Aligned" + logger.ColorReset + "  : " + logger.ColorGreen + strconv.Itoa(aligned) + logger.ColorReset + "\n")
-	b.WriteString(logger.ColorBold + "Duration" + logger.ColorReset + " : " + formatShortDuration(duration) + "\n")
+
+	b.WriteString("\n" + logger.ColorCyan + logger.ColorBold + "APPLY COMPLETE" + logger.ColorReset + "\n")
+	row("", strings.Repeat("-", 60))
+	if p != nil {
+		row(logger.ColorBold+"Profile"+logger.ColorReset+"  : ", p.DisplayName)
+		row(logger.ColorBold+"Version"+logger.ColorReset+"  : ", p.Version)
+	}
+	row(logger.ColorBold+"Steps"+logger.ColorReset+"    : ", strconv.Itoa(total))
+	row(logger.ColorBold+"Changed"+logger.ColorReset+"  : ", logger.ColorBlue+strconv.Itoa(changed)+logger.ColorReset)
+	row(logger.ColorBold+"Aligned"+logger.ColorReset+"  : ", logger.ColorGreen+strconv.Itoa(aligned)+logger.ColorReset)
+	row(logger.ColorBold+"Duration"+logger.ColorReset+" : ", formatShortDuration(duration))
 
 	rollbackStatus := "AVAILABLE (on target)"
 	if journal != nil && journal.RunID != "" {
 		rollbackStatus = "AVAILABLE (run " + journal.RunID + ")"
 	}
-	b.WriteString(logger.ColorBold + "Rollback" + logger.ColorReset + " : " + logger.ColorGreen + rollbackStatus + logger.ColorReset + "\n\n")
+	row(logger.ColorBold+"Rollback"+logger.ColorReset+" : ", logger.ColorGreen+rollbackStatus+logger.ColorReset)
+	b.WriteString("\n")
 
 	logger.Infof("%s", b.String())
 }

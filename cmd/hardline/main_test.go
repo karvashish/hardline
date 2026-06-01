@@ -182,7 +182,10 @@ func TestRun_PlanDispatch(t *testing.T) {
 			t.Fatalf("unexpected next-step args: %+v", c)
 		}
 	}
-	runApply = func(context.Context, cli.Command) error { t.Fatal("apply handler should not be called for plan command"); return nil }
+	runApply = func(context.Context, cli.Command) error {
+		t.Fatal("apply handler should not be called for plan command")
+		return nil
+	}
 	runRollback = func(cli.Command) { t.Fatal("rollback handler should not be called for plan command") }
 
 	code := run([]string{"hardline", "plan", "profile"})

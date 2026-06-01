@@ -652,4 +652,3 @@ func stubJournalHooks() func() {
 		writeRemoteRootFile = prevWriteRemoteRootFile
 	}
 }
-

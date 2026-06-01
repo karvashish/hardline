@@ -198,7 +198,9 @@ func TestApply_ErrorPaths(t *testing.T) {
 		}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
-		runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+		runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
+			return nil
+		}
 
 		bad := cli.Command{
 			Profile: "profile",
@@ -352,7 +354,9 @@ func TestApplyCommand_KeepLocalRollback(t *testing.T) {
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
-	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
+		return nil
+	}
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return nil }
 
 	saveCalls := 0
@@ -394,7 +398,9 @@ func TestApplyCommand_TargetJournalSaveFailed(t *testing.T) {
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
-	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
+		return nil
+	}
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return errors.New("remote boom") }
 
 	err := Apply(context.Background(), c)
@@ -464,7 +470,9 @@ func TestApplyCommand_SuccessNonDebugCleanupWarning(t *testing.T) {
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
-	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
+		return nil
+	}
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return nil }
 	removeRunnerJournal = func(journal *rollback.Journal) error { return errors.New("cleanup boom") }
 
@@ -495,7 +503,9 @@ func TestApplyCommand_KeepLocalRollbackWarning(t *testing.T) {
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
-	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error { return nil }
+	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
+		return nil
+	}
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return nil }
 
 	saveCalls := 0

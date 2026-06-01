@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	sharedRegistry  = NewDefaultRegistry()
-	defaultPlugins  = builtinPlugins
+	sharedRegistry = NewDefaultRegistry()
+	defaultPlugins = builtinPlugins
 )
 
 func Shared() *pluginapi.Registry {

@@ -15,7 +15,6 @@ import (
 
 const (
 	journalVersion = 2
-
 )
 
 type Journal struct {
@@ -31,12 +30,12 @@ type Journal struct {
 }
 
 type StepRecord struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"`
-	RollbackMode string         `json:"rollback_mode"`
+	ID           string                   `json:"id"`
+	Type         string                   `json:"type"`
+	RollbackMode string                   `json:"rollback_mode"`
 	Before       []pluginapi.ObjectRecord `json:"before,omitempty"`
 	After        []pluginapi.ObjectRecord `json:"after,omitempty"`
-	Notes        []string       `json:"notes,omitempty"`
+	Notes        []string                 `json:"notes,omitempty"`
 }
 
 var (

@@ -301,7 +301,7 @@ func renderCompactStepResult(step StepPlan) string {
 		dispositionColor(disposition), strings.ToUpper(dispositionText(disposition)), logger.ColorReset,
 		compactOperatorSummary(step))
 
-	for _, line := range previewPlanLines(step.Diff, 2) {
+	for _, line := range previewPlanLines(step.Diff) {
 		fmt.Fprintf(&b, "    %schange%s: %s\n", logger.ColorBlue, logger.ColorReset, line)
 	}
 	for _, note := range normalizedHighlights(step.Highlights) {
@@ -374,25 +374,26 @@ func normalizedHighlights(highlights []string) []string {
 	return notes
 }
 
-func previewPlanLines(lines []string, limit int) []string {
+// previewPlanLines renders the diff lines for the compact plan log. It drops
+// only the unified-diff framing lines ("--- / +++ / @@") and shows every
+// remaining change line; nothing is capped, so the log reflects the full set
+// of changes for the step.
+func previewPlanLines(lines []string) []string {
 	clean := normalizedReportLines(lines)
-	filtered := clean[:0]
+	out := clean[:0]
 	for _, line := range clean {
 		if isDiffHeaderLine(line) {
 			continue
 		}
-		filtered = append(filtered, line)
+		out = append(out, line)
 	}
-	if limit <= 0 || len(filtered) <= limit {
-		return filtered
-	}
-	return filtered[:limit]
+	return out
 }
 
 // isDiffHeaderLine reports whether a line is a unified-diff framing line
 // ("--- current ...", "+++ desired ...", "@@ ...") that is meaningless without
-// the content lines beneath it. Plan previews strip these so the two lines we
-// show the operator are always substantive.
+// the content lines beneath it. Plan previews strip these so every line shown
+// to the operator is substantive.
 func isDiffHeaderLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	switch {

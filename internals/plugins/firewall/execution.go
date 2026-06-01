@@ -1220,7 +1220,7 @@ func renderFirewallContentDiff(dest string, current string, desired string, exis
 		if edit.kind == ' ' {
 			continue
 		}
-		lines = append(lines, formatFirewallDiffLine(edit.kind, edit.line))
+		lines = append(lines, fmt.Sprintf("%c%s", edit.kind, edit.line))
 		emitted++
 		if emitted >= firewallDiffPreviewLimit {
 			break
@@ -1237,13 +1237,6 @@ func firewallCurrentSuffix(existed bool) string {
 		return ""
 	}
 	return " (absent)"
-}
-
-func formatFirewallDiffLine(kind byte, line string) string {
-	if line == "" {
-		return fmt.Sprintf("%c<empty>", kind)
-	}
-	return fmt.Sprintf("%c%s", kind, line)
 }
 
 func diffFirewallLines(current string, desired string) []firewallDiffEdit {

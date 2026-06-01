@@ -46,6 +46,20 @@ func emitPhase(name string) {
 	logInfof("%s== PHASE: %s ==%s\n", logger.ColorCyan+logger.ColorBold, name, logger.ColorReset)
 }
 
+// runVerifyPhase emits the VERIFY banner, runs the verification pipeline, and
+// on a clean pass prints a confirmation line so the phase never renders as an
+// empty section. In debug mode the per-check output already covers this.
+func runVerifyPhase(c cli.Command) error {
+	emitPhase("VERIFY")
+	if err := runVerify(c); err != nil {
+		return err
+	}
+	if !c.Debug {
+		logInfof("profile verification passed\n")
+	}
+	return nil
+}
+
 var (
 	parseCmd             = cli.Parse
 	showUsage            = cli.Usage
@@ -121,8 +135,7 @@ func run(args []string) int {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
 		}
-		emitPhase("VERIFY")
-		if err := runVerify(c); err != nil {
+		if err := runVerifyPhase(c); err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
@@ -147,8 +160,7 @@ func run(args []string) int {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
 		}
-		emitPhase("VERIFY")
-		if err := runVerify(c); err != nil {
+		if err := runVerifyPhase(c); err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
@@ -177,8 +189,7 @@ func run(args []string) int {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
 		}
-		emitPhase("VERIFY")
-		if err := runVerify(c); err != nil {
+		if err := runVerifyPhase(c); err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
@@ -208,7 +219,7 @@ func run(args []string) int {
 			return 1
 		}
 		if !c.Debug {
-			logInfof("ok\n")
+			logInfof("profile verification passed\n")
 		}
 		return 0
 	case "version", "-v", "-V", "--version", "-version":

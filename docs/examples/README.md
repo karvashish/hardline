@@ -4,7 +4,7 @@ Real output from running the shipped [`starter-secure-ubuntu-24.04-lts`](../../s
 
 The run followed the documented flow: `verify-profile`, then `plan`, then `apply` (23 steps), then `rollback`. Logs are the `--log-file` output (plain text, one timestamped line per entry).
 
-Host, IP, and runner home paths are replaced with placeholders (`203.0.113.10`, `/home/user`). Regenerate these artifacts when the report or journal format changes.
+Host, IP, and runner home paths are replaced with placeholders (`203.0.113.10`, `/home/user`).
 
 ## `starter-secure-ubuntu-24.04-lts/`
 

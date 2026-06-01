@@ -1,0 +1,5 @@
+2026-06-01T16:39:54Z # hardline verify-profile profile=starter-secure-ubuntu-24.04-lts version=0.1.2 time=2026-06-01T16:39:54Z
+2026-06-01T16:39:54Z plugins: loading 1 external plugin(s) from "/home/user/hardline/tmp/plugins" — these run as root and are not signature-verified; ensure this directory is not world-writable
+2026-06-01T16:39:54Z == PHASE: VERIFY ==
+2026-06-01T16:39:54Z verify-profile starter-secure-ubuntu-24.04-lts
+2026-06-01T16:39:54Z profile verification passed

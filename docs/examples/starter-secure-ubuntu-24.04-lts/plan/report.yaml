@@ -1,0 +1,429 @@
+kind: hardline_plan
+profile:
+    id: starter-secure-ubuntu-24.04-lts
+    display_name: Starter Secure Ubuntu 24.04 LTS
+    version: 1.0.0
+target:
+    host: 203.0.113.10
+    os_family: ubuntu
+    os_version: "24.04"
+summary:
+    steps_inspected: 23
+    already_aligned: 2
+    changes_planned: 21
+    needs_attention: 0
+    rollback_available: true
+changes_planned:
+    - 'packages-starter-secure: Update package index; upgrade 13 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
+    - 'sshd-config-perms: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")'
+    - 'ssh-template-apply: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600'
+    - 'ssh-service-reload: Enable ssh at boot; reload or restart ssh'
+    - 'unattended-upgrades-auto: Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644'
+    - 'sysctl-hardening-template: Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644'
+    - 'sysctl-apply: Restart systemd-sysctl'
+    - 'firewall-default-deny: Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)'
+    - 'firewall-service-restart: Enable nftables at boot; restart nftables'
+    - 'fail2ban-ssh-config: Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644'
+    - 'fail2ban-service-enable: Enable fail2ban at boot; ensure fail2ban is started'
+    - 'auditd-rules-template: Write rendered configuration from "templates/40-audit-hardening-rules.tmpl" to "/etc/audit/rules.d/99-hardline.rules" with mode 0640'
+    - 'auditd-service-enable: Enable auditd at boot; restart auditd'
+    - 'journald-configure-persistence: Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644'
+    - 'journald-reload: Enable systemd-journald at boot; restart systemd-journald'
+    - 'crontab-perms: Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")'
+    - 'cron-d-perms: Set metadata on "/etc/cron.d" (mode=700 owner=root group=root attrs="")'
+    - 'cron-hourly-perms: Set metadata on "/etc/cron.hourly" (mode=700 owner=root group=root attrs="")'
+    - 'cron-daily-perms: Set metadata on "/etc/cron.daily" (mode=700 owner=root group=root attrs="")'
+    - 'cron-weekly-perms: Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")'
+    - 'cron-monthly-perms: Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")'
+steps:
+    - id: packages-starter-secure
+      type: packages
+      status: change_planned
+      summary: 'packages step: update package index; upgrade 13 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
+      operator_summary: 'Update package index; upgrade 13 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
+      details:
+        - 'will run: apt-get update -y (always)'
+        - 'upgrade: would upgrade 13 package(s) (once: packages need to change)'
+        - 'package "nftables": currently installed (no install change)'
+        - 'package "auditd": not installed (will be installed)'
+        - 'package "fail2ban": not installed (will be installed)'
+        - 'package "unattended-upgrades": currently installed (no install change)'
+        - apt will also install 4 dependency package(s)
+        - 'package "telnet": currently installed (will be purged)'
+        - 'package "rsh-client": not installed (purge has no effect)'
+        - 'package "ftp": currently installed (will be purged)'
+        - 'package "tftp": not installed (purge has no effect)'
+        - 'package "cups": not installed (purge has no effect)'
+        - 'package "rpcbind": not installed (purge has no effect)'
+        - 'package "nfs-common": not installed (purge has no effect)'
+        - 'package "landscape-client": not installed (purge has no effect)'
+        - 'autoremove: no packages would be removed (current state; may change after upgrade) (once: packages need to change)'
+      diff:
+        - 'package index metadata: current -> refreshed from configured repositories'
+        - 'package "rsync": installed -> upgraded'
+        - 'package "libgcrypt20": installed -> upgraded'
+        - 'package "libgnutls30t64": installed -> upgraded'
+        - 'package "vim": installed -> upgraded'
+        - 'package "vim-common": installed -> upgraded'
+        - 'package "vim-tiny": installed -> upgraded'
+        - 'package "vim-runtime": installed -> upgraded'
+        - 'package "xxd": installed -> upgraded'
+        - 'package "bind9-dnsutils": installed -> upgraded'
+        - 'package "bind9-host": installed -> upgraded'
+        - 'package "bind9-libs": installed -> upgraded'
+        - 'package "linux-tools-common": installed -> upgraded'
+        - 'package "snapd": installed -> upgraded'
+        - 'package "auditd": absent -> installed'
+        - 'package "fail2ban": absent -> installed'
+        - 'package "libauparse0t64": absent -> installed (dependency)'
+        - 'package "python3-pyasyncore": absent -> installed (dependency)'
+        - 'package "python3-pyinotify": absent -> installed (dependency)'
+        - 'package "whois": absent -> installed (dependency)'
+        - 'package "telnet": installed -> purged'
+        - 'package "ftp": installed -> purged'
+      will_change: true
+    - id: sshd-config-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/ssh/sshd_config"'
+      operator_summary: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
+      details:
+        - 'current: mode=644 owner=root group=root attrs=""'
+        - 'desired: mode=600 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/ssh/sshd_config": 644 -> 600'
+      will_change: true
+    - id: ssh-template-apply
+      type: template
+      status: change_planned
+      summary: 'template step: render "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" (mode 0600)'
+      operator_summary: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600
+      details:
+        - 'destination "/etc/ssh/sshd_config.d/99-hardline-ssh.conf": does not exist (file will be created)'
+        - 'desired: template "templates/10-ssh-sshd-config.tmpl" rendered to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600'
+      diff:
+        - 'file "/etc/ssh/sshd_config.d/99-hardline-ssh.conf": absent -> present (mode 0600)'
+        - '--- current /etc/ssh/sshd_config.d/99-hardline-ssh.conf (absent)'
+        - +++ desired /etc/ssh/sshd_config.d/99-hardline-ssh.conf
+        - +Protocol 2
+        - +PasswordAuthentication no
+        - +PermitRootLogin no
+        - +ChallengeResponseAuthentication no
+        - +UsePAM yes
+        - +X11Forwarding no
+        - +AllowTcpForwarding no
+        - +AllowAgentForwarding no
+        - +LogLevel VERBOSE
+        - +MaxAuthTries 4
+        - +PubkeyAuthentication yes
+      will_change: true
+    - id: ssh-service-reload
+      type: service
+      status: change_planned
+      summary: 'service step: enable ssh at boot; reload or restart ssh'
+      operator_summary: Enable ssh at boot; reload or restart ssh
+      details:
+        - 'current: enabled=enabled, active=active'
+        - 'desired: enabled=enabled, state=reloaded or restarted (active)'
+      diff:
+        - 'service: reload-or-restart ssh (currently active)'
+      will_change: true
+    - id: unattended-upgrades-auto
+      type: template
+      status: change_planned
+      summary: 'template step: render "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" (mode 0644)'
+      operator_summary: Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
+      details:
+        - 'destination "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": does not exist (file will be created)'
+        - 'desired: template "templates/15-unattended-upgrades.tmpl" rendered to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644'
+      diff:
+        - 'file "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": absent -> present (mode 0644)'
+        - '--- current /etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf (absent)'
+        - +++ desired /etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf
+        - +APT::Periodic::Update-Package-Lists "1";
+        - +APT::Periodic::Download-Upgradeable-Packages "1";
+        - +APT::Periodic::AutocleanInterval "7";
+        - +APT::Periodic::Unattended-Upgrade "1";
+      will_change: true
+    - id: sysctl-hardening-template
+      type: template
+      status: change_planned
+      summary: 'template step: render "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" (mode 0644)'
+      operator_summary: Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
+      details:
+        - 'destination "/etc/sysctl.d/99-hardline-hardening.conf": does not exist (file will be created)'
+        - 'desired: template "templates/20-sysctl-hardening.conf.tmpl" rendered to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644'
+      diff:
+        - 'file "/etc/sysctl.d/99-hardline-hardening.conf": absent -> present (mode 0644)'
+        - '--- current /etc/sysctl.d/99-hardline-hardening.conf (absent)'
+        - +++ desired /etc/sysctl.d/99-hardline-hardening.conf
+        - +net.ipv4.ip_forward = 0
+        - +net.ipv4.conf.all.rp_filter = 1
+        - +net.ipv4.conf.default.rp_filter = 1
+        - +net.ipv4.conf.all.accept_redirects = 0
+        - +net.ipv4.conf.default.accept_redirects = 0
+        - +net.ipv4.conf.all.secure_redirects = 0
+        - +net.ipv4.conf.default.secure_redirects = 0
+        - +net.ipv4.icmp_echo_ignore_broadcasts = 1
+        - +kernel.kptr_restrict = 2
+        - +kernel.dmesg_restrict = 1
+        - +fs.protected_hardlinks = 1
+        - +fs.protected_symlinks = 1
+      will_change: true
+    - id: sysctl-apply
+      type: service
+      status: change_planned
+      summary: 'service step: restart systemd-sysctl'
+      operator_summary: Restart systemd-sysctl
+      details:
+        - 'current: enabled=enabled, active=active'
+        - 'desired: enabled=unchanged, state=restarted (active)'
+      diff:
+        - 'service: restart systemd-sysctl (currently active)'
+      will_change: true
+    - id: timesyncd-enable
+      type: service
+      status: already_aligned
+      summary: 'service step: enable chrony at boot; ensure chrony is started'
+      operator_summary: Enable chrony at boot; ensure chrony is started
+      details:
+        - 'current: enabled=enabled, active=active'
+        - 'desired: enabled=enabled, state=active'
+      will_change: false
+    - id: firewall-default-deny
+      type: firewall
+      status: change_planned
+      summary: 'firewall step (deterministic): backend=nftables table=inet filter, managed_dest="/etc/nftables.d/99-hardline-firewall.nft", policies=1, rules=6'
+      operator_summary: Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)
+      details:
+        - 'managed destination "/etc/nftables.d/99-hardline-firewall.nft": does not exist (file will be created)'
+        - 'desired table: inet filter'
+        - 'desired chain policies: 1'
+        - 'desired rules: 6'
+        - 'current running table: 0 chain policies, 0 managed rules'
+        - '"/etc/nftables.conf": include "include \"/etc/nftables.d/*.nft\"" absent; apply will add it'
+      diff:
+        - 'file "/etc/nftables.d/99-hardline-firewall.nft": absent -> present (mode 0644)'
+        - '--- current /etc/nftables.d/99-hardline-firewall.nft (absent)'
+        - +++ desired /etc/nftables.d/99-hardline-firewall.nft
+        - +table inet filter {
+        - + chain input {
+        - + type filter hook input priority 0;
+        - + policy drop;
+        - +
+        - + ip6 nexthdr icmpv6 accept
+        - + ip protocol icmp accept
+        - + tcp dport 22 accept
+        - + iif "lo" accept
+        - + ct state established,related accept
+        - + ct state invalid drop
+        - + }
+        - +}
+        - 'chain input policy: accept -> drop'
+        - 'file "/etc/nftables.conf": add include "include \"/etc/nftables.d/*.nft\"" (apply will patch)'
+      will_change: true
+    - id: firewall-service-restart
+      type: service
+      status: change_planned
+      summary: 'service step: enable nftables at boot; restart nftables'
+      operator_summary: Enable nftables at boot; restart nftables
+      details:
+        - 'current: enabled=disabled or not-found, active=inactive or not-found'
+        - 'desired: enabled=enabled, state=restarted (active)'
+      diff:
+        - 'service enablement: disabled or not-found -> enabled'
+        - 'service: restart nftables (currently inactive or not-found)'
+      will_change: true
+    - id: fail2ban-ssh-config
+      type: template
+      status: change_planned
+      summary: 'template step: render "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" (mode 0644)'
+      operator_summary: Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
+      details:
+        - 'destination "/etc/fail2ban/jail.d/99-hardline-ssh.conf": does not exist (file will be created)'
+        - 'desired: template "templates/35-fail2ban-ssh-protection.tmpl" rendered to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644'
+      diff:
+        - 'file "/etc/fail2ban/jail.d/99-hardline-ssh.conf": absent -> present (mode 0644)'
+        - '--- current /etc/fail2ban/jail.d/99-hardline-ssh.conf (absent)'
+        - +++ desired /etc/fail2ban/jail.d/99-hardline-ssh.conf
+        - +[sshd]
+        - +enabled = true
+        - +maxretry = 5
+        - +findtime = 600
+        - +bantime = 3600
+      will_change: true
+    - id: fail2ban-service-enable
+      type: service
+      status: change_planned
+      summary: 'service step: enable fail2ban at boot; ensure fail2ban is started'
+      operator_summary: Enable fail2ban at boot; ensure fail2ban is started
+      details:
+        - 'current: enabled=disabled or not-found, active=inactive or not-found'
+        - 'desired: enabled=enabled, state=active'
+      diff:
+        - 'service enablement: disabled or not-found -> enabled'
+        - 'service activity: inactive or not-found -> active'
+      will_change: true
+    - id: auditd-rules-template
+      type: template
+      status: change_planned
+      summary: 'template step: render "templates/40-audit-hardening-rules.tmpl" to "/etc/audit/rules.d/99-hardline.rules" (mode 0640)'
+      operator_summary: Write rendered configuration from "templates/40-audit-hardening-rules.tmpl" to "/etc/audit/rules.d/99-hardline.rules" with mode 0640
+      details:
+        - 'destination "/etc/audit/rules.d/99-hardline.rules": does not exist (file will be created)'
+        - 'desired: template "templates/40-audit-hardening-rules.tmpl" rendered to "/etc/audit/rules.d/99-hardline.rules" with mode 0640'
+      diff:
+        - 'file "/etc/audit/rules.d/99-hardline.rules": absent -> present (mode 0640)'
+        - '--- current /etc/audit/rules.d/99-hardline.rules (absent)'
+        - +++ desired /etc/audit/rules.d/99-hardline.rules
+        - +## Clear any existing rules
+        - +-D
+        - +
+        - +## Buffer size (keep modest)
+        - +-b 8192
+        - '+## On failure: log but do not hard-stop the box'
+        - +-f 1
+        - +########################
+        - +# Audit configuration
+        - +-w /etc/audit/ -p wa -k audit_config
+        - +-w /etc/libaudit.conf -p wa -k audit_config
+        - +-w /etc/audisp/ -p wa -k audit_config
+        - +# Identity and access
+        - +-w /etc/passwd -p wa -k identity
+        - +-w /etc/group -p wa -k identity
+        - +-w /etc/shadow -p wa -k identity
+        - +-w /etc/gshadow -p wa -k identity
+        - +-w /etc/security/ -p wa -k identity
+        - +## Sudoers changes
+        - +-w /etc/sudoers -p wa -k privileged
+        - +-w /etc/sudoers.d/ -p wa -k privileged
+        - +# Time changes
+        - +-a always,exit -F arch=b64 -S adjtimex -S settimeofday -S clock_settime -F auid>=1000 -F auid!=4294967295 -k time_change
+        - +-w /etc/localtime -p wa -k time_change
+        - +# Kernel module changes
+        - +-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -F auid>=1000 -F auid!=4294967295 -k kernel_modules
+        - '... 16 more content diff line(s) omitted'
+      will_change: true
+    - id: auditd-service-enable
+      type: service
+      status: change_planned
+      summary: 'service step: enable auditd at boot; restart auditd'
+      operator_summary: Enable auditd at boot; restart auditd
+      details:
+        - 'current: enabled=disabled or not-found, active=inactive or not-found'
+        - 'desired: enabled=enabled, state=restarted (active)'
+      diff:
+        - 'service enablement: disabled or not-found -> enabled'
+        - 'service: restart auditd (currently inactive or not-found)'
+      will_change: true
+    - id: journald-configure-persistence
+      type: template
+      status: change_planned
+      summary: 'template step: render "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" (mode 0644)'
+      operator_summary: Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
+      details:
+        - 'destination "/etc/systemd/journald.conf.d/99-hardline.conf": does not exist (file will be created)'
+        - 'desired: template "templates/50-journald-hardening.conf.tmpl" rendered to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644'
+      diff:
+        - 'file "/etc/systemd/journald.conf.d/99-hardline.conf": absent -> present (mode 0644)'
+        - '--- current /etc/systemd/journald.conf.d/99-hardline.conf (absent)'
+        - +++ desired /etc/systemd/journald.conf.d/99-hardline.conf
+        - +[Journal]
+        - +Storage=persistent
+        - +Compress=yes
+        - +SystemMaxUse=512M
+        - +SystemKeepFree=50M
+        - +MaxRetentionSec=10day
+        - +MaxFileSec=1day
+        - +RateLimitIntervalSec=30s
+        - +RateLimitBurst=2000
+      will_change: true
+    - id: journald-reload
+      type: service
+      status: change_planned
+      summary: 'service step: enable systemd-journald at boot; restart systemd-journald'
+      operator_summary: Enable systemd-journald at boot; restart systemd-journald
+      details:
+        - 'current: enabled=enabled, active=active'
+        - 'desired: enabled=enabled, state=restarted (active)'
+      diff:
+        - 'service: restart systemd-journald (currently active)'
+      will_change: true
+    - id: crontab-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/crontab"'
+      operator_summary: Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
+      details:
+        - 'current: mode=644 owner=root group=root attrs=""'
+        - 'desired: mode=600 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/crontab": 644 -> 600'
+      will_change: true
+    - id: cron-d-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/cron.d"'
+      operator_summary: Set metadata on "/etc/cron.d" (mode=700 owner=root group=root attrs="")
+      details:
+        - 'current: mode=755 owner=root group=root attrs=""'
+        - 'desired: mode=700 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/cron.d": 755 -> 700'
+      will_change: true
+    - id: cron-hourly-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/cron.hourly"'
+      operator_summary: Set metadata on "/etc/cron.hourly" (mode=700 owner=root group=root attrs="")
+      details:
+        - 'current: mode=755 owner=root group=root attrs=""'
+        - 'desired: mode=700 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/cron.hourly": 755 -> 700'
+      will_change: true
+    - id: cron-daily-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/cron.daily"'
+      operator_summary: Set metadata on "/etc/cron.daily" (mode=700 owner=root group=root attrs="")
+      details:
+        - 'current: mode=755 owner=root group=root attrs=""'
+        - 'desired: mode=700 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/cron.daily": 755 -> 700'
+      will_change: true
+    - id: cron-weekly-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/cron.weekly"'
+      operator_summary: Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")
+      details:
+        - 'current: mode=755 owner=root group=root attrs=""'
+        - 'desired: mode=700 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/cron.weekly": 755 -> 700'
+      will_change: true
+    - id: cron-monthly-perms
+      type: file_meta
+      status: change_planned
+      summary: 'file_meta step: re-stamp metadata on "/etc/cron.monthly"'
+      operator_summary: Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")
+      details:
+        - 'current: mode=755 owner=root group=root attrs=""'
+        - 'desired: mode=700 owner=root group=root attrs=""'
+      diff:
+        - 'mode "/etc/cron.monthly": 755 -> 700'
+      will_change: true
+    - id: grub-cfg-perms
+      type: file_meta
+      status: already_aligned
+      summary: 'file_meta step: no change required for "/boot/grub/grub.cfg" (metadata already matches)'
+      operator_summary: '"/boot/grub/grub.cfg" already has the desired metadata'
+      details:
+        - 'current: mode=600 owner=root group=root attrs=""'
+        - 'desired: mode=600 owner=root group=root attrs=""'
+      will_change: false
+next_steps:
+    apply_command: hardline apply starter-secure-ubuntu-24.04-lts --host 203.0.113.10
+    rollback_command: hardline rollback starter-secure-ubuntu-24.04-lts --host 203.0.113.10

@@ -65,6 +65,10 @@ Notes:
 - The target host must already exist in your `known_hosts` file (or set `HARDLINE_KNOWN_HOSTS`).
 - `apply` automatically re-runs verification and planning before it makes changes.
 
+## Example Run
+
+To see what Hardline produces without running it, [`docs/examples/`](docs/examples/) holds the verify, plan, apply, and rollback logs, the plan report in all three formats, and the rollback journal from a real run of the starter profile against a fresh Ubuntu 24.04 host (host and paths redacted).
+
 ## Supported Targets
 
 Hardline targets Linux hosts. Current support covers Debian-family systems with systemd and nftables: the `packages` plugin uses `apt-get`, the `service` plugin uses `systemctl`, and the `firewall` plugin renders an `nftables` include under `/etc/nftables.d/`. Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, and Debian 12 or later are supported, with the integration tests and the shipped starter profile currently targeting Ubuntu 24.04 LTS; coverage of the other releases is pending additional testing.

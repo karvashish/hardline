@@ -243,7 +243,7 @@ func renderTemplateContentDiff(dest string, current string, desired string, exis
 		if edit.kind == ' ' {
 			continue
 		}
-		lines = append(lines, formatTemplateDiffLine(edit.kind, edit.line))
+		lines = append(lines, fmt.Sprintf("%c%s", edit.kind, edit.line))
 		emitted++
 		if emitted >= templateDiffPreviewLimit {
 			break
@@ -260,13 +260,6 @@ func templateCurrentSuffix(existed bool) string {
 		return ""
 	}
 	return " (absent)"
-}
-
-func formatTemplateDiffLine(kind byte, line string) string {
-	if line == "" {
-		return fmt.Sprintf("%c<empty>", kind)
-	}
-	return fmt.Sprintf("%c%s", kind, line)
 }
 
 func diffTemplateLines(current string, desired string) []templateDiffEdit {

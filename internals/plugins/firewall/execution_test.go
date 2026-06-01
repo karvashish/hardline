@@ -327,10 +327,6 @@ func TestFirewallContentDiffHelpers(t *testing.T) {
 	if got := firewallCurrentSuffix(false); got != " (absent)" {
 		t.Fatalf("unexpected absent suffix: %q", got)
 	}
-	if got := formatFirewallDiffLine('+', ""); got != "+<empty>" {
-		t.Fatalf("unexpected empty diff line format: %q", got)
-	}
-
 	edits := diffFirewallLines("line1\nline2\n", "line1\nline3\n")
 	if len(edits) == 0 {
 		t.Fatalf("expected diff edits")

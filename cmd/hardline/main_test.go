@@ -323,7 +323,7 @@ func TestRun_VerifyProfileDispatch_PrintsStatus(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
 	}
-	if got := out.String(); !bytes.Contains([]byte(got), []byte("verify-profile p")) || !bytes.Contains([]byte(got), []byte("ok")) {
+	if got := out.String(); !bytes.Contains([]byte(got), []byte("verify-profile p")) || !bytes.Contains([]byte(got), []byte("profile verification passed")) {
 		t.Fatalf("expected verify-profile status output, got %q", got)
 	}
 }

@@ -88,26 +88,23 @@ func TestNormalizedHighlights(t *testing.T) {
 
 func TestPreviewPlanLines(t *testing.T) {
 	lines := []string{
+		`package "a": installed -> upgraded`,
 		"--- current /etc/foo",
 		"+++ desired /etc/foo",
 		"@@ -1,2 +1,3 @@",
-		"-old line",
-		"+new line",
-		" context line",
+		"+line one",
+		"+line two",
+		"+line three",
+		`chain policy: accept -> drop`,
 	}
-	got := previewPlanLines(lines, 0)
+	got := previewPlanLines(lines)
 	for _, l := range got {
 		if isDiffHeaderLine(l) {
 			t.Errorf("header line %q leaked into preview", l)
 		}
 	}
-	if len(got) != 3 {
-		t.Errorf("expected 3 substantive lines, got %d (%v)", len(got), got)
-	}
-
-	limited := previewPlanLines(lines, 2)
-	if len(limited) != 2 {
-		t.Errorf("limit=2: got %d lines (%v)", len(limited), limited)
+	if len(got) != 5 {
+		t.Errorf("expected 5 non-framing lines (nothing capped), got %d (%v)", len(got), got)
 	}
 }
 

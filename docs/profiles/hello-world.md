@@ -116,7 +116,7 @@ hardline verify-profile hello-world --allow-local-key
 
 If you built `hardline` from source using the same key, `--allow-local-key` is unnecessary — the binary already trusts the embedded key.
 
-A successful verify ends with `ok` and confirms the profile passed local integrity, schema, template, override, and plugin checks. No SSH connection is attempted.
+A successful verify ends with `profile verification passed` and confirms the profile passed local integrity, schema, template, override, and plugin checks. No SSH connection is attempted.
 
 ## Step 6 — Plan (Optional)
 

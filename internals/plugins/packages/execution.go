@@ -463,8 +463,8 @@ func Plan(ctx pluginapi.Context, pk *Spec) (pluginapi.PlanResult, error) {
 			} else {
 				upgradeWillChange = up
 				details = append(details,
-					logger.ColorGreen+fmt.Sprintf("upgrade: would upgrade %d package(s): %s (%s)",
-						len(up), strings.Join(up, ", "), upgradeDec.reason)+logger.ColorReset,
+					logger.ColorGreen+fmt.Sprintf("upgrade: would upgrade %d package(s) (%s)",
+						len(up), upgradeDec.reason)+logger.ColorReset,
 				)
 			}
 		} else {
@@ -507,8 +507,8 @@ func Plan(ctx pluginapi.Context, pk *Spec) (pluginapi.PlanResult, error) {
 			}
 			if len(installDepsWillChange) > 0 {
 				details = append(details,
-					logger.ColorDim+fmt.Sprintf("apt will also install %d dependency package(s): %s",
-						len(installDepsWillChange), strings.Join(installDepsWillChange, ", "))+logger.ColorReset,
+					logger.ColorDim+fmt.Sprintf("apt will also install %d dependency package(s)",
+						len(installDepsWillChange))+logger.ColorReset,
 				)
 			}
 		}
@@ -546,7 +546,7 @@ func Plan(ctx pluginapi.Context, pk *Spec) (pluginapi.PlanResult, error) {
 				details = append(details, logger.ColorBlue+msg+" ("+autoremoveDec.reason+")"+logger.ColorReset)
 			} else {
 				autoremoveWillChange = pkgs
-				msg := fmt.Sprintf("autoremove: would remove %d package(s): %s", len(pkgs), strings.Join(pkgs, ", "))
+				msg := fmt.Sprintf("autoremove: would remove %d package(s)", len(pkgs))
 				if upgradeDec.willRun {
 					msg += " (may change after upgrade)"
 				}
@@ -611,14 +611,14 @@ func Plan(ctx pluginapi.Context, pk *Spec) (pluginapi.PlanResult, error) {
 					summaryParts = append(summaryParts, fmt.Sprintf("upgrade installed packages %s(none)%s", logger.ColorGreen, logger.ColorReset))
 				}
 			} else {
-				summaryParts = append(summaryParts, "upgrade: "+strings.Join(upgradeWillChange, ", "))
+				summaryParts = append(summaryParts, fmt.Sprintf("upgrade %d package(s)", len(upgradeWillChange)))
 			}
 		}
 		if len(installWillChange) > 0 {
 			summaryParts = append(summaryParts, "install: "+strings.Join(installWillChange, ", "))
 		}
 		if len(installDepsWillChange) > 0 {
-			summaryParts = append(summaryParts, "install dependencies: "+strings.Join(installDepsWillChange, ", "))
+			summaryParts = append(summaryParts, fmt.Sprintf("install %d dependency package(s)", len(installDepsWillChange)))
 		}
 		if len(purgeWillChange) > 0 {
 			summaryParts = append(summaryParts, "purge: "+strings.Join(purgeWillChange, ", "))
@@ -632,7 +632,7 @@ func Plan(ctx pluginapi.Context, pk *Spec) (pluginapi.PlanResult, error) {
 					summaryParts = append(summaryParts, "autoremove unused packages (no packages to remove)")
 				}
 			} else {
-				line := "autoremove unused packages: " + strings.Join(autoremoveWillChange, ", ")
+				line := fmt.Sprintf("autoremove %d unused package(s)", len(autoremoveWillChange))
 				if upgradeDec.willRun {
 					line += " (may change after upgrade)"
 				}

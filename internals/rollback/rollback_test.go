@@ -503,6 +503,85 @@ func TestDeltaOnlyRollback(t *testing.T) {
 	}
 }
 
+func TestServiceReloadTriggered(t *testing.T) {
+	cfg := func(id string, changed bool) StepRecord {
+		before := pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/x", Existed: true, ContentB64: "old"}}
+		after := before
+		if changed {
+			after = pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/x", Existed: true, ContentB64: "new"}}
+		}
+		return StepRecord{ID: id, Type: "template", Before: []pluginapi.ObjectRecord{before}, After: []pluginapi.ObjectRecord{after}}
+	}
+	svc := func(reload *pluginapi.ServiceReload) StepRecord {
+		return StepRecord{ID: "svc", Type: "service", Reload: reload}
+	}
+
+	cases := []struct {
+		name string
+		step StepRecord
+		all  []StepRecord
+		want bool
+	}{
+		{"nil reload", svc(nil), nil, false},
+		{"non-reload action", svc(&pluginapi.ServiceReload{Action: "started"}), nil, false},
+		{"on_change dep changed", svc(&pluginapi.ServiceReload{Action: "reloaded", RestartPolicy: "on_change", RestartDeps: []string{"cfg"}}), []StepRecord{cfg("cfg", true)}, true},
+		{"on_change dep unchanged", svc(&pluginapi.ServiceReload{Action: "reloaded", RestartPolicy: "on_change", RestartDeps: []string{"cfg"}}), []StepRecord{cfg("cfg", false)}, false},
+		{"on_change dep missing", svc(&pluginapi.ServiceReload{Action: "restarted", RestartPolicy: "on_change", RestartDeps: []string{"ghost"}}), []StepRecord{cfg("cfg", true)}, false},
+		{"always policy", svc(&pluginapi.ServiceReload{Action: "restarted", RestartPolicy: "always"}), nil, true},
+		{"absent policy", svc(&pluginapi.ServiceReload{Action: "restarted"}), nil, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serviceReloadTriggered(tc.step, tc.all); got != tc.want {
+				t.Fatalf("serviceReloadTriggered = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestServiceReloadRollbackSkipGate(t *testing.T) {
+	cfgChanged := StepRecord{
+		ID: "cfg", Type: "template", RollbackMode: pluginapi.ModeDeterministic,
+		Before: []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}}},
+		After:  []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: true, ContentB64: "new"}}},
+	}
+	svcObj := pluginapi.ObjectRecord{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "ssh", Enabled: true, Active: true, Known: true}}
+	svcStep := func(deps []string) StepRecord {
+		return StepRecord{
+			ID: "svc", Type: "service", RollbackMode: pluginapi.ModeDeterministic,
+			Before: []pluginapi.ObjectRecord{svcObj},
+			After:  []pluginapi.ObjectRecord{svcObj},
+			Reload: &pluginapi.ServiceReload{Action: "reloaded", RestartPolicy: "on_change", RestartDeps: deps},
+		}
+	}
+
+	run := func(t *testing.T, deps []string) int {
+		restore := stubRollbackHooks()
+		defer restore()
+		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+		var svcRollbacks int
+		installPlugins(t, map[string]fakeBehavior{
+			"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil }},
+			"service":  {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { svcRollbacks++; return nil }},
+		})
+		if err := RollbackSteps(nil, []StepRecord{cfgChanged, svcStep(deps)}); err != nil {
+			t.Fatalf("RollbackSteps failed: %v", err)
+		}
+		return svcRollbacks
+	}
+
+	t.Run("reloads when its config dep changed", func(t *testing.T) {
+		if got := run(t, []string{"cfg"}); got != 1 {
+			t.Fatalf("expected the no-delta service step to roll back once, got %d", got)
+		}
+	})
+	t.Run("stays skipped when dep is unrelated", func(t *testing.T) {
+		if got := run(t, []string{"other"}); got != 0 {
+			t.Fatalf("expected the no-delta service step to be skipped, got %d", got)
+		}
+	})
+}
+
 func TestExecuteRollbackSteps_Conflicts(t *testing.T) {
 	step := StepRecord{
 		ID:           "s",

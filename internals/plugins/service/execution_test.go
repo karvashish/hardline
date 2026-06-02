@@ -355,6 +355,38 @@ func TestCapture(t *testing.T) {
 		if rec.Objects[0].Service.Unit != "ssh" {
 			t.Fatalf("expected ssh unit normalization, got %+v", rec.Objects[0].Service)
 		}
+		if rec.Reload != nil {
+			t.Fatalf("expected nil reload for enable-only step, got %+v", rec.Reload)
+		}
+	})
+
+	t.Run("records reload intent", func(t *testing.T) {
+		calls := 0
+		rec, err := Capture(pluginapi.Context{Host: serviceRuntimeStub{
+			runRootWithOutput: func(string) (string, error) {
+				calls++
+				if calls == 1 {
+					return "enabled", nil
+				}
+				return "active", nil
+			},
+		}}, "s", &Spec{
+			Name:          "sshd",
+			State:         "Reloaded",
+			RestartPolicy: &RestartPolicy{Type: "on_change", Steps: []string{"ssh-template-apply"}},
+		})
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		if rec.Reload == nil {
+			t.Fatalf("expected reload intent recorded")
+		}
+		if rec.Reload.Action != "reloaded" || rec.Reload.RestartPolicy != "on_change" {
+			t.Fatalf("unexpected reload record: %+v", rec.Reload)
+		}
+		if len(rec.Reload.RestartDeps) != 1 || rec.Reload.RestartDeps[0] != "ssh-template-apply" {
+			t.Fatalf("unexpected reload deps: %+v", rec.Reload.RestartDeps)
+		}
 	})
 }
 

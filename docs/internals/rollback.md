@@ -191,12 +191,14 @@ Within each step, it restores the recorded `Before` objects in reverse object or
 
 Two important behaviors are easy to miss:
 
-- steps whose `Before` and `After` snapshots are identical are skipped
+- steps whose `Before` and `After` snapshots are identical are skipped, unless a service step's recorded reload intent fires (see below)
 - service-bearing steps are deferred until after non-service steps, so file and package restoration happens first
 
 That service deferral is operationally important. Restoring files and packages before restoring service state reduces the chance of restarting a unit against half-restored configuration.
 
-The no-delta rule also explains why repeated desired-state runs are often self-cancelling for packages and services. If profile **A** installs `htop` when it is absent and profile **B** later asks for `htop` when it is already installed, B records `Before.WasInstalled = true` and `After.WasInstalled = true`, so B's rollback step is skipped and does **not** uninstall the package. Only A's earlier state-changing run would have a journal entry capable of removing it on rollback. Services behave similarly because rollback records coarse enabled/active state, not every restart as a distinct durable change. Files are different: if two profiles write different bytes to the same managed file, that is a real delta, not a no-op, which is why file overlap remains the dangerous case.
+A reload or restart changes no `enabled`/`active` state, so by the no-delta rule above the service step would be skipped, leaving the running daemon on configuration that was just reverted. To avoid that, each service step records a step-level `reload` intent in its journal entry: the configured action and, for `restart_policy: on_change`, the step IDs it depends on. On rollback a reload/restart action re-runs when one of those dependency steps shows a journal delta (mirroring apply-time `on_change`), or unconditionally for `always` and no-policy steps. Because service steps are deferred, the reload lands after the config it depends on has been reverted, so the unit reloads the restored file.
+
+The no-delta rule also explains why repeated desired-state runs are often self-cancelling for packages and services. If profile **A** installs `htop` when it is absent and profile **B** later asks for `htop` when it is already installed, B records `Before.WasInstalled = true` and `After.WasInstalled = true`, so B's rollback step is skipped and does **not** uninstall the package. Only A's earlier state-changing run would have a journal entry capable of removing it on rollback. Service enable/disable and start/stop behave similarly, since rollback records coarse enabled/active state; a reload/restart leaves no such delta, which is exactly why the step-level `reload` intent above exists to re-run it when its config dependency is reverted. Files are different: if two profiles write different bytes to the same managed file, that is a real delta, not a no-op, which is why file overlap remains the dangerous case.
 
 ## Why Conflict Detection Compares Against `After`
 

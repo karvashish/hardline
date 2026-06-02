@@ -47,6 +47,13 @@ type ServiceState struct {
 	Known   bool   `json:"known"`
 }
 
+// ServiceReload is step-level service intent (not observed state) the rollback consults to re-run the action.
+type ServiceReload struct {
+	Action        string   `json:"action,omitempty"`
+	RestartPolicy string   `json:"restart_policy,omitempty"`
+	RestartDeps   []string `json:"restart_deps,omitempty"`
+}
+
 type PackageState struct {
 	Name             string `json:"name"`
 	WasInstalled     bool   `json:"was_installed"`
@@ -68,6 +75,7 @@ type CaptureResult struct {
 	RollbackMode string         `json:"rollback_mode"`
 	Objects      []ObjectRecord `json:"objects"`
 	Notes        []string       `json:"notes,omitempty"`
+	Reload       *ServiceReload `json:"reload,omitempty"`
 }
 
 type FirewallRuleInfo struct {

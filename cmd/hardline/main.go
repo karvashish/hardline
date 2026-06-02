@@ -48,15 +48,13 @@ func emitPhase(name string) {
 
 // runVerifyPhase emits the VERIFY banner, runs the verification pipeline, and
 // on a clean pass prints a confirmation line so the phase never renders as an
-// empty section. In debug mode the per-check output already covers this.
+// empty section.
 func runVerifyPhase(c cli.Command) error {
 	emitPhase("VERIFY")
 	if err := runVerify(c); err != nil {
 		return err
 	}
-	if !c.Debug {
-		logInfof("profile verification passed\n")
-	}
+	logInfof("profile verification passed\n")
 	return nil
 }
 
@@ -218,9 +216,7 @@ func run(args []string) int {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
-		if !c.Debug {
-			logInfof("profile verification passed\n")
-		}
+		logInfof("profile verification passed\n")
 		return 0
 	case "version", "-v", "-V", "--version", "-version":
 		if len(args) > 2 && isHelpArg(args[2]) {

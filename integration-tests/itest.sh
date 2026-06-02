@@ -28,6 +28,8 @@ MULTI_SUCCESS_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-succe
 PACKAGE_ROLLBACK_PROFILE="${ROOT_DIR}/integration-tests/profiles/package-rollback"
 LAYER_BASE_PROFILE="${ROOT_DIR}/integration-tests/profiles/layer-base"
 FAILURE_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-force-rollback"
+SSH_RELOAD_PROFILE="${ROOT_DIR}/integration-tests/profiles/ssh-reload-success"
+SSH_RELOAD_FORCE_PROFILE="${ROOT_DIR}/integration-tests/profiles/ssh-reload-force-rollback"
 
 # ─── Remote destination constants ────────────────────────────────────────────
 MULTI_SUCCESS_TEMPLATE_DEST="/etc/hardline.d/99-hardline-itest-success.conf"
@@ -42,6 +44,7 @@ MULTI_FAILURE_TEMPLATE_DEST="/etc/hardline.d/99-hardline-itest-force-rollback.co
 MULTI_FAILURE_FIREWALL_DEST="/etc/nftables.d/99-hardline-itest-force-rollback.nft"
 MULTI_FAILURE_FIREWALL_TABLE="hardline_itest_force_rollback"
 FAILURE_DEST="/etc/ssh/sshd_config.d/99-hardline-itest-ssh-bad.conf"
+SSH_RELOAD_DEST="/etc/ssh/sshd_config.d/99-hardline-itest-ssh.conf"
 BOOTSTRAP_MARKER="/var/lib/hardline/itest-base-profile.sha256"
 
 # ─── Source library files ────────────────────────────────────────────────────
@@ -109,14 +112,18 @@ ALL_SCENARIOS=(
   # Rollback (15-19)
   rollback-last package-rollback-last layered-rollback-last
   force-rollback-apply layered-force-rollback
+  ssh-reload-rollback ssh-reload-auto-rollback
   # Rollback extended (20-25)
   auto-rollback-synthetic manual-rollback rollback-no-journal
   local-journal-on-failure remote-journal-on-success journal-checksum
   # Firewall (26-29)
   firewall-nftables firewall-external-plugin firewall-forward-chain firewall-rollback
-  # Service (30-34)
-  service-on-change-skip service-restart-always service-reload-or-restart
-  service-stopped service-enabled-false
+  # Service
+  service-on-change-skip service-reload-rollback service-state-rollback
+  service-started service-policy-always service-restart-always
+  service-reload-or-restart service-stopped service-enabled-false
+  # Conflict detection (post-apply drift blocks rollback unless --force)
+  template-conflict service-conflict package-conflict
   # Packages (35-39)
   package-update-always package-purge package-idempotent
   package-purge-absent package-rollback-reinstalls
@@ -168,6 +175,8 @@ run_scenario() {
     layered-rollback-last)      scenario_layered_rollback_last ;;
     force-rollback-apply)       scenario_force_rollback_apply ;;
     layered-force-rollback)     scenario_layered_force_rollback ;;
+    ssh-reload-rollback)        scenario_ssh_reload_rollback ;;
+    ssh-reload-auto-rollback)   scenario_ssh_reload_auto_rollback ;;
     # Rollback extended
     auto-rollback-synthetic)    scenario_auto_rollback_synthetic ;;
     manual-rollback)            scenario_manual_rollback ;;
@@ -182,10 +191,18 @@ run_scenario() {
     firewall-rollback)          scenario_firewall_rollback ;;
     # Service
     service-on-change-skip)     scenario_service_on_change_skip ;;
+    service-reload-rollback)    scenario_service_reload_rollback ;;
+    service-state-rollback)     scenario_service_state_rollback ;;
+    service-started)            scenario_service_started ;;
+    service-policy-always)      scenario_service_policy_always ;;
     service-restart-always)     scenario_service_restart_always ;;
     service-reload-or-restart)  scenario_service_reload_or_restart ;;
     service-stopped)            scenario_service_stopped ;;
     service-enabled-false)      scenario_service_enabled_false ;;
+    # Conflict detection
+    template-conflict)          scenario_template_conflict ;;
+    service-conflict)           scenario_service_conflict ;;
+    package-conflict)           scenario_package_conflict ;;
     # Packages
     package-update-always)      scenario_package_update_always ;;
     package-purge)              scenario_package_purge ;;

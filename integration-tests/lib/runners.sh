@@ -208,7 +208,7 @@ EOF
   grep -F -q 'udp dport 5353 accept' "${remote_file}" || { rm -rf "${check_dir}"; fail "missing success firewall udp rule"; }
   rm -rf "${check_dir}"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
@@ -216,6 +216,7 @@ systemctl is-active nftables >/dev/null 2>&1
 grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
 nft -c -f /etc/nftables.conf >/dev/null 2>&1
 EOF
+  then fail "success apply did not load firewall/nftables state"; fi
 
   local remote_jpath
   remote_jpath="$(remote_journal_latest itest-multi-plugin-success)"
@@ -290,7 +291,7 @@ EOF
     '.status == $status and .profile_id == $profile' \
     "${journal_path}" >/dev/null || fail "unexpected local rollback journal contents: ${journal_path}"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${MULTI_FAILURE_TEMPLATE_DEST}"
 test ! -e "${MULTI_FAILURE_FIREWALL_DEST}"
@@ -305,6 +306,7 @@ systemctl is-active nftables >/dev/null 2>&1
 grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
 nft -c -f /etc/nftables.conf >/dev/null 2>&1
 EOF
+  then fail "forced rollback did not restore clean remote state"; fi
 }
 
 run_package_rollback_apply() {
@@ -349,12 +351,13 @@ EOF
   }
   rm -rf "${check_dir}"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 dpkg -s "${PACKAGE_ROLLBACK_PACKAGE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
 EOF
+  then fail "package apply did not install package or nftables not running"; fi
 
   local remote_jpath
   remote_jpath="$(remote_journal_latest itest-package-rollback)"
@@ -425,7 +428,7 @@ EOF
   grep -F -q 'udp dport 5355 accept' "${remote_file}" || { rm -rf "${check_dir}"; fail "missing layer base firewall udp rule"; }
   rm -rf "${check_dir}"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
@@ -433,6 +436,7 @@ systemctl is-active nftables >/dev/null 2>&1
 grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
 nft -c -f /etc/nftables.conf >/dev/null 2>&1
 EOF
+  then fail "layer-base apply did not load firewall/nftables state"; fi
 
   local remote_jpath
   remote_jpath="$(remote_journal_latest itest-layer-base)"

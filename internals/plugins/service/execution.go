@@ -249,7 +249,23 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectService, Service: &state},
 	}
+	record.Reload = serviceReloadRecord(spec)
 	return record, nil
+}
+
+func serviceReloadRecord(spec *Spec) *pluginapi.ServiceReload {
+	action := strings.ToLower(strings.TrimSpace(spec.State))
+	if action == "" {
+		return nil
+	}
+	reload := &pluginapi.ServiceReload{Action: action}
+	if spec.RestartPolicy != nil {
+		reload.RestartPolicy = strings.ToLower(strings.TrimSpace(spec.RestartPolicy.Type))
+		if reload.RestartPolicy == "on_change" {
+			reload.RestartDeps = append([]string(nil), spec.RestartPolicy.Steps...)
+		}
+	}
+	return reload
 }
 
 func restartPolicySuppressed(s *Spec, stepChanges map[string]bool, unit string, host pluginapi.Host) bool {

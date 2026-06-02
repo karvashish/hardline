@@ -144,6 +144,42 @@ func stepActuallyChanged(step StepRecord) bool {
 	return string(beforeJSON) != string(afterJSON)
 }
 
+// serviceReloadTriggered re-runs a reload/restart on rollback when its config dep
+// is reverted: on_change fires on a dep delta, always/absent unconditionally.
+func serviceReloadTriggered(step StepRecord, all []StepRecord) bool {
+	r := step.Reload
+	if r == nil || !isServiceReloadAction(r.Action) {
+		return false
+	}
+	if r.RestartPolicy == "on_change" {
+		for _, dep := range r.RestartDeps {
+			if stepChangedByID(all, dep) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func isServiceReloadAction(action string) bool {
+	switch action {
+	case "restarted", "restart", "reloaded", "reload", "reload-or-restart":
+		return true
+	default:
+		return false
+	}
+}
+
+func stepChangedByID(steps []StepRecord, id string) bool {
+	for i := range steps {
+		if steps[i].ID == id {
+			return stepActuallyChanged(steps[i])
+		}
+	}
+	return false
+}
+
 func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	if err := ensureRollbackSudo(client); err != nil {
 		return fmt.Errorf("sudo preflight failed: %w", err)
@@ -159,7 +195,7 @@ func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgres
 
 	for i := len(steps) - 1; i >= 0; i-- {
 		step := steps[i]
-		if !stepActuallyChanged(step) {
+		if !stepActuallyChanged(step) && !serviceReloadTriggered(step, steps) {
 			current++
 			if showProgress {
 				logger.Infof("Reverting %02d/%02d %s [%s] %sSKIPPED%s (no delta)\n",

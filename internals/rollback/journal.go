@@ -36,6 +36,7 @@ type StepRecord struct {
 	Before       []pluginapi.ObjectRecord `json:"before,omitempty"`
 	After        []pluginapi.ObjectRecord `json:"after,omitempty"`
 	Notes        []string                 `json:"notes,omitempty"`
+	Reload       *pluginapi.ServiceReload `json:"reload,omitempty"`
 }
 
 var (
@@ -64,7 +65,17 @@ func NewStepRecordFromCapture(stepID, stepType string, capture pluginapi.Capture
 		RollbackMode: capture.RollbackMode,
 		Before:       cloneObjectRecords(capture.Objects),
 		Notes:        append([]string(nil), capture.Notes...),
+		Reload:       cloneServiceReload(capture.Reload),
 	}
+}
+
+func cloneServiceReload(r *pluginapi.ServiceReload) *pluginapi.ServiceReload {
+	if r == nil {
+		return nil
+	}
+	clone := *r
+	clone.RestartDeps = append([]string(nil), r.RestartDeps...)
+	return &clone
 }
 
 func (s *StepRecord) SetAfterFromCapture(capture pluginapi.CaptureResult) {

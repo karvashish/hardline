@@ -313,6 +313,21 @@ func serviceIsActive(host pluginapi.Host, unit string) bool {
 	return host.RunRoot(cmd) == nil
 }
 
+// serviceUnitPresent reports whether a unit fragment file exists. It uses
+// systemctl cat, which reads the actual unit file: it produces output for a
+// real unit and nothing when no fragment exists. is-enabled and is-active are
+// unreliable here — purging a package removes its unit file but leaves the
+// runtime enable symlink dangling, so is-enabled still reports a state and
+// is-active still prints "inactive". Used to skip restoring a unit that no
+// longer exists (e.g. its package was purged earlier in the same rollback).
+func serviceUnitPresent(host pluginapi.Host, unit string) bool {
+	if host == nil {
+		return false
+	}
+	out, err := host.RunRootWithOutput("systemctl cat " + strconv.Quote(unit) + " 2>/dev/null || true")
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
 func snapshotServiceState(host pluginapi.Host, unit string) (pluginapi.ServiceState, error) {
 	if host == nil {
 		return pluginapi.ServiceState{}, fmt.Errorf("host is required")
@@ -347,6 +362,10 @@ func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) erro
 		return fmt.Errorf("service state for %q is unknown", unit)
 	}
 
+	if !serviceUnitPresent(host, unit) {
+		return nil
+	}
+
 	enableCmd := "systemctl disable " + strconv.Quote(unit)
 	if state.Enabled {
 		enableCmd = "systemctl enable " + strconv.Quote(unit)
@@ -373,12 +392,16 @@ func serviceStateConflict(host pluginapi.Host, state pluginapi.ServiceState) []s
 	if unit == "" {
 		return nil
 	}
-	var conflicts []string
-	if currentEnabled := serviceIsEnabled(host, unit); currentEnabled != state.Enabled {
-		conflicts = append(conflicts, fmt.Sprintf("service %q: enabled state is %v but journal recorded %v after apply (changed since apply)", unit, currentEnabled, state.Enabled))
+	current, err := snapshotServiceState(host, unit)
+	if err != nil {
+		return nil
 	}
-	if currentActive := serviceIsActive(host, unit); currentActive != state.Active {
-		conflicts = append(conflicts, fmt.Sprintf("service %q: active state is %v but journal recorded %v after apply (changed since apply)", unit, currentActive, state.Active))
+	var conflicts []string
+	if current.Enabled != state.Enabled {
+		conflicts = append(conflicts, fmt.Sprintf("service %q: enabled state is %v but journal recorded %v after apply (changed since apply)", unit, current.Enabled, state.Enabled))
+	}
+	if current.Active != state.Active {
+		conflicts = append(conflicts, fmt.Sprintf("service %q: active state is %v but journal recorded %v after apply (changed since apply)", unit, current.Active, state.Active))
 	}
 	return conflicts
 }

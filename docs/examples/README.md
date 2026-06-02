@@ -4,7 +4,9 @@ Real output from running the shipped [`starter-secure-ubuntu-24.04-lts`](../../s
 
 The run followed the documented flow: `verify-profile`, then `plan`, then `apply` (23 steps), then `rollback`. Logs are the `--log-file` output (plain text, one timestamped line per entry).
 
-Host, IP, and runner home paths are replaced with placeholders (`203.0.113.10`, `/home/user`).
+Host, IP, and runner home paths are replaced with placeholders (`203.0.113.10`, `/home/user`), and the build version is normalized to `0.1.2`.
+
+Regenerate with `make examples` (defaults to `PROFILE_DIR=starter-secure-ubuntu-24.04-lts`). It provisions a throwaway Ubuntu 24.04 host, runs the documented flow against it, writes the normalized artifacts here, and always tears the host down.
 
 ## `starter-secure-ubuntu-24.04-lts/`
 

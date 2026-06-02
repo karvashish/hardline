@@ -14,7 +14,7 @@ summary:
     needs_attention: 0
     rollback_available: true
 changes_planned:
-    - 'packages-starter-secure: Update package index; upgrade 13 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
+    - 'packages-starter-secure: Update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
     - 'sshd-config-perms: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")'
     - 'ssh-template-apply: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600'
     - 'ssh-service-reload: Enable ssh at boot; reload or restart ssh'
@@ -39,11 +39,11 @@ steps:
     - id: packages-starter-secure
       type: packages
       status: change_planned
-      summary: 'packages step: update package index; upgrade 13 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
-      operator_summary: 'Update package index; upgrade 13 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
+      summary: 'packages step: update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
+      operator_summary: 'Update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)'
       details:
         - 'will run: apt-get update -y (always)'
-        - 'upgrade: would upgrade 13 package(s) (once: packages need to change)'
+        - 'upgrade: would upgrade 18 package(s) (once: packages need to change)'
         - 'package "nftables": currently installed (no install change)'
         - 'package "auditd": not installed (will be installed)'
         - 'package "fail2ban": not installed (will be installed)'
@@ -62,17 +62,22 @@ steps:
         - 'package index metadata: current -> refreshed from configured repositories'
         - 'package "rsync": installed -> upgraded'
         - 'package "libgcrypt20": installed -> upgraded'
+        - 'package "liblzma5": installed -> upgraded'
         - 'package "libgnutls30t64": installed -> upgraded'
+        - 'package "libapparmor1": installed -> upgraded'
         - 'package "vim": installed -> upgraded'
         - 'package "vim-common": installed -> upgraded'
         - 'package "vim-tiny": installed -> upgraded'
         - 'package "vim-runtime": installed -> upgraded'
         - 'package "xxd": installed -> upgraded'
+        - 'package "apparmor": installed -> upgraded'
         - 'package "bind9-dnsutils": installed -> upgraded'
         - 'package "bind9-host": installed -> upgraded'
         - 'package "bind9-libs": installed -> upgraded'
+        - 'package "xz-utils": installed -> upgraded'
         - 'package "linux-tools-common": installed -> upgraded'
         - 'package "snapd": installed -> upgraded'
+        - 'package "cloud-init": installed -> upgraded'
         - 'package "auditd": absent -> installed'
         - 'package "fail2ban": absent -> installed'
         - 'package "libauparse0t64": absent -> installed (dependency)'

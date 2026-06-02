@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# plugins.sh — Firewall, service, and package plugin scenarios (14 scenarios)
+# plugins.sh — Firewall, service, and package plugin scenarios (16 scenarios)
 # =============================================================================
 # Sourced by itest.sh. Do not run directly.
 
@@ -285,6 +285,79 @@ scenario_service_policy_always() {
     scenario_fail "type=always service reload not re-run on rollback"
   fi
   ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
+}
+
+# ── 30e2. service-static-reload-rollback ────────────────────────────────────
+scenario_service_static_reload_rollback() {
+  local dir="${ARTIFACT_ROOT}/service-static-reload-rollback"
+  reset_dir "${dir}"
+  scenario_start "service-static-reload-rollback: rollback reloads a static unit without a false drift conflict"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  local dest="/etc/hardline.d/99-hardline-svc-static-reload-rb.conf"
+  ssh_cmd "sudo rm -f ${dest}"
+  # systemd-journald is static+active: 'systemctl is-enabled' exits 0 but prints
+  # 'static', so the snapshot records enabled=false. The rollback drift check
+  # must use the same string determination or it falsely sees enabled true->false
+  # and aborts before reloading the daemon.
+  local pdir; pdir=$(make_profile_template_service "svc-static-reload-rb" "${dest}" "StaticReload=yes" "systemd-journald")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  }
+
+  local ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" --log-file "${dir}/rollback.log" >/dev/null 2>&1 || ec=$?
+  ensure_file "${dir}/rollback.log"
+  if [[ $ec -ne 0 ]]; then
+    scenario_fail "rollback failed (static-unit drift falsely flagged as conflict): ${ec}"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  if grep -E 'reload-service \[service\].*SKIPPED' "${dir}/rollback.log" >/dev/null 2>&1; then
+    scenario_fail "static-unit reload skipped on rollback (config reverted, daemon not reloaded)"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  if ! grep -E 'reload-service \[service\].*REVERTED' "${dir}/rollback.log" >/dev/null 2>&1; then
+    scenario_fail "static-unit reload step not reverted on rollback"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  if ssh_cmd "test -f ${dest}" 2>/dev/null; then
+    scenario_fail "config still present after rollback"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  scenario_pass
+}
+
+# ── 30e3. service-purged-unit-rollback ──────────────────────────────────────
+scenario_service_purged_unit_rollback() {
+  scenario_start "service-purged-unit-rollback: rollback skips restoring a service whose package it purges in the same run"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  # auditd is absent on the base image, so rollback purges it (the install
+  # step's 'before' has it absent). The deferred service restore then runs
+  # against auditd.service after its package — and unit file — are gone, and
+  # must no-op instead of failing 'systemctl enable auditd'.
+  ssh_cmd "sudo apt-get purge -y auditd >/dev/null 2>&1" || true
+  local pdir; pdir=$(make_profile_package_service "svc-purged-unit-rb" "auditd" "auditd")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo apt-get purge -y auditd >/dev/null 2>&1" || true; return
+  }
+  if ! ssh_cmd "dpkg -s auditd >/dev/null 2>&1" 2>/dev/null; then
+    scenario_fail "auditd not installed by apply"; ssh_cmd "sudo apt-get purge -y auditd >/dev/null 2>&1" || true; return
+  fi
+
+  local ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" >/dev/null 2>&1 || ec=$?
+  if [[ $ec -ne 0 ]]; then
+    scenario_fail "rollback failed (restore of purged unit not skipped): ${ec}"
+    ssh_cmd "sudo apt-get purge -y auditd >/dev/null 2>&1" || true; return
+  fi
+  if ssh_cmd "dpkg -s auditd >/dev/null 2>&1" 2>/dev/null; then
+    scenario_fail "auditd not purged by rollback"
+    ssh_cmd "sudo apt-get purge -y auditd >/dev/null 2>&1" || true; return
+  fi
+  scenario_pass
 }
 
 # ── 30f. template-conflict ──────────────────────────────────────────────────

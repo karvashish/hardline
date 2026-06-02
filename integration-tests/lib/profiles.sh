@@ -357,6 +357,46 @@ EOJSON
   echo "${dir}"
 }
 
+# Package install + restart of the service that package provides, in one
+# profile. On rollback the package step purges the package (its 'before' has it
+# absent), removing the unit file before the deferred service-restore runs —
+# exercising the "restore a unit whose package was purged" path.
+make_profile_package_service() {
+  local name="$1" pkg="$2" unit="$3"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}",
+  "display_name": "Test: ${name}",
+  "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+  "actions": ["actions/00-pkg-svc.json"],
+  "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-pkg-svc.json" <<EOJSON
+{
+  "steps": [
+    {
+      "id": "install-${pkg}",
+      "plugin": "packages",
+      "config": { "update": "once", "install": ["${pkg}"] }
+    },
+    {
+      "id": "restart-${unit}",
+      "plugin": "service",
+        "config": { "name": "${unit}", "enabled": true, "state": "restarted" }
+    }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
 # Profile with a failing step (triggers rollback)
 make_profile_with_failing_step() {
   local name="$1" good_dest="$2" content="$3"

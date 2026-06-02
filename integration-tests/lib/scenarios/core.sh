@@ -327,7 +327,7 @@ EOF
   "${BINARY_PATH}" rollback "${MULTI_SUCCESS_PROFILE}" "${short_remote_args[@]}" --log-file "${dir}/rollback.log" -d
   ensure_file "${dir}/rollback.log"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${MULTI_SUCCESS_TEMPLATE_DEST}"
 test ! -e "${MULTI_SUCCESS_FIREWALL_DEST}"
@@ -335,6 +335,7 @@ test ! -e "${MULTI_SUCCESS_FIREWALL_DEST}"
 systemctl restart nftables
 ! nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 EOF
+  then scenario_fail "remote state wrong after rollback"; return; fi
 
   scenario_pass
 }

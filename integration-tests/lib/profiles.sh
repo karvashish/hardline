@@ -274,8 +274,12 @@ EOJSON
 
 # Template + service (with restart_policy on_change)
 make_profile_template_service() {
-  local name="$1" template_dest="$2" content="$3" svc_name="$4"
+  local name="$1" template_dest="$2" content="$3" svc_name="$4" policy="${5:-on_change}"
   local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  local restart_policy='{ "type": "on_change", "steps": ["deploy-config"] }'
+  if [[ "${policy}" == "always" ]]; then
+    restart_policy='{ "type": "always" }'
+  fi
   mkdir -p "${dir}/actions" "${dir}/templates"
   echo -n "${content}" > "${dir}/templates/config.tmpl"
   cat > "${dir}/profile.json" <<EOJSON
@@ -309,7 +313,7 @@ EOJSON
         "name": "${svc_name}",
         "enabled": true,
         "state": "reloaded",
-        "restart_policy": { "type": "on_change", "steps": ["deploy-config"] }
+        "restart_policy": ${restart_policy}
       }
     }
   ]

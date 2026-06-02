@@ -16,7 +16,7 @@ scenario_rollback_last() {
     --log-file "${dir}/rollback.log" -d
   ensure_file "${dir}/rollback.log"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${MULTI_SUCCESS_TEMPLATE_DEST}"
 test ! -e "${MULTI_SUCCESS_FIREWALL_DEST}"
@@ -27,6 +27,7 @@ systemctl is-active ssh >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
 EOF
+  then scenario_fail "remote state wrong after rollback"; return; fi
   scenario_pass
 }
 
@@ -42,11 +43,12 @@ scenario_package_rollback_last() {
     --log-file "${dir}/rollback/rollback.log" -d
   ensure_file "${dir}/rollback/rollback.log"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 ! dpkg -s "${PACKAGE_ROLLBACK_PACKAGE}" >/dev/null 2>&1
 test ! -e "${PACKAGE_ROLLBACK_TEMPLATE_DEST}"
 EOF
+  then scenario_fail "package or template still present after rollback"; return; fi
   scenario_pass
 }
 
@@ -82,7 +84,7 @@ scenario_layered_rollback_last() {
   grep -F -q 'tcp dport 2023 accept' "${remote_file}" || { rm -rf "${check_dir}"; scenario_fail "missing layer base tcp rule"; return; }
   rm -rf "${check_dir}"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${MULTI_SUCCESS_TEMPLATE_DEST}"
 test ! -e "${MULTI_SUCCESS_FIREWALL_DEST}"
@@ -90,19 +92,21 @@ systemctl restart nftables
 ! nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 EOF
+  then scenario_fail "top layer not reverted or bottom layer lost"; return; fi
 
   # Cleanup: rollback layer-base too
   run_layer_base_apply "${dir}/layer-base-reapply"
   "${BINARY_PATH}" rollback "${LAYER_BASE_PROFILE}" "${short_remote_args[@]}" \
     --log-file "${dir}/cleanup-rollback.log" -d
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${LAYER_BASE_TEMPLATE_DEST}"
 test ! -e "${LAYER_BASE_FIREWALL_DEST}"
 systemctl restart nftables
 ! nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 EOF
+  then scenario_fail "layer-base not reverted on cleanup rollback"; return; fi
   scenario_pass
 }
 
@@ -140,7 +144,7 @@ scenario_layered_force_rollback() {
   }
   rm -rf "${check_dir}"
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${MULTI_FAILURE_TEMPLATE_DEST}"
 test ! -e "${MULTI_FAILURE_FIREWALL_DEST}"
@@ -150,18 +154,20 @@ systemctl restart nftables
 nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 /usr/sbin/sshd -t
 EOF
+  then scenario_fail "auto-rollback left bad state or dropped base layer"; return; fi
 
   # Cleanup
   "${BINARY_PATH}" rollback "${LAYER_BASE_PROFILE}" "${short_remote_args[@]}" \
     --log-file "${dir}/cleanup-rollback.log" -d
 
-  ssh_cmd "sudo bash -se" <<EOF
+  if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 test ! -e "${LAYER_BASE_TEMPLATE_DEST}"
 test ! -e "${LAYER_BASE_FIREWALL_DEST}"
 systemctl restart nftables
 ! nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 EOF
+  then scenario_fail "layer-base not reverted on cleanup rollback"; return; fi
   scenario_pass
 }
 
@@ -336,4 +342,48 @@ scenario_journal_checksum() {
   else
     scenario_fail "remote checksum is empty"
   fi
+}
+
+# ── 26. ssh-reload-rollback ─────────────────────────────────────────────────
+scenario_ssh_reload_rollback() {
+  local dir="${ARTIFACT_ROOT}/ssh-reload-rollback"
+  reset_dir "${dir}"
+  scenario_start "ssh-reload-rollback: rollback reloads sshd after reverting its drop-in"
+
+  "${BINARY_PATH}" apply "${SSH_RELOAD_PROFILE}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || { scenario_fail "apply failed"; return; }
+  ssh_cmd "test -f ${SSH_RELOAD_DEST}" 2>/dev/null || { scenario_fail "ssh drop-in not deployed"; return; }
+
+  "${BINARY_PATH}" rollback "${SSH_RELOAD_PROFILE}" "${short_remote_args[@]}" --log-file "${dir}/rollback.log" -d >/dev/null 2>&1 || { scenario_fail "rollback failed"; return; }
+  ensure_file "${dir}/rollback.log"
+
+  # ssh is active+enabled before and after apply, so the reload has no state
+  # delta. Rollback must still re-run it (the drop-in it depends on is reverted).
+  if grep -E 'itest-ssh-service-reload \[service\].*SKIPPED' "${dir}/rollback.log" >/dev/null 2>&1; then
+    scenario_fail "ssh reload skipped on rollback (drop-in reverted, sshd not reloaded)"; return
+  fi
+  if ! ssh_cmd "sudo bash -se" <<EOF
+set -euo pipefail
+test ! -e "${SSH_RELOAD_DEST}"
+/usr/sbin/sshd -t
+EOF
+  then scenario_fail "drop-in still present or sshd config invalid after rollback"; return; fi
+  scenario_pass
+}
+
+# ── 27. ssh-reload-auto-rollback ────────────────────────────────────────────
+scenario_ssh_reload_auto_rollback() {
+  scenario_start "ssh-reload-auto-rollback: a failed sshd reload auto-rolls-back the bad drop-in"
+
+  ssh_cmd "sudo rm -f ${FAILURE_DEST}"
+  local ec=0
+  "${BINARY_PATH}" apply "${SSH_RELOAD_FORCE_PROFILE}" "${remote_args[@]}" >/dev/null 2>&1 || ec=$?
+  if [[ $ec -eq 0 ]]; then scenario_fail "apply should have failed on invalid sshd config"; ssh_cmd "sudo rm -f ${FAILURE_DEST}" 2>/dev/null || true; return; fi
+
+  if ! ssh_cmd "sudo bash -se" <<EOF
+set -euo pipefail
+test ! -e "${FAILURE_DEST}"
+/usr/sbin/sshd -t
+EOF
+  then scenario_fail "auto-rollback did not remove bad drop-in or sshd config invalid"; return; fi
+  scenario_pass
 }

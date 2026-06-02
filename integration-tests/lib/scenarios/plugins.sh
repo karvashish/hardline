@@ -163,6 +163,210 @@ scenario_service_on_change_skip() {
   ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
 }
 
+# ── 30b. service-reload-rollback ────────────────────────────────────────────
+scenario_service_reload_rollback() {
+  local dir="${ARTIFACT_ROOT}/service-reload-rollback"
+  reset_dir "${dir}"
+  scenario_start "service-reload-rollback: rollback re-runs the reload of an already-active service whose config it reverts"
+  if [[ "${CAN_SIGN}" != "true" ]]; then
+    scenario_skip "profiletool or signing key not available"
+    return
+  fi
+
+  local dest="/etc/hardline.d/99-hardline-svc-reload-rb.conf"
+  ssh_cmd "sudo rm -f ${dest}"
+  local pdir
+  pdir=$(make_profile_template_service "svc-reload-rb" "${dest}" "ReloadRollback=yes" "cron")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  }
+  if ! ssh_cmd "test -f ${dest}" 2>/dev/null; then
+    scenario_fail "config not deployed by apply"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" --log-file "${dir}/rollback.log" >/dev/null 2>&1 || {
+    scenario_fail "rollback command failed"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  }
+  ensure_file "${dir}/rollback.log"
+
+  # cron is active+enabled before and after apply, so its reload step has no
+  # enabled/active delta. Rollback must still re-run it because its on_change
+  # config dependency (deploy-config) was reverted: the step is REVERTED, not
+  # SKIPPED. A SKIPPED here is the bug where the daemon keeps reverted config.
+  if grep -E 'reload-service \[service\].*SKIPPED' "${dir}/rollback.log" >/dev/null 2>&1; then
+    scenario_fail "service reload skipped on rollback (config reverted, daemon not reloaded)"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  if ! grep -E 'reload-service \[service\].*REVERTED' "${dir}/rollback.log" >/dev/null 2>&1; then
+    scenario_fail "service reload step not reverted on rollback"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  if ssh_cmd "test -f ${dest}" 2>/dev/null; then
+    scenario_fail "config still present after rollback"
+    ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  fi
+  scenario_pass
+}
+
+# ── 30c. service-state-rollback ─────────────────────────────────────────────
+scenario_service_state_rollback() {
+  scenario_start "service-state-rollback: rollback restarts and re-enables a service it stopped and disabled"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  ssh_cmd "sudo systemctl enable --now cron" 2>/dev/null || true
+  local pdir; pdir=$(make_profile_service "svc-state-rb" "cron" "stopped" "false")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo systemctl enable --now cron" 2>/dev/null || true; return
+  }
+  if ssh_cmd "systemctl is-active cron >/dev/null 2>&1" 2>/dev/null || ssh_cmd "systemctl is-enabled cron >/dev/null 2>&1" 2>/dev/null; then
+    scenario_fail "cron should be stopped+disabled after apply"; ssh_cmd "sudo systemctl enable --now cron" 2>/dev/null || true; return
+  fi
+
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" >/dev/null 2>&1 || {
+    scenario_fail "rollback failed"; ssh_cmd "sudo systemctl enable --now cron" 2>/dev/null || true; return
+  }
+  if ssh_cmd "systemctl is-active cron >/dev/null 2>&1" 2>/dev/null && ssh_cmd "systemctl is-enabled cron >/dev/null 2>&1" 2>/dev/null; then
+    scenario_pass
+  else
+    scenario_fail "rollback did not restore cron to active+enabled"
+  fi
+  ssh_cmd "sudo systemctl enable --now cron" 2>/dev/null || true
+}
+
+# ── 30d. service-started ────────────────────────────────────────────────────
+scenario_service_started() {
+  scenario_start "service-started: apply starts a stopped service, rollback stops it again"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  ssh_cmd "sudo systemctl stop cron" 2>/dev/null || true
+  local pdir; pdir=$(make_profile_service "svc-started" "cron" "started" "true")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo systemctl start cron" 2>/dev/null || true; return
+  }
+  if ! ssh_cmd "systemctl is-active cron >/dev/null 2>&1" 2>/dev/null; then
+    scenario_fail "cron not started by apply"; ssh_cmd "sudo systemctl start cron" 2>/dev/null || true; return
+  fi
+
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" >/dev/null 2>&1 || {
+    scenario_fail "rollback failed"; ssh_cmd "sudo systemctl start cron" 2>/dev/null || true; return
+  }
+  if ssh_cmd "systemctl is-active cron >/dev/null 2>&1" 2>/dev/null; then
+    scenario_fail "rollback did not stop the service it started"
+  else
+    scenario_pass
+  fi
+  ssh_cmd "sudo systemctl start cron" 2>/dev/null || true
+}
+
+# ── 30e. service-policy-always ──────────────────────────────────────────────
+scenario_service_policy_always() {
+  local dir="${ARTIFACT_ROOT}/service-policy-always"
+  reset_dir "${dir}"
+  scenario_start "service-policy-always: restart_policy type=always re-runs the reload on rollback"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  local dest="/etc/hardline.d/99-hardline-svc-always.conf"
+  ssh_cmd "sudo rm -f ${dest}"
+  local pdir; pdir=$(make_profile_template_service "svc-always" "${dest}" "AlwaysReload=yes" "cron" "always")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  }
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" --log-file "${dir}/rollback.log" >/dev/null 2>&1 || {
+    scenario_fail "rollback failed"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  }
+  ensure_file "${dir}/rollback.log"
+  if grep -E 'reload-service \[service\].*REVERTED' "${dir}/rollback.log" >/dev/null 2>&1; then
+    scenario_pass
+  else
+    scenario_fail "type=always service reload not re-run on rollback"
+  fi
+  ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
+}
+
+# ── 30f. template-conflict ──────────────────────────────────────────────────
+scenario_template_conflict() {
+  scenario_start "template-conflict: post-apply content drift blocks rollback unless --force-rollback"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  local dest="/etc/hardline.d/99-hardline-tmpl-conflict.conf"
+  ssh_cmd "sudo rm -f ${dest}"
+  local pdir; pdir=$(make_profile_template "tmpl-conflict" "${dest}" "TemplateConflict=yes")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return
+  }
+  ssh_cmd "echo drifted | sudo tee ${dest} >/dev/null"
+
+  local ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" >/dev/null 2>&1 || ec=$?
+  if [[ $ec -eq 0 ]]; then scenario_fail "rollback should have refused on content drift"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return; fi
+
+  ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" --force-rollback >/dev/null 2>&1 || ec=$?
+  if [[ $ec -ne 0 ]]; then scenario_fail "force-rollback failed: ${ec}"; ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true; return; fi
+
+  if ssh_cmd "test -e ${dest}" 2>/dev/null; then
+    scenario_fail "force-rollback did not remove the drifted file"
+  else
+    scenario_pass
+  fi
+  ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
+}
+
+# ── 30g. service-conflict ───────────────────────────────────────────────────
+scenario_service_conflict() {
+  scenario_start "service-conflict: post-apply service drift blocks rollback unless --force-rollback"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  ssh_cmd "sudo systemctl start cron" 2>/dev/null || true
+  local pdir; pdir=$(make_profile_service "svc-conflict" "cron" "stopped" "true")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || {
+    scenario_fail "apply failed"; ssh_cmd "sudo systemctl start cron" 2>/dev/null || true; return
+  }
+  # cron is recorded inactive after apply; start it so current state differs.
+  ssh_cmd "sudo systemctl start cron" 2>/dev/null || true
+
+  local ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" >/dev/null 2>&1 || ec=$?
+  if [[ $ec -eq 0 ]]; then scenario_fail "rollback should have refused on service drift"; ssh_cmd "sudo systemctl start cron" 2>/dev/null || true; return; fi
+
+  ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" --force-rollback >/dev/null 2>&1 || ec=$?
+  if [[ $ec -ne 0 ]]; then scenario_fail "force-rollback failed: ${ec}"; ssh_cmd "sudo systemctl start cron" 2>/dev/null || true; return; fi
+
+  scenario_pass
+  ssh_cmd "sudo systemctl start cron" 2>/dev/null || true
+}
+
+# ── 30h. package-conflict ───────────────────────────────────────────────────
+scenario_package_conflict() {
+  scenario_start "package-conflict: post-apply package drift blocks rollback unless --force-rollback"
+  if [[ "${CAN_SIGN}" != "true" ]]; then scenario_skip "profiletool or signing key not available"; return; fi
+
+  ssh_cmd "sudo apt-get purge -y tree >/dev/null 2>&1" || true
+  local pdir; pdir=$(make_profile_packages_install "pkg-conflict" "tree")
+
+  "${BINARY_PATH}" apply "${pdir}" "${remote_args[@]}" --keep-local-rollback >/dev/null 2>&1 || { scenario_fail "apply failed"; return; }
+  if ! ssh_cmd "dpkg -s tree >/dev/null 2>&1" 2>/dev/null; then scenario_fail "tree not installed by apply"; return; fi
+  # Remove the package so current installed-state differs from the journal.
+  ssh_cmd "sudo apt-get purge -y tree >/dev/null 2>&1" || true
+
+  local ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" >/dev/null 2>&1 || ec=$?
+  if [[ $ec -eq 0 ]]; then scenario_fail "rollback should have refused on package drift"; return; fi
+
+  ec=0
+  "${BINARY_PATH}" rollback "${pdir}" "${remote_args[@]}" --force-rollback >/dev/null 2>&1 || ec=$?
+  if [[ $ec -ne 0 ]]; then scenario_fail "force-rollback failed: ${ec}"; return; fi
+
+  scenario_pass
+}
+
 # ── 31. service-restart-always ──────────────────────────────────────────────
 scenario_service_restart_always() {
   scenario_start "service-restart-always: service with no restart_policy always runs"

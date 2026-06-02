@@ -416,6 +416,19 @@ func TestUnitAndStateHelpers(t *testing.T) {
 	if serviceIsActive(serviceRuntimeStub{runRoot: func(string) error { return errors.New("no") }}, "x") {
 		t.Fatal("expected active=false")
 	}
+
+	if serviceUnitPresent(nil, "x") {
+		t.Fatal("expected nil host to report absent")
+	}
+	if !serviceUnitPresent(serviceRuntimeStub{runRootWithOutput: func(string) (string, error) { return "# /lib/systemd/system/x.service\n", nil }}, "x") {
+		t.Fatal("expected present=true when systemctl cat returns a fragment")
+	}
+	if serviceUnitPresent(serviceRuntimeStub{runRootWithOutput: func(string) (string, error) { return "\n", nil }}, "x") {
+		t.Fatal("expected present=false when systemctl cat returns nothing")
+	}
+	if serviceUnitPresent(serviceRuntimeStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}, "x") {
+		t.Fatal("expected present=false on query error")
+	}
 }
 
 func boolPtr(v bool) *bool { return &v }

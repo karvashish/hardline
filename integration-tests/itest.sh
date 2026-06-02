@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# itest.sh — Hardline unified integration test suite (71 scenarios)
+# itest.sh — Hardline unified integration test suite (82 scenarios)
 # =============================================================================
 # Usage: itest.sh <SCENARIO> <PROFILE_DIR> <OUTPUTS_JSON> <BINARY_PATH>
 #
@@ -120,7 +120,8 @@ ALL_SCENARIOS=(
   firewall-nftables firewall-external-plugin firewall-forward-chain firewall-rollback
   # Service
   service-on-change-skip service-reload-rollback service-state-rollback
-  service-started service-policy-always service-restart-always
+  service-started service-policy-always service-static-reload-rollback
+  service-purged-unit-rollback service-restart-always
   service-reload-or-restart service-stopped service-enabled-false
   # Conflict detection (post-apply drift blocks rollback unless --force)
   template-conflict service-conflict package-conflict
@@ -195,6 +196,8 @@ run_scenario() {
     service-state-rollback)     scenario_service_state_rollback ;;
     service-started)            scenario_service_started ;;
     service-policy-always)      scenario_service_policy_always ;;
+    service-static-reload-rollback) scenario_service_static_reload_rollback ;;
+    service-purged-unit-rollback)   scenario_service_purged_unit_rollback ;;
     service-restart-always)     scenario_service_restart_always ;;
     service-reload-or-restart)  scenario_service_reload_or_restart ;;
     service-stopped)            scenario_service_stopped ;;

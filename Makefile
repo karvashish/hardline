@@ -27,7 +27,7 @@ PROFILE_DIRS := \
 WIN_GOARCH ?= amd64
 WIN_OUTDIR := $(OUTDIR)/windows/$(WIN_GOARCH)
 
-.PHONY: all test build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+.PHONY: all test build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all examples itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -242,3 +242,19 @@ itest-all: build
 	$(MAKE) itest-gcp-down || down=$$?; \
 	if [ $$down -ne 0 ]; then echo "WARNING: teardown failed (down=$$down) — destroy the leftover VM with: make itest-gcp-down"; exit $$down; fi; \
 	exit $$scen
+
+# Regenerate docs/examples/<profile> from a real run: build a fresh binary,
+# provision a throwaway Ubuntu 24.04 host, capture verify/plan/apply/rollback
+# and the journal, normalize host/home/version placeholders, then ALWAYS tear
+# the host down. PROFILE_DIR selects the profile; EXAMPLES_DIR the output dir.
+EXAMPLES_DIR ?= docs/examples/$(PROFILE_DIR)
+examples: build
+	@gen=0; down=0; \
+	if $(MAKE) itest-gcp-up; then \
+		integration-tests/regen-examples.sh "$(PROFILE_DIR)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))" "$(abspath $(EXAMPLES_DIR))" || gen=$$?; \
+	else \
+		gen=1; \
+	fi; \
+	$(MAKE) itest-gcp-down || down=$$?; \
+	if [ $$down -ne 0 ]; then echo "WARNING: teardown failed (down=$$down) — destroy the leftover VM with: make itest-gcp-down"; exit $$down; fi; \
+	exit $$gen

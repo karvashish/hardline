@@ -25,7 +25,7 @@ func TestRestoreServiceState(t *testing.T) {
 
 	t.Run("enabled and stopped", func(t *testing.T) {
 		var cmds []string
-		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }}
+		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }, runRootWithOutput: knownUnit}
 		if err := restoreServiceState(host, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: false}); err != nil {
 			t.Fatalf("restoreServiceState failed: %v", err)
 		}
@@ -36,7 +36,7 @@ func TestRestoreServiceState(t *testing.T) {
 
 	t.Run("active restarts", func(t *testing.T) {
 		var cmds []string
-		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }}
+		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }, runRootWithOutput: knownUnit}
 		if err := restoreServiceState(host, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: true}); err != nil {
 			t.Fatalf("restoreServiceState failed: %v", err)
 		}
@@ -47,12 +47,26 @@ func TestRestoreServiceState(t *testing.T) {
 
 	t.Run("disable when not enabled", func(t *testing.T) {
 		var cmds []string
-		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }}
+		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }, runRootWithOutput: knownUnit}
 		if err := restoreServiceState(host, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: false, Active: false}); err != nil {
 			t.Fatalf("restoreServiceState failed: %v", err)
 		}
 		if len(cmds) != 2 || !strings.Contains(cmds[0], "disable") || !strings.Contains(cmds[1], "stop") {
 			t.Fatalf("unexpected commands: %#v", cmds)
+		}
+	})
+
+	t.Run("absent unit skipped", func(t *testing.T) {
+		var cmds []string
+		host := serviceRuntimeStub{
+			runRoot:           func(cmd string) error { cmds = append(cmds, cmd); return nil },
+			runRootWithOutput: func(string) (string, error) { return "", nil },
+		}
+		if err := restoreServiceState(host, pluginapi.ServiceState{Unit: "auditd", Known: true, Enabled: true, Active: true}); err != nil {
+			t.Fatalf("expected nil for absent unit, got %v", err)
+		}
+		if len(cmds) != 0 {
+			t.Fatalf("expected no restore commands for absent unit, got %#v", cmds)
 		}
 	})
 
@@ -62,7 +76,7 @@ func TestRestoreServiceState(t *testing.T) {
 				return errors.New("enable boom")
 			}
 			return nil
-		}}
+		}, runRootWithOutput: knownUnit}
 		err := restoreServiceState(host, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: true})
 		if err == nil || !strings.Contains(err.Error(), "enabled state") {
 			t.Fatalf("expected enabled state error, got %v", err)
@@ -75,12 +89,19 @@ func TestRestoreServiceState(t *testing.T) {
 				return errors.New("active boom")
 			}
 			return nil
-		}}
+		}, runRootWithOutput: knownUnit}
 		err := restoreServiceState(host, pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: false, Active: true})
 		if err == nil || !strings.Contains(err.Error(), "active state") {
 			t.Fatalf("expected active state error, got %v", err)
 		}
 	})
+}
+
+func knownUnit(cmd string) (string, error) {
+	if strings.Contains(cmd, "is-enabled") {
+		return "enabled\n", nil
+	}
+	return "active\n", nil
 }
 
 func TestSnapshotServiceState(t *testing.T) {
@@ -152,14 +173,14 @@ func TestServiceStateConflict(t *testing.T) {
 	})
 
 	t.Run("matching state", func(t *testing.T) {
-		host := serviceRuntimeStub{enabled: map[string]bool{"nginx": true}, active: map[string]bool{"nginx": true}}
+		host := stateStub("enabled", "active")
 		if got := serviceStateConflict(host, pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true}); len(got) != 0 {
 			t.Fatalf("expected no conflicts, got %v", got)
 		}
 	})
 
 	t.Run("enabled differs", func(t *testing.T) {
-		host := serviceRuntimeStub{enabled: map[string]bool{}, active: map[string]bool{"nginx": true}}
+		host := stateStub("disabled", "active")
 		got := serviceStateConflict(host, pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true})
 		if len(got) != 1 || !strings.Contains(got[0], "enabled state") {
 			t.Fatalf("expected enabled-state conflict, got %v", got)
@@ -167,12 +188,35 @@ func TestServiceStateConflict(t *testing.T) {
 	})
 
 	t.Run("active differs", func(t *testing.T) {
-		host := serviceRuntimeStub{enabled: map[string]bool{"nginx": true}, active: map[string]bool{}}
+		host := stateStub("enabled", "inactive")
 		got := serviceStateConflict(host, pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true})
 		if len(got) != 1 || !strings.Contains(got[0], "active state") {
 			t.Fatalf("expected active-state conflict, got %v", got)
 		}
 	})
+
+	t.Run("static unit no false conflict", func(t *testing.T) {
+		host := stateStub("static", "active")
+		if got := serviceStateConflict(host, pluginapi.ServiceState{Unit: "systemd-journald", Known: true, Enabled: false, Active: true}); len(got) != 0 {
+			t.Fatalf("expected no conflicts for static unit, got %v", got)
+		}
+	})
+
+	t.Run("snapshot error skipped", func(t *testing.T) {
+		host := serviceRuntimeStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}
+		if got := serviceStateConflict(host, pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true}); got != nil {
+			t.Fatalf("expected nil on snapshot error, got %v", got)
+		}
+	})
+}
+
+func stateStub(enabled, active string) serviceRuntimeStub {
+	return serviceRuntimeStub{runRootWithOutput: func(cmd string) (string, error) {
+		if strings.Contains(cmd, "is-enabled") {
+			return enabled + "\n", nil
+		}
+		return active + "\n", nil
+	}}
 }
 
 func TestServicePluginRollbackDispatch(t *testing.T) {
@@ -200,7 +244,7 @@ func TestServicePluginRollbackDispatch(t *testing.T) {
 
 	t.Run("service rolled back", func(t *testing.T) {
 		var cmds []string
-		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }}
+		host := serviceRuntimeStub{runRoot: func(cmd string) error { cmds = append(cmds, cmd); return nil }, runRootWithOutput: knownUnit}
 		obj := pluginapi.ObjectRecord{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "ssh", Known: true, Enabled: true, Active: true}}
 		if err := plugin.Rollback(host, obj); err != nil {
 			t.Fatalf("Rollback failed: %v", err)
@@ -211,7 +255,7 @@ func TestServicePluginRollbackDispatch(t *testing.T) {
 	})
 
 	t.Run("detect conflict dispatch", func(t *testing.T) {
-		host := serviceRuntimeStub{enabled: map[string]bool{}, active: map[string]bool{"nginx": true}}
+		host := stateStub("disabled", "active")
 		obj := pluginapi.ObjectRecord{Kind: pluginapi.ObjectService, Service: &pluginapi.ServiceState{Unit: "nginx", Known: true, Enabled: true, Active: true}}
 		if got := plugin.DetectConflict(host, obj); len(got) != 1 {
 			t.Fatalf("expected one conflict, got %v", got)

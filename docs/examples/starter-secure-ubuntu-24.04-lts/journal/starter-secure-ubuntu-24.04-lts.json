@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "run_id": "20260601T164309.978526271Z",
-  "created_at": "2026-06-01T16:43:09.978526271Z",
+  "run_id": "20260602T163019.647616508Z",
+  "created_at": "2026-06-02T16:30:19.647616508Z",
   "host": "203.0.113.10",
   "profile_id": "starter-secure-ubuntu-24.04-lts",
   "profile_path": "starter-secure-ubuntu-24.04-lts",
@@ -300,7 +300,14 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "reloaded",
+        "restart_policy": "on_change",
+        "restart_deps": [
+          "ssh-template-apply"
+        ]
+      }
     },
     {
       "id": "unattended-upgrades-auto",
@@ -377,7 +384,14 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "restarted",
+        "restart_policy": "on_change",
+        "restart_deps": [
+          "sysctl-hardening-template"
+        ]
+      }
     },
     {
       "id": "timesyncd-enable",
@@ -404,7 +418,10 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "started"
+      }
     },
     {
       "id": "firewall-default-deny",
@@ -456,7 +473,14 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "restarted",
+        "restart_policy": "on_change",
+        "restart_deps": [
+          "firewall-default-deny"
+        ]
+      }
     },
     {
       "id": "fail2ban-ssh-config",
@@ -508,7 +532,10 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "started"
+      }
     },
     {
       "id": "auditd-rules-template",
@@ -560,7 +587,14 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "restarted",
+        "restart_policy": "on_change",
+        "restart_deps": [
+          "auditd-rules-template"
+        ]
+      }
     },
     {
       "id": "journald-configure-persistence",
@@ -612,7 +646,14 @@
             "known": true
           }
         }
-      ]
+      ],
+      "reload": {
+        "action": "restarted",
+        "restart_policy": "on_change",
+        "restart_deps": [
+          "journald-configure-persistence"
+        ]
+      }
     },
     {
       "id": "crontab-perms",
@@ -818,5 +859,5 @@
       ]
     }
   ],
-  "checksum": "000a858298180fe281fc7295e84faebaf4937ae738e597b345d21b411b0154b0"
+  "checksum": "e3205f0d658aedd6070e6673b15ad643bcf26afc277d184c56d71ee3b4f7ebde"
 }

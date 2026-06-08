@@ -41,7 +41,7 @@ Download a prebuilt release archive from [github.com/karvashish/hardline/release
 
 ## Quick Start
 
-Assuming `hardline` is on your `PATH` and you have a copy of the example profile directory (from the release archive or the repo checkout), verify, plan, apply, and roll back:
+Assuming `hardline` is on your `PATH` and you have a copy of the example profile directory (from its separate release archive or the repo checkout), verify, plan, apply, and roll back:
 
 ```bash
 hardline verify-profile starter-secure-ubuntu-24.04-lts

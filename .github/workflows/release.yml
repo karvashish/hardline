@@ -86,7 +86,7 @@ jobs:
           install -m 0755 tmp/hardline "${STAGE}/hardline"
           install -m 0755 tmp/profiletool "${STAGE}/profiletool"
           install -m 0644 tmp/plugins/firewall_template.so "${STAGE}/plugins/firewall_template.so"
-          install -m 0644 README.md "${STAGE}/README.md"
+          install -m 0644 .github/release/README.md "${STAGE}/README.md"
           install -m 0644 LICENSE "${STAGE}/LICENSE"
           tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
           ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
@@ -141,7 +141,7 @@ jobs:
           mkdir -p "${STAGE}"
           install -m 0755 "tmp/windows/${GOARCH}/hardline.exe" "${STAGE}/hardline.exe"
           install -m 0755 "tmp/windows/${GOARCH}/profiletool.exe" "${STAGE}/profiletool.exe"
-          install -m 0644 README.md "${STAGE}/README.md"
+          install -m 0644 .github/release/README.md "${STAGE}/README.md"
           install -m 0644 LICENSE "${STAGE}/LICENSE"
           ( cd dist && zip -qr "${PKG}.zip" "${PKG}" )
           ( cd dist && sha256sum "${PKG}.zip" > "${PKG}.zip.sha256" )

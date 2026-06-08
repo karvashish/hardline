@@ -6,7 +6,7 @@ repository and on the GitHub release page.
 
 ## Contents
 
-Linux archives contain:
+Linux and macOS archives contain:
 
 - `hardline` - main CLI
 - `profiletool` - profile signing and manifest helper
@@ -31,6 +31,12 @@ extracting it:
 
 ```bash
 sha256sum -c hardline-<version>-linux-<arch>.tar.gz.sha256
+```
+
+On macOS, use `shasum` instead:
+
+```bash
+shasum -a 256 -c hardline-<version>-darwin-<arch>.tar.gz.sha256
 ```
 
 On Windows, compare the hash from the `.sha256` file with:
@@ -61,6 +67,31 @@ hardline version
 
 External plugins are loaded from `plugins/` next to the resolved `hardline`
 binary. If you move `hardline`, move `plugins/` with it.
+
+## Install On macOS
+
+macOS supports external plugins, so the `darwin` archive ships
+`plugins/firewall_template.so`. Install it under `/etc/hardline` like the Linux
+archive, with these macOS-specific differences: own the tree as `root:wheel`
+(macOS has no `root` group), and clear the Gatekeeper quarantine flag set on
+browser downloads:
+
+```bash
+sudo mkdir -p /etc/hardline
+sudo tar -xzf hardline-<version>-darwin-<arch>.tar.gz \
+  -C /etc/hardline --strip-components=1
+
+sudo chown -R root:wheel /etc/hardline
+sudo chmod 0755 /etc/hardline /etc/hardline/plugins
+sudo chmod 0755 /etc/hardline/hardline /etc/hardline/profiletool
+sudo chmod 0644 /etc/hardline/plugins/*.so
+sudo xattr -dr com.apple.quarantine /etc/hardline 2>/dev/null || true
+
+sudo mkdir -p /usr/local/bin
+sudo ln -sf /etc/hardline/hardline /usr/local/bin/hardline
+sudo ln -sf /etc/hardline/profiletool /usr/local/bin/profiletool
+hardline version
+```
 
 ## Use On Windows
 

@@ -32,6 +32,51 @@ jobs:
       - name: Build Linux artifacts
         run: make build
 
+  build-macos:
+    name: Build macOS ${{ matrix.goarch }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: arm64
+            setup_arch: arm64
+            arch_token: arm64
+          - goarch: amd64
+            setup_arch: x64
+            arch_token: x86_64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install Rosetta 2
+        if: matrix.goarch == 'amd64'
+        run: sudo softwareupdate --install-rosetta --agree-to-license
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          architecture: ${{ matrix.setup_arch }}
+          cache: true
+
+      - name: Build macOS artifacts
+        run: make build
+
+      - name: Verify built architecture
+        env:
+          ARCH_TOKEN: ${{ matrix.arch_token }}
+        run: |
+          set -euo pipefail
+          for f in tmp/hardline tmp/profiletool tmp/plugins/firewall_template.so; do
+            got=$(file -b "$f")
+            echo "$f: $got"
+            case "$got" in
+              *"$ARCH_TOKEN"*) ;;
+              *) echo "::error::$f is not $ARCH_TOKEN"; exit 1 ;;
+            esac
+          done
+
   build-windows:
     name: Build Windows
     runs-on: ubuntu-latest

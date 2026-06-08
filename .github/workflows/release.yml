@@ -47,9 +47,26 @@ jobs:
           - runner: ubuntu-latest
             goos: linux
             goarch: amd64
+            setup_arch: x64
+            arch_token: x86-64
           - runner: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
+            setup_arch: arm64
+            arch_token: aarch64
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            setup_arch: arm64
+            arch_token: arm64
+          # darwin/amd64 has no Intel runner; build it on Apple Silicon under
+          # Rosetta with an x86_64 Go toolchain (native-amd64 env, not a cross
+          # build, so the cgo plugin links cleanly).
+          - runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            setup_arch: x64
+            arch_token: x86_64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -58,19 +75,39 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
+      - name: Install Rosetta 2
+        if: matrix.goos == 'darwin' && matrix.goarch == 'amd64'
+        run: sudo softwareupdate --install-rosetta --agree-to-license
+
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+          architecture: ${{ matrix.setup_arch }}
           cache: true
 
       - name: Install build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential
 
       - name: Build (hardline, profiletool, firewall_template.so)
         run: make build
+
+      - name: Verify built architecture
+        env:
+          ARCH_TOKEN: ${{ matrix.arch_token }}
+        run: |
+          set -euo pipefail
+          for f in tmp/hardline tmp/profiletool tmp/plugins/firewall_template.so; do
+            got=$(file -b "$f")
+            echo "$f: $got"
+            case "$got" in
+              *"$ARCH_TOKEN"*) ;;
+              *) echo "::error::$f is not $ARCH_TOKEN"; exit 1 ;;
+            esac
+          done
 
       - name: Stage release archive
         id: stage
@@ -89,7 +126,11 @@ jobs:
           install -m 0644 .github/release/README.md "${STAGE}/README.md"
           install -m 0644 LICENSE "${STAGE}/LICENSE"
           tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
-          ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+          if command -v sha256sum >/dev/null 2>&1; then
+            ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+          else
+            ( cd dist && shasum -a 256 "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+          fi
           rm -rf "${STAGE}"
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 

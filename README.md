@@ -37,7 +37,7 @@ The repo ships with:
 
 ## Install
 
-Download a prebuilt release archive from [github.com/karvashish/hardline/releases](https://github.com/karvashish/hardline/releases). Every tag publishes Linux (amd64, arm64) and Windows (amd64, arm64) archives plus the example profile as a separate tarball. Each file has a companion `.sha256` for verification. See the [Install Guide](docs/users/install.md) for verify/extract/PATH steps, or [Build From Source](docs/users/getting-started.md#build-from-source) if you prefer to build from a checkout.
+Download a prebuilt release archive from [github.com/karvashish/hardline/releases](https://github.com/karvashish/hardline/releases). Every tag publishes Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64, arm64) archives plus the example profile as a separate tarball. Each file has a companion `.sha256` for verification. See the [Install Guide](docs/users/install.md) for verify/extract/PATH steps, or [Build From Source](docs/users/getting-started.md#build-from-source) if you prefer to build from a checkout.
 
 ## Quick Start
 

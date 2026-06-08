@@ -1,6 +1,6 @@
 # Install
 
-Hardline ships prebuilt release archives for Linux and Windows on every tagged release. If you prefer to build from source, jump to [Getting Started](getting-started.md#build-from-source).
+Hardline ships prebuilt release archives for Linux, macOS, and Windows on every tagged release. If you prefer to build from source, jump to [Getting Started](getting-started.md#build-from-source).
 
 ## Download A Release
 
@@ -10,12 +10,14 @@ Releases live at:
 https://github.com/karvashish/hardline/releases
 ```
 
-Each tag publishes five archives. Pick the one that matches your machine:
+Each tag publishes seven archives. Pick the one that matches your machine:
 
 | Archive | For |
 | --- | --- |
 | `hardline-<tag>-linux-amd64.tar.gz` | Linux on x86_64 |
 | `hardline-<tag>-linux-arm64.tar.gz` | Linux on arm64 (Graviton, Ampere, Raspberry Pi 4/5, etc.) |
+| `hardline-<tag>-darwin-amd64.tar.gz` | macOS on Intel (x86_64) |
+| `hardline-<tag>-darwin-arm64.tar.gz` | macOS on Apple Silicon (M1/M2/M3/M4) |
 | `hardline-<tag>-windows-amd64.zip` | Windows on x86_64 |
 | `hardline-<tag>-windows-arm64.zip` | Windows on arm64 (Surface Pro X, Snapdragon X) |
 | `starter-secure-ubuntu-24.04-lts-<tag>.tar.gz` | The example Ubuntu 24.04 hardening profile |
@@ -106,6 +108,39 @@ tar -xzf "starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz"
 hardline verify-profile starter-secure-ubuntu-24.04-lts
 ```
 
+## macOS
+
+Both macOS architectures are published - `darwin/amd64` for Intel Macs, `darwin/arm64` for Apple Silicon. Unlike Windows, macOS supports external plugins, so the archive ships `firewall_template.so` alongside the binaries.
+
+The install follows the same root-owned `/etc/hardline` layout as [Linux](#linux), with these macOS-specific differences: verify with `shasum`, own the tree as `root:wheel` (macOS has no `root` group - GID 0 is `wheel`), and clear the Gatekeeper quarantine flag, which is set on archives downloaded through a browser.
+
+```bash
+VERSION=v0.1.0
+ARCH=arm64   # or amd64 on Intel Macs
+
+curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/hardline-${VERSION}-darwin-${ARCH}.tar.gz"
+curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/hardline-${VERSION}-darwin-${ARCH}.tar.gz.sha256"
+shasum -a 256 -c "hardline-${VERSION}-darwin-${ARCH}.tar.gz.sha256"
+
+sudo mkdir -p /etc/hardline
+sudo tar -xzf "hardline-${VERSION}-darwin-${ARCH}.tar.gz" \
+    -C /etc/hardline --strip-components=1
+
+sudo chown -R root:wheel /etc/hardline
+sudo chmod 0755 /etc/hardline /etc/hardline/plugins
+sudo chmod 0755 /etc/hardline/hardline /etc/hardline/profiletool
+sudo chmod 0644 /etc/hardline/plugins/*.so
+sudo xattr -dr com.apple.quarantine /etc/hardline 2>/dev/null || true
+
+sudo mkdir -p /usr/local/bin
+sudo ln -sf /etc/hardline/hardline    /usr/local/bin/hardline
+sudo ln -sf /etc/hardline/profiletool /usr/local/bin/profiletool
+
+hardline version
+```
+
+The same rules as Linux apply from here: external plugins load from the `plugins/` directory next to the resolved binary (see [Put Hardline On Your PATH](#put-hardline-on-your-path)), and the optional [profile signing key](#profile-signing-key-optional) and [example profile](#download-the-example-profile) steps are identical.
+
 ## Windows
 
 On Windows, pick the matching `.zip`:
@@ -137,6 +172,8 @@ Add the extracted directory to `PATH` via **System Properties → Environment Va
 |---|---|---|---|---|
 | Linux amd64 | yes | yes | yes | yes |
 | Linux arm64 | yes | yes | yes | yes |
+| macOS amd64 | yes | yes | yes | yes |
+| macOS arm64 | yes | yes | yes | yes |
 | Windows amd64 | yes | yes | yes | **no** |
 | Windows arm64 | yes | yes | yes | **no** |
 

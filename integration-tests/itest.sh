@@ -1,19 +1,27 @@
 #!/usr/bin/env bash
 # =============================================================================
-# itest.sh — Hardline unified integration test suite (82 scenarios)
+# itest.sh — Hardline integration suite (consolidated, real-state verification)
 # =============================================================================
 # Usage: itest.sh <SCENARIO> <PROFILE_DIR> <OUTPUTS_JSON> <BINARY_PATH>
 #
-# SCENARIO: scenario name or "all" to run everything
-# PROFILE_DIR: path to a valid profile (used for smoke/verify/plan tests)
-# OUTPUTS_JSON: terraform outputs JSON with host/user/key info
-# BINARY_PATH: path to the hardline binary
+#   SCENARIO     scenario name, or "all" to run the whole suite
+#   PROFILE_DIR  a valid signed profile (used by cli-basics / plan tests)
+#   OUTPUTS_JSON terraform outputs JSON (host/user/key)
+#   BINARY_PATH  path to the hardline binary
+#
+# Every scenario runs the real hardline command, then verifies the resulting
+# system state over SSH the way an operator would. One multiplexed SSH
+# connection is shared across the run; each scenario batches its verification
+# into a single remote script (see lib/harness.sh).
 set -uo pipefail
 
-SCENARIO="${1:-smoke}"
+SCENARIO="${1:-base-profile}"
 PROFILE_DIR="${2:?profile path required}"
 OUTPUTS_JSON="${3:?terraform outputs json path required}"
 BINARY_PATH="${4:?hardline binary path required}"
+
+# A bare "smoke" (the Makefile `itest` default) maps to the base-profile run.
+[[ "${SCENARIO}" == "smoke" ]] && SCENARIO="base-profile"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB_DIR="${ROOT_DIR}/integration-tests/lib"
@@ -22,7 +30,7 @@ STATE_DIR="${ROOT_DIR}/tmp/itest-state"
 ARTIFACT_ROOT="${ROOT_DIR}/tmp/itest-artifacts"
 DYNAMIC_PROFILES_DIR=""
 
-# ─── Static profile paths ───────────────────────────────────────────────────
+# ─── Static profile paths (used by runners.sh) ───────────────────────────────
 BASE_PROFILE="${ROOT_DIR}/starter-secure-ubuntu-24.04-lts"
 MULTI_SUCCESS_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-success"
 PACKAGE_ROLLBACK_PROFILE="${ROOT_DIR}/integration-tests/profiles/package-rollback"
@@ -31,7 +39,7 @@ FAILURE_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-force-rollb
 SSH_RELOAD_PROFILE="${ROOT_DIR}/integration-tests/profiles/ssh-reload-success"
 SSH_RELOAD_FORCE_PROFILE="${ROOT_DIR}/integration-tests/profiles/ssh-reload-force-rollback"
 
-# ─── Remote destination constants ────────────────────────────────────────────
+# ─── Remote destination constants (used by runners.sh) ───────────────────────
 MULTI_SUCCESS_TEMPLATE_DEST="/etc/hardline.d/99-hardline-itest-success.conf"
 MULTI_SUCCESS_FIREWALL_DEST="/etc/nftables.d/99-hardline-itest-success.nft"
 MULTI_SUCCESS_FIREWALL_TABLE="hardline_itest_success"
@@ -47,18 +55,21 @@ FAILURE_DEST="/etc/ssh/sshd_config.d/99-hardline-itest-ssh-bad.conf"
 SSH_RELOAD_DEST="/etc/ssh/sshd_config.d/99-hardline-itest-ssh.conf"
 BOOTSTRAP_MARKER="/var/lib/hardline/itest-base-profile.sha256"
 
-# ─── Source library files ────────────────────────────────────────────────────
-source "${LIB_DIR}/framework.sh"
-source "${LIB_DIR}/profiles.sh"
+# ─── Source libraries ────────────────────────────────────────────────────────
+source "${LIB_DIR}/harness.sh"
+source "${LIB_DIR}/fixtures.sh"
 source "${LIB_DIR}/runners.sh"
-source "${LIB_DIR}/scenarios/core.sh"
-source "${LIB_DIR}/scenarios/rollback.sh"
-source "${LIB_DIR}/scenarios/plugins.sh"
-source "${LIB_DIR}/scenarios/errors.sh"
-source "${LIB_DIR}/scenarios/overrides.sh"
-source "${LIB_DIR}/scenarios/filemeta.sh"
+source "${LIB_DIR}/suite/00-cli.sh"
+source "${LIB_DIR}/suite/10-base.sh"
+source "${LIB_DIR}/suite/20-template.sh"
+source "${LIB_DIR}/suite/30-packages.sh"
+source "${LIB_DIR}/suite/40-firewall.sh"
+source "${LIB_DIR}/suite/50-service.sh"
+source "${LIB_DIR}/suite/60-filemeta.sh"
+source "${LIB_DIR}/suite/70-rollback.sh"
+source "${LIB_DIR}/suite/80-overrides.sh"
 
-# ─── Validate prerequisites ─────────────────────────────────────────────────
+# ─── Prerequisites ───────────────────────────────────────────────────────────
 require_cmd jq
 require_cmd sha256sum
 require_cmd ssh
@@ -68,7 +79,7 @@ test -f "${OUTPUTS_JSON}" || fail "missing terraform outputs json: ${OUTPUTS_JSO
 test -x "${BINARY_PATH}" || fail "hardline binary missing: ${BINARY_PATH} (run: make build)"
 test -f "${BASE_PROFILE}/manifest.json" || fail "missing base profile manifest: ${BASE_PROFILE}/manifest.json"
 
-# ─── Extract SSH connection info ─────────────────────────────────────────────
+# ─── SSH connection info ──────────────────────────────────────────────────────
 host="$(jq -er '.external_ip.value' "${OUTPUTS_JSON}")" || fail "failed to read external_ip from ${OUTPUTS_JSON}"
 user="$(jq -er '.ssh_user.value' "${OUTPUTS_JSON}")" || fail "failed to read ssh_user from ${OUTPUTS_JSON}"
 key_path="$(jq -er '.ssh_private_key_path_hint.value' "${OUTPUTS_JSON}")" || fail "failed to read ssh_private_key_path_hint from ${OUTPUTS_JSON}"
@@ -94,189 +105,65 @@ base_manifest_sha="$(sha256sum "${BASE_PROFILE}/manifest.json" | awk '{print $1}
 remote_args=(--host "${host}" --user "${user}" --keypath "${key_path}")
 short_remote_args=(-H "${host}" -u "${user}" -k "${key_path}")
 
-# ─── Initialize signing for dynamic profiles ────────────────────────────────
 init_signing
-
-# Ensure remote dirs exist
+ssh_open_master
 ssh_cmd "sudo mkdir -p /etc/hardline.d /etc/nftables.d"
 
-# ─── Scenario list ──────────────────────────────────────────────────────────
-ALL_SCENARIOS=(
-  # Core CLI (1-4)
-  version verify verify-unsigned verify-tampered
-  # Plan (5-8)
-  plan-reports plan-readonly plan-idempotent plan-diff-output
-  # Apply (9-14)
-  smoke apply-template apply-package
-  apply-keep-local-rollback apply-no-local-rollback apply-concurrent
-  # Rollback (15-19)
-  rollback-last package-rollback-last layered-rollback-last
-  force-rollback-apply layered-force-rollback
-  ssh-reload-rollback ssh-reload-auto-rollback
-  # Rollback extended (20-25)
-  auto-rollback-synthetic manual-rollback rollback-no-journal
-  local-journal-on-failure remote-journal-on-success journal-checksum
-  # Firewall (26-29)
-  firewall-nftables firewall-external-plugin firewall-forward-chain firewall-rollback
+# ─── Scenario registry (ordered) ─────────────────────────────────────────────
+# Function name = scenario_<name-with-dashes-as-underscores>.
+SCENARIOS=(
+  # CLI + verify
+  cli-basics verify-rejections plan-reports plugin-dir-rejected
+  # Base profile (full apply + exhaustive state verification)
+  base-profile
+  # Template
+  template-apply-idempotent-rollback template-conflict-force managed-path-enforcement
+  # Packages
+  package-lifecycle package-rollback
+  # Firewall
+  firewall-basic-rollback firewall-advanced firewall-external-plugin
   # Service
-  service-on-change-skip service-reload-rollback service-state-rollback
-  service-started service-policy-always service-static-reload-rollback
-  service-purged-unit-rollback service-restart-always
-  service-reload-or-restart service-stopped service-enabled-false
-  # Conflict detection (post-apply drift blocks rollback unless --force)
-  template-conflict service-conflict package-conflict
-  # Packages (35-39)
-  package-update-always package-purge package-idempotent
-  package-purge-absent package-rollback-reinstalls
-  # Error paths (40-45)
-  wrong-os-rejected unreachable-host unknown-plugin-rejected
-  managed-path-enforcement malformed-profile verify-missing-template
-  # Edge cases (46-51)
-  min-hardline-version-gate env-state-dir env-known-hosts
-  plugin-dir-warning empty-steps-profile invalid-report-format
-  # Runtime overrides (52-59)
-  overrides-auto-discovered overrides-signature-unaffected
-  overrides-explicit-flag-wins overrides-unknown-key-rejected
-  overrides-invalid-json-rejected overrides-missing-flag-file
-  overrides-apply-auto overrides-apply-flag
-  # File meta (60-71)
-  file-meta-mode file-meta-owner-group file-meta-immutable-set
-  file-meta-immutable-clear file-meta-append-only file-meta-mode-on-immutable
-  file-meta-directory file-meta-idempotent file-meta-rollback
-  file-meta-conflict file-meta-absent-target file-meta-rejected-paths
+  service-state-matrix service-onchange-skip service-reload-rollback
+  service-policy-always service-static-reload-rollback service-purged-unit-rollback
+  service-state-rollback service-conflict
+  # File meta
+  filemeta-stamp filemeta-rollback-conflict filemeta-guards
+  # Rollback (static-profile heavy applies)
+  multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback
+  ssh-reload-rollback ssh-reload-auto-rollback rollback-no-journal apply-no-local-rollback
+  # Overrides
+  overrides-verify overrides-effect
 )
 
-# Scenarios that require base bootstrap
-BOOTSTRAP_SCENARIOS="smoke plan-reports plan-diff-output apply-keep-local-rollback apply-no-local-rollback rollback-last package-rollback-last layered-rollback-last force-rollback-apply layered-force-rollback firewall-external-plugin journal-checksum all"
+# Scenarios that require the base profile applied first (nftables include +
+# base table). "all" bootstraps via the base-profile scenario, which runs first.
+BOOTSTRAP_SET="base-profile firewall-basic-rollback firewall-advanced firewall-external-plugin multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback apply-no-local-rollback overrides-effect"
 
-# ─── Scenario dispatch ──────────────────────────────────────────────────────
 run_scenario() {
   local name="$1"
-  case "${name}" in
-    # Core CLI
-    version)                    scenario_version ;;
-    verify)                     scenario_verify ;;
-    verify-unsigned)            scenario_verify_unsigned ;;
-    verify-tampered)            scenario_verify_tampered ;;
-    # Plan
-    plan-reports)               scenario_plan_reports ;;
-    plan-readonly)              scenario_plan_readonly ;;
-    plan-idempotent)            scenario_plan_idempotent ;;
-    plan-diff-output)           scenario_plan_diff_output ;;
-    # Apply
-    smoke)                      scenario_smoke ;;
-    apply-template)             scenario_apply_template ;;
-    apply-package)              scenario_apply_package ;;
-    apply-keep-local-rollback)  scenario_apply_keep_local_rollback ;;
-    apply-no-local-rollback)    scenario_apply_no_local_rollback ;;
-    apply-concurrent)           scenario_apply_concurrent ;;
-    # Rollback
-    rollback-last)              scenario_rollback_last ;;
-    package-rollback-last)      scenario_package_rollback_last ;;
-    layered-rollback-last)      scenario_layered_rollback_last ;;
-    force-rollback-apply)       scenario_force_rollback_apply ;;
-    layered-force-rollback)     scenario_layered_force_rollback ;;
-    ssh-reload-rollback)        scenario_ssh_reload_rollback ;;
-    ssh-reload-auto-rollback)   scenario_ssh_reload_auto_rollback ;;
-    # Rollback extended
-    auto-rollback-synthetic)    scenario_auto_rollback_synthetic ;;
-    manual-rollback)            scenario_manual_rollback ;;
-    rollback-no-journal)        scenario_rollback_no_journal ;;
-    local-journal-on-failure)   scenario_local_journal_on_failure ;;
-    remote-journal-on-success)  scenario_remote_journal_on_success ;;
-    journal-checksum)           scenario_journal_checksum ;;
-    # Firewall
-    firewall-nftables)          scenario_firewall_nftables ;;
-    firewall-external-plugin)   scenario_firewall_external_plugin ;;
-    firewall-forward-chain)     scenario_firewall_forward_chain ;;
-    firewall-rollback)          scenario_firewall_rollback ;;
-    # Service
-    service-on-change-skip)     scenario_service_on_change_skip ;;
-    service-reload-rollback)    scenario_service_reload_rollback ;;
-    service-state-rollback)     scenario_service_state_rollback ;;
-    service-started)            scenario_service_started ;;
-    service-policy-always)      scenario_service_policy_always ;;
-    service-static-reload-rollback) scenario_service_static_reload_rollback ;;
-    service-purged-unit-rollback)   scenario_service_purged_unit_rollback ;;
-    service-restart-always)     scenario_service_restart_always ;;
-    service-reload-or-restart)  scenario_service_reload_or_restart ;;
-    service-stopped)            scenario_service_stopped ;;
-    service-enabled-false)      scenario_service_enabled_false ;;
-    # Conflict detection
-    template-conflict)          scenario_template_conflict ;;
-    service-conflict)           scenario_service_conflict ;;
-    package-conflict)           scenario_package_conflict ;;
-    # Packages
-    package-update-always)      scenario_package_update_always ;;
-    package-purge)              scenario_package_purge ;;
-    package-idempotent)         scenario_package_idempotent ;;
-    package-purge-absent)       scenario_package_purge_absent ;;
-    package-rollback-reinstalls) scenario_package_rollback_reinstalls ;;
-    # Error paths
-    wrong-os-rejected)          scenario_wrong_os_rejected ;;
-    unreachable-host)           scenario_unreachable_host ;;
-    unknown-plugin-rejected)    scenario_unknown_plugin_rejected ;;
-    managed-path-enforcement)   scenario_managed_path_enforcement ;;
-    malformed-profile)          scenario_malformed_profile ;;
-    verify-missing-template)    scenario_verify_missing_template ;;
-    # Edge cases
-    min-hardline-version-gate)  scenario_min_hardline_version_gate ;;
-    env-state-dir)              scenario_env_state_dir ;;
-    env-known-hosts)            scenario_env_known_hosts ;;
-    plugin-dir-warning)         scenario_plugin_dir_warning ;;
-    empty-steps-profile)        scenario_empty_steps_profile ;;
-    invalid-report-format)      scenario_invalid_report_format ;;
-    # Runtime overrides
-    overrides-auto-discovered)      scenario_overrides_auto_discovered ;;
-    overrides-signature-unaffected) scenario_overrides_signature_unaffected ;;
-    overrides-explicit-flag-wins)   scenario_overrides_explicit_flag_wins ;;
-    overrides-unknown-key-rejected) scenario_overrides_unknown_key_rejected ;;
-    overrides-invalid-json-rejected) scenario_overrides_invalid_json_rejected ;;
-    overrides-missing-flag-file)    scenario_overrides_missing_flag_file ;;
-    overrides-apply-auto)           scenario_overrides_apply_auto ;;
-    overrides-apply-flag)           scenario_overrides_apply_flag ;;
-    # File meta
-    file-meta-mode)              scenario_file_meta_mode ;;
-    file-meta-owner-group)       scenario_file_meta_owner_group ;;
-    file-meta-immutable-set)     scenario_file_meta_immutable_set ;;
-    file-meta-immutable-clear)   scenario_file_meta_immutable_clear ;;
-    file-meta-append-only)       scenario_file_meta_append_only ;;
-    file-meta-mode-on-immutable) scenario_file_meta_mode_on_immutable ;;
-    file-meta-directory)         scenario_file_meta_directory ;;
-    file-meta-idempotent)        scenario_file_meta_idempotent ;;
-    file-meta-rollback)          scenario_file_meta_rollback ;;
-    file-meta-conflict)          scenario_file_meta_conflict ;;
-    file-meta-absent-target)     scenario_file_meta_absent_target ;;
-    file-meta-rejected-paths)    scenario_file_meta_rejected_paths ;;
-    *)
-      fail "unknown scenario: ${name}"
-      ;;
-  esac
+  local fn="scenario_${name//-/_}"
+  if ! declare -F "${fn}" >/dev/null 2>&1; then
+    fail "unknown scenario: ${name} (no function ${fn})"
+  fi
+  "${fn}"
 }
 
-# ─── Bootstrap if needed ────────────────────────────────────────────────────
 needs_bootstrap() {
-  local name="$1"
-  echo "${BOOTSTRAP_SCENARIOS}" | grep -qw "${name}"
+  echo "${BOOTSTRAP_SET}" | grep -qw "$1"
 }
-
-if needs_bootstrap "${SCENARIO}"; then
-  ensure_base_bootstrap
-fi
 
 # ─── Run ─────────────────────────────────────────────────────────────────────
 if [[ "${SCENARIO}" == "all" ]]; then
-  for s in "${ALL_SCENARIOS[@]}"; do
+  for s in "${SCENARIOS[@]}"; do
     run_scenario "${s}"
   done
 else
+  if needs_bootstrap "${SCENARIO}" && [[ "${SCENARIO}" != "base-profile" ]]; then
+    ensure_base_bootstrap
+  fi
   run_scenario "${SCENARIO}"
 fi
 
-# ─── Summary ────────────────────────────────────────────────────────────────
 print_summary
-
-if [[ ${FAILED} -gt 0 ]]; then
-  exit 1
-fi
+[[ ${FAILED} -gt 0 ]] && exit 1
 exit 0

@@ -4,6 +4,7 @@ All notable changes to Hardline. Format follows [Keep A Changelog](https://keepa
 
 ## Releases
 
+- [v0.2.0-rc1](changelog/v0.2.0-rc1.md) — 2026-07-27 _(prerelease)_
 - [v0.1.2](changelog/v0.1.2.md) — 2026-05-29
 - [v0.1.1](changelog/v0.1.1.md) — 2026-05-10
 - [v0.1.0](changelog/v0.1.0.md) — 2026-05-09

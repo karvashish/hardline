@@ -321,11 +321,40 @@ func TestVersionCmd_AndSemVerHelpers(t *testing.T) {
 			t.Fatalf("unexpected semver: %+v", v)
 		}
 
-		bad := []string{"1.2", "a.2.3", "1.b.3", "1.2.c"}
+		bad := []string{"1.2", "a.2.3", "1.b.3", "1.2.c", "1.2.3-", "1.2.3-rc 1", "1.2.3-rc_1"}
 		for _, in := range bad {
 			if _, err := ParseSemVer(in); err == nil {
 				t.Fatalf("expected ParseSemVer(%q) to fail", in)
 			}
+		}
+	})
+
+	t.Run("parse semver prerelease", func(t *testing.T) {
+		v, err := ParseSemVer("v0.2.0-rc1")
+		if err != nil {
+			t.Fatalf("ParseSemVer failed: %v", err)
+		}
+		if v.Major != 0 || v.Minor != 2 || v.Patch != 0 || v.Pre != "rc1" {
+			t.Fatalf("unexpected semver: %+v", v)
+		}
+		if got := v.String(); got != "0.2.0-rc1" {
+			t.Fatalf("expected prerelease preserved in String, got %q", got)
+		}
+
+		v, err = ParseSemVer("0.2.0-beta.2")
+		if err != nil {
+			t.Fatalf("ParseSemVer failed: %v", err)
+		}
+		if v.Pre != "beta.2" {
+			t.Fatalf("unexpected prerelease: %q", v.Pre)
+		}
+
+		v, err = ParseSemVer("1.2.3")
+		if err != nil {
+			t.Fatalf("ParseSemVer failed: %v", err)
+		}
+		if v.Pre != "" || v.String() != "1.2.3" {
+			t.Fatalf("unexpected release semver: %+v", v)
 		}
 	})
 
@@ -344,6 +373,12 @@ func TestVersionCmd_AndSemVerHelpers(t *testing.T) {
 		}
 		if got, err := CompareSemVer("1.2.4", "1.2.3"); err != nil || got != 1 {
 			t.Fatalf("expected patch greater-than compare, got=%d err=%v", got, err)
+		}
+		if got, err := CompareSemVer("0.2.0-rc1", "0.2.0"); err != nil || got != 0 {
+			t.Fatalf("expected prerelease to compare equal to its release, got=%d err=%v", got, err)
+		}
+		if got, err := CompareSemVer("0.2.0-rc1", "0.3.0"); err != nil || got != -1 {
+			t.Fatalf("expected prerelease minor less-than compare, got=%d err=%v", got, err)
 		}
 		if _, err := CompareSemVer("bad", "1.0.0"); err == nil {
 			t.Fatal("expected compare parse error")

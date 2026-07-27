@@ -10,12 +10,11 @@ permissions:
 
 jobs:
   tag:
-    name: Tag and dispatch release build
+    name: Tag release build
     if: startsWith(github.event.head_commit.message, '[release] version ')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -62,12 +61,3 @@ jobs:
             git push origin "$TAG"
             echo "Pushed tag $TAG."
           fi
-
-      - name: Dispatch release workflow
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.extract.outputs.tag }}
-        run: |
-          set -euo pipefail
-          gh workflow run release.yml -f tag="$TAG"
-          echo "Dispatched release.yml for $TAG."

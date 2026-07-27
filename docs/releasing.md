@@ -10,7 +10,7 @@ Releases are cut via a pull request to `main`. There is no manual `git tag` step
    - Adds `changelog/v<version>.md` with the release notes.
    - Updates the top-level `CHANGELOG.md` index to point at the new entry.
 3. Open a PR with the title **`[release] version <version>`**, e.g. `[release] version 0.1.2`.
-4. Wait for CI to go green, then squash-merge.
+4. Wait for CI to go green, then rebase-merge. Squash merge is disabled on the repository so the squashed `(#N)` suffix never enters the release commit subject, which `tag-release.yml` parses.
 
 That's it — the rest is automatic.
 
@@ -39,9 +39,10 @@ The [`tag-release.yml`](../.github/workflows/tag-release.yml) workflow runs on e
 
 1. Re-verifies that `internals/cli/version.json` matches the version in the subject.
 2. Creates the annotated tag `v<version>` and pushes it to `origin`.
-3. Dispatches [`release.yml`](../.github/workflows/release.yml) via `workflow_dispatch` with the tag as input.
 
-The dispatch step is necessary because tags pushed by `GITHUB_TOKEN` do **not** trigger other workflows (GitHub's anti-recursion rule), so the release build cannot rely on its own `push.tags` trigger here.
+Pushing the tag is the only trigger. [`release.yml`](../.github/workflows/release.yml) fires on its own `push.tags` because the tag is pushed with `RELEASE_TAG_PAT` — a user PAT, not `GITHUB_TOKEN`, so GitHub's anti-recursion rule does not apply. And it cannot apply: the "Release tags" ruleset rejects a `GITHUB_TOKEN` tag push outright, so any tag that lands at all was pushed by a bypass-capable PAT and does trigger the build.
+
+`release.yml` also keeps a `workflow_dispatch` entry taking a tag as input. That is a manual escape hatch for re-running a build against an existing tag; it is not part of the automatic path. An earlier version of `tag-release.yml` invoked it on every release, which produced two concurrent builds racing to publish the same GitHub Release (seen on `v0.2.0-rc1`).
 
 `release.yml` then runs unit tests, builds Linux (amd64/arm64) and Windows (amd64/arm64) binaries, packages the starter profile, and publishes a GitHub Release with all the artifacts attached and auto-generated release notes.
 

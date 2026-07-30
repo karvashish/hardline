@@ -36,6 +36,10 @@ func aptRunRoot(host pluginapi.Host, cmd string) error {
 
 var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`)
 
+// validPackageVersion bounds the version read back from dpkg-query before it is
+// concatenated into name=version for a root apt-get install.
+var validPackageVersion = regexp.MustCompile(`^[A-Za-z0-9.+:~-]{1,128}$`)
+
 func validatePackageNames(names []string) error {
 	for _, name := range names {
 		if !validPackageName.MatchString(name) {
@@ -43,10 +47,6 @@ func validatePackageNames(names []string) error {
 		}
 	}
 	return nil
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 func parseSinceDuration(s string) (time.Duration, error) {
@@ -139,7 +139,7 @@ func packageInstalled(host pluginapi.Host, name string) bool {
 	if host == nil {
 		return false
 	}
-	cmd := "dpkg -s " + shellQuote(name) + " >/dev/null 2>&1"
+	cmd := "dpkg -s " + pluginapi.ShellArg(name) + " >/dev/null 2>&1"
 	return host.RunRoot(cmd) == nil
 }
 
@@ -178,7 +178,7 @@ func aptInstallPreview(host pluginapi.Host, pkgs []string) ([]string, error) {
 	}
 	quotedPkgs := make([]string, len(pkgs))
 	for i, p := range pkgs {
-		quotedPkgs[i] = shellQuote(p)
+		quotedPkgs[i] = pluginapi.ShellArg(p)
 	}
 	out, err := host.RunRootWithOutput("DEBIAN_FRONTEND=noninteractive apt-get -s install " + strings.Join(quotedPkgs, " "))
 	if err != nil {
@@ -300,7 +300,7 @@ func Apply(ctx pluginapi.Context, pk *Spec) error {
 	if len(pk.Install) > 0 {
 		quoted := make([]string, len(pk.Install))
 		for i, p := range pk.Install {
-			quoted[i] = shellQuote(p)
+			quoted[i] = pluginapi.ShellArg(p)
 		}
 		cmd := fmt.Sprintf("timeout %d apt-get install -y ", aptTimeoutSeconds) + strings.Join(quoted, " ")
 		if err := aptRunRoot(ctx.Host, cmd); err != nil {
@@ -311,7 +311,7 @@ func Apply(ctx pluginapi.Context, pk *Spec) error {
 	if len(pk.Purge) > 0 {
 		quoted := make([]string, len(pk.Purge))
 		for i, p := range pk.Purge {
-			quoted[i] = shellQuote(p)
+			quoted[i] = pluginapi.ShellArg(p)
 		}
 		cmd := fmt.Sprintf("timeout %d apt-get purge -y ", aptTimeoutSeconds) + strings.Join(quoted, " ")
 		if err := aptRunRoot(ctx.Host, cmd); err != nil {
@@ -711,7 +711,7 @@ func snapshotPackageState(host pluginapi.Host, pk *Spec) ([]pluginapi.ObjectReco
 
 	records := make([]pluginapi.ObjectRecord, 0, len(names))
 	for _, name := range names {
-		cmd := "dpkg-query -W -f='${Status}\\t${Version}' " + shellQuote(name) + " 2>/dev/null || true"
+		cmd := "dpkg-query -W -f='${Status}\\t${Version}' " + pluginapi.ShellArg(name) + " 2>/dev/null || true"
 		out, err := host.RunRootWithOutput(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("capture package state for %q: %w", name, err)
@@ -759,19 +759,23 @@ func restorePackageBestEffort(host pluginapi.Host, p pluginapi.PackageState) err
 	}
 
 	if p.RequestedInstall && !p.WasInstalled {
-		if err := host.RunRoot("apt-get purge -y " + shellQuote(name)); err != nil {
+		if err := host.RunRoot("apt-get purge -y " + pluginapi.ShellArg(name)); err != nil {
 			return fmt.Errorf("purge package %q: %w", name, err)
 		}
 	}
 
+	if err := validatePackageNames([]string{name}); err != nil {
+		return err
+	}
+
 	if p.RequestedPurge && p.WasInstalled {
-		if p.Version != "" {
+		if p.Version != "" && validPackageVersion.MatchString(p.Version) {
 			withVersion := name + "=" + p.Version
-			if err := host.RunRoot("DEBIAN_FRONTEND=noninteractive apt-get install -y " + shellQuote(withVersion)); err == nil {
+			if err := host.RunRoot("DEBIAN_FRONTEND=noninteractive apt-get install -y " + pluginapi.ShellArg(withVersion)); err == nil {
 				return nil
 			}
 		}
-		if err := host.RunRoot("DEBIAN_FRONTEND=noninteractive apt-get install -y " + shellQuote(name)); err != nil {
+		if err := host.RunRoot("DEBIAN_FRONTEND=noninteractive apt-get install -y " + pluginapi.ShellArg(name)); err != nil {
 			return fmt.Errorf("reinstall package %q: %w", name, err)
 		}
 	}
@@ -798,7 +802,7 @@ func packageStateConflict(host pluginapi.Host, p pluginapi.PackageState) []strin
 }
 
 func queryPackageVersion(host pluginapi.Host, name string) string {
-	out, err := host.RunRootWithOutput("dpkg-query -W -f='${Version}' " + shellQuote(name) + " 2>/dev/null")
+	out, err := host.RunRootWithOutput("dpkg-query -W -f='${Version}' " + pluginapi.ShellArg(name) + " 2>/dev/null")
 	if err != nil {
 		return ""
 	}

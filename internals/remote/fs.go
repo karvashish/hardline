@@ -84,7 +84,8 @@ func (c *Client) WriteRootFile(remotePath string, data []byte, mode os.FileMode)
 	}
 
 	modeOct := strconv.FormatUint(uint64(mode.Perm()), 8)
-	cmd := fmt.Sprintf("install -m %s %s %s && rm -f %s", modeOct, tmpPath, remotePath, tmpPath)
+	quotedTmp := shellQuote(tmpPath)
+	cmd := fmt.Sprintf("install -m %s -- %s %s && rm -f -- %s", modeOct, quotedTmp, shellQuote(remotePath), quotedTmp)
 
 	return c.RunRoot(cmd)
 }

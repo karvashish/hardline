@@ -68,6 +68,7 @@ source "${LIB_DIR}/suite/50-service.sh"
 source "${LIB_DIR}/suite/60-filemeta.sh"
 source "${LIB_DIR}/suite/70-rollback.sh"
 source "${LIB_DIR}/suite/80-overrides.sh"
+source "${LIB_DIR}/suite/90-trust-boundary.sh"
 
 # ─── Prerequisites ───────────────────────────────────────────────────────────
 require_cmd jq
@@ -133,11 +134,13 @@ SCENARIOS=(
   ssh-reload-rollback ssh-reload-auto-rollback rollback-no-journal apply-no-local-rollback
   # Overrides
   overrides-verify overrides-effect
+  # Trust boundaries
+  injection-guard signed-bundle-coverage edited-profile-refused firewall-include-rollback
 )
 
 # Scenarios that require the base profile applied first (nftables include +
 # base table). "all" bootstraps via the base-profile scenario, which runs first.
-BOOTSTRAP_SET="base-profile firewall-basic-rollback firewall-advanced firewall-external-plugin multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback apply-no-local-rollback overrides-effect"
+BOOTSTRAP_SET="base-profile firewall-basic-rollback firewall-include-rollback firewall-advanced firewall-external-plugin multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback apply-no-local-rollback overrides-effect"
 
 run_scenario() {
   local name="$1"

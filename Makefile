@@ -27,7 +27,7 @@ PROFILE_DIRS := \
 WIN_GOARCH ?= amd64
 WIN_OUTDIR := $(OUTDIR)/windows/$(WIN_GOARCH)
 
-.PHONY: all test build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all examples itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+.PHONY: all test check-schemas check-standalone build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all examples itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -45,6 +45,7 @@ test:
 		pkg_profile="$(OUTDIR)/$${pkg_name}.cover.out"; \
 		pkg_log="$(OUTDIR)/$${pkg_name}.cover.log"; \
 		GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go test "$$pkg" -count=1 -coverprofile="$$pkg_profile" >"$$pkg_log" 2>&1 || { cat "$$pkg_log"; exit 1; }; \
+		if [ "$$(wc -l <"$$pkg_profile")" -le 1 ]; then continue; fi; \
 		pkg_cov=$$(GOCACHE=$(GO_CACHE_DIR) GO111MODULE=on go tool cover -func="$$pkg_profile" | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
 		if ! awk "BEGIN { exit !($$pkg_cov >= $(MIN_COVERAGE)) }"; then \
 			echo "package coverage below minimum: $$pkg $$pkg_cov%"; \
@@ -131,6 +132,15 @@ genschema:
 
 	@echo "== generating JSON schemas =="
 	$(SCHEMA_BIN)
+
+# Fails if the committed schemas drift from the Go structs they are reflected
+# from. They are embedded into the binary, so a stale commit ships stale rules.
+check-schemas: genschema
+	@git diff --exit-code -- schema/ || \
+		{ echo "schema/ is stale; run 'make genschema' and commit the result"; exit 1; }
+
+check-standalone:
+	@scripts/check-standalone.sh
 
 tidy:
 	@go mod tidy

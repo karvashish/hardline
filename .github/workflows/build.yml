@@ -32,6 +32,12 @@ jobs:
       - name: Build Linux artifacts
         run: make build
 
+      - name: Check generated schemas are current
+        run: make check-schemas
+
+      - name: Check a standalone binary can verify without the source tree
+        run: make check-standalone
+
   build-macos:
     name: Build macOS ${{ matrix.goarch }}
     runs-on: macos-latest

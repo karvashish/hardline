@@ -3,6 +3,7 @@ package filemeta
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -72,12 +73,12 @@ func Apply(ctx pluginapi.Context, s *Spec) error {
 	}
 
 	if modeChange {
-		if err := runRoot("chmod " + strconv.Quote(desiredMode) + " -- " + strconv.Quote(target)); err != nil {
+		if err := runRoot("chmod " + pluginapi.ShellArg(desiredMode) + " -- " + pluginapi.ShellArg(target)); err != nil {
 			return fmt.Errorf("chmod %q: %w", target, err)
 		}
 	}
 	if ownerChange {
-		if err := runRoot("chown " + strconv.Quote(chownArg(s)) + " -- " + strconv.Quote(target)); err != nil {
+		if err := runRoot("chown " + pluginapi.ShellArg(chownArg(s)) + " -- " + pluginapi.ShellArg(target)); err != nil {
 			return fmt.Errorf("chown %q: %w", target, err)
 		}
 	}
@@ -215,7 +216,7 @@ func restoreFileMeta(host pluginapi.Host, snap pluginapi.FileMetaSnapshot) error
 	if host == nil {
 		return fmt.Errorf("host is required")
 	}
-	if err := host.RunRoot("test -e " + strconv.Quote(snap.Path)); err != nil {
+	if err := host.RunRoot("test -e " + pluginapi.ShellArg(snap.Path)); err != nil {
 		return fmt.Errorf("restore file metadata for %q: path no longer exists", snap.Path)
 	}
 
@@ -223,13 +224,13 @@ func restoreFileMeta(host pluginapi.Host, snap pluginapi.FileMetaSnapshot) error
 		return err
 	}
 	if strings.TrimSpace(snap.Mode) != "" {
-		if err := host.RunRoot("chmod " + strconv.Quote(snap.Mode) + " -- " + strconv.Quote(snap.Path)); err != nil {
+		if err := host.RunRoot("chmod " + pluginapi.ShellArg(snap.Mode) + " -- " + pluginapi.ShellArg(snap.Path)); err != nil {
 			return fmt.Errorf("restore mode for %q: %w", snap.Path, err)
 		}
 	}
 	if strings.TrimSpace(snap.Owner) != "" || strings.TrimSpace(snap.Group) != "" {
 		ownerSpec := strings.TrimSpace(snap.Owner) + ":" + strings.TrimSpace(snap.Group)
-		if err := host.RunRoot("chown " + strconv.Quote(ownerSpec) + " -- " + strconv.Quote(snap.Path)); err != nil {
+		if err := host.RunRoot("chown " + pluginapi.ShellArg(ownerSpec) + " -- " + pluginapi.ShellArg(snap.Path)); err != nil {
 			return fmt.Errorf("restore owner/group for %q: %w", snap.Path, err)
 		}
 	}
@@ -274,6 +275,17 @@ func desiredManagedAttrs(curAttrs string, s *Spec) string {
 	return string(out)
 }
 
+// userGroupPattern is the whitelist for owner and group names reaching chown as
+// root. It matches what useradd/groupadd accept and nothing with shell meaning.
+var userGroupPattern = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$`)
+
+func validateUserGroup(kind, name string) error {
+	if !userGroupPattern.MatchString(name) {
+		return fmt.Errorf("invalid %s %q: must match %s", kind, name, userGroupPattern.String())
+	}
+	return nil
+}
+
 func chownArg(s *Spec) string {
 	owner := strings.TrimSpace(s.Owner)
 	group := strings.TrimSpace(s.Group)
@@ -311,13 +323,13 @@ func snapshotFileMeta(host pluginapi.Host, target string) (pluginapi.FileMetaSna
 	}
 
 	snap := pluginapi.FileMetaSnapshot{Path: target}
-	if err := host.RunRoot("test -e " + strconv.Quote(target)); err != nil {
+	if err := host.RunRoot("test -e " + pluginapi.ShellArg(target)); err != nil {
 		snap.Existed = false
 		return snap, nil
 	}
 	snap.Existed = true
 
-	out, err := host.RunRootWithOutput("stat -c '%a %U %G' -- " + strconv.Quote(target))
+	out, err := host.RunRootWithOutput("stat -c '%a %U %G' -- " + pluginapi.ShellArg(target))
 	if err != nil {
 		return snap, err
 	}
@@ -338,7 +350,7 @@ func snapshotFileMeta(host pluginapi.Host, target string) (pluginapi.FileMetaSna
 }
 
 func readManagedAttrs(host pluginapi.Host, target string) (string, error) {
-	out, err := host.RunRootWithOutput("lsattr -d -- " + strconv.Quote(target))
+	out, err := host.RunRootWithOutput("lsattr -d -- " + pluginapi.ShellArg(target))
 	if err != nil {
 		return "", fmt.Errorf("read attrs for %q: %w", target, err)
 	}
@@ -361,19 +373,22 @@ func readManagedAttrs(host pluginapi.Host, target string) (string, error) {
 // (immutable) chattr flags; attrs outside this set are never touched.
 const managedAttrLetters = "ai"
 
+// targetPathPattern is the whitelist for file_meta targets. Printable ASCII was
+// too wide: it admitted $, backtick and parentheses, which expand inside the
+// double quotes of a root sh -lc. @ is kept for systemd template unit paths; it
+// has no shell meaning in any position.
+var targetPathPattern = regexp.MustCompile(`^[A-Za-z0-9._/@-]+$`)
+
 // enforceAbsCleanPath canonicalizes the target of a root-executed step from a
-// signed profile. It requires printable ASCII with no whitespace or control
-// characters — a NUL/newline/CR breaks command construction and a unicode
-// homoglyph spoofs review — then an absolute, non-root, normalized path. A
-// trailing slash is tolerated; .. and // are rejected so the path stays literal.
+// signed profile. It requires the whitelisted character set, then an absolute,
+// non-root, normalized path. A trailing slash is tolerated; .. and // are
+// rejected so the path stays literal.
 func enforceAbsCleanPath(target string) (string, error) {
 	if target == "" {
 		return "", fmt.Errorf("target path is empty")
 	}
-	for i := 0; i < len(target); i++ {
-		if target[i] < 0x21 || target[i] > 0x7e {
-			return "", fmt.Errorf("target %q must be printable ASCII with no whitespace or control characters", target)
-		}
+	if !targetPathPattern.MatchString(target) {
+		return "", fmt.Errorf("target %q contains characters outside the allowed set [A-Za-z0-9._/@-]", target)
 	}
 	if !strings.HasPrefix(target, "/") {
 		return "", fmt.Errorf("target %q is not an absolute path", target)
@@ -404,12 +419,12 @@ func applyManagedAttrs(runRoot func(string) error, target, desired string) error
 		}
 	}
 	if len(clear) > 0 {
-		if err := runRoot("chattr -" + string(clear) + " -- " + strconv.Quote(target)); err != nil {
+		if err := runRoot("chattr -" + string(clear) + " -- " + pluginapi.ShellArg(target)); err != nil {
 			return fmt.Errorf("clear attrs %q on %q: %w", string(clear), target, err)
 		}
 	}
 	if len(set) > 0 {
-		if err := runRoot("chattr +" + string(set) + " -- " + strconv.Quote(target)); err != nil {
+		if err := runRoot("chattr +" + string(set) + " -- " + pluginapi.ShellArg(target)); err != nil {
 			return fmt.Errorf("set attrs %q on %q: %w", string(set), target, err)
 		}
 	}

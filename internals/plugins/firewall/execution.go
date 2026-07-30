@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -75,7 +76,7 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 
 	dir := path.Dir(destPath)
 	if dir != "" && dir != "." {
-		if err := ctx.Host.RunRoot(fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := ctx.Host.RunRoot("mkdir -p " + pluginapi.ShellArg(dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
@@ -121,11 +122,11 @@ func statFirewallDestination(rt firewallStatRuntime, dest string) (int64, os.Fil
 	if rt == nil {
 		return 0, 0, fmt.Errorf("runtime is required")
 	}
-	if err := rt.RunRoot(fmt.Sprintf("test -e %s", strconv.Quote(dest))); err != nil {
+	if err := rt.RunRoot(fmt.Sprintf("test -e %s", pluginapi.ShellArg(dest))); err != nil {
 		return -1, 0, nil
 	}
 
-	out, err := rt.RunRootWithOutput(fmt.Sprintf("stat -c '%%a %%s' -- %s", strconv.Quote(dest)))
+	out, err := rt.RunRootWithOutput(fmt.Sprintf("stat -c '%%a %%s' -- %s", pluginapi.ShellArg(dest)))
 	if err != nil {
 		return 0, 0, err
 	}
@@ -399,11 +400,53 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
+	// Apply also appends the include line to /etc/nftables.conf, so that file
+	// has to be journalled too or rollback silently leaves the mutation behind.
+	mainSnap, err := pluginapi.SnapshotRemoteFile(ctx.Host, NftablesMainConfigPath)
+	if err != nil {
+		return record, fmt.Errorf("capture firewall snapshot for %q: %w", NftablesMainConfigPath, err)
+	}
+
 	record.RollbackMode = pluginapi.ModeDeterministic
+	// Rollback walks Before in reverse, so listing nftables.conf first restores
+	// the managed file before the include that points at its directory.
 	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectFile, File: &mainSnap},
 		{Kind: pluginapi.ObjectFile, File: &snap},
 	}
 	return record, nil
+}
+
+// restoreNftablesMainConfig reverts /etc/nftables.conf to its pre-apply bytes,
+// which is what removes the include line apply appended. It deliberately skips
+// EnforceManagedPath: this path is a package constant, never profile input.
+func restoreNftablesMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
+	if host == nil {
+		return fmt.Errorf("firewall rollback: host is required")
+	}
+	if snap.Path != NftablesMainConfigPath {
+		return fmt.Errorf("firewall rollback: unexpected main config path %q", snap.Path)
+	}
+
+	if !snap.Existed {
+		return host.RunRoot("rm -f " + pluginapi.ShellArg(snap.Path))
+	}
+
+	mode := os.FileMode(0o600)
+	if trimmed := strings.TrimSpace(snap.Mode); trimmed != "" {
+		if parsed, err := strconv.ParseUint(trimmed, 8, 32); err == nil {
+			mode = os.FileMode(parsed)
+		}
+	}
+
+	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
+	if err != nil {
+		return fmt.Errorf("decode snapshot content for %q: %w", snap.Path, err)
+	}
+	if err := host.WriteRootFile(snap.Path, content, mode); err != nil {
+		return fmt.Errorf("restore file %q: %w", snap.Path, err)
+	}
+	return nil
 }
 
 func ManagedDestination(fw *Spec) string {

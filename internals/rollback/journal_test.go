@@ -592,48 +592,6 @@ func TestDeleteRemoteJournal(t *testing.T) {
 	})
 }
 
-func TestDefaultLoadProfileID(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte(`{"id":"base-secure"}`), 0o644); err != nil {
-			t.Fatalf("write profile.json: %v", err)
-		}
-		id, err := defaultLoadProfileID(dir)
-		if err != nil {
-			t.Fatalf("defaultLoadProfileID failed: %v", err)
-		}
-		if id != "base-secure" {
-			t.Fatalf("unexpected profile ID: %q", id)
-		}
-	})
-
-	t.Run("missing file", func(t *testing.T) {
-		if _, err := defaultLoadProfileID(t.TempDir()); err == nil || !strings.Contains(err.Error(), "read profile.json") {
-			t.Fatalf("expected read error, got %v", err)
-		}
-	})
-
-	t.Run("bad json", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte("{bad"), 0o644); err != nil {
-			t.Fatalf("write profile.json: %v", err)
-		}
-		if _, err := defaultLoadProfileID(dir); err == nil || !strings.Contains(err.Error(), "parse profile.json") {
-			t.Fatalf("expected parse error, got %v", err)
-		}
-	})
-
-	t.Run("missing id field", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte(`{"version":1}`), 0o644); err != nil {
-			t.Fatalf("write profile.json: %v", err)
-		}
-		if _, err := defaultLoadProfileID(dir); err == nil || !strings.Contains(err.Error(), "missing id field") {
-			t.Fatalf("expected missing id error, got %v", err)
-		}
-	})
-}
-
 func stubJournalHooks() func() {
 	prevNow := nowUTC
 	prevStateDir := resolveStateDir

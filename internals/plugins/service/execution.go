@@ -2,7 +2,7 @@ package service
 
 import (
 	"fmt"
-	"strconv"
+	"regexp"
 	"strings"
 
 	"github.com/karvashish/hardline/pkg/logger"
@@ -18,6 +18,9 @@ func Apply(ctx pluginapi.Context, s *Spec) error {
 	}
 
 	unit := normalizeServiceUnit(s.Name)
+	if err := validateServiceUnit(unit); err != nil {
+		return err
+	}
 	logger.Debugf("handleService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, formatBoolPtr(s.Enabled), s.State)
 
 	if s.Enabled != nil {
@@ -25,9 +28,9 @@ func Apply(ctx pluginapi.Context, s *Spec) error {
 		if *s.Enabled != enabledNow {
 			var cmd string
 			if *s.Enabled {
-				cmd = fmt.Sprintf("systemctl enable %s", strconv.Quote(unit))
+				cmd = fmt.Sprintf("systemctl enable %s", pluginapi.ShellArg(unit))
 			} else {
-				cmd = fmt.Sprintf("systemctl disable %s", strconv.Quote(unit))
+				cmd = fmt.Sprintf("systemctl disable %s", pluginapi.ShellArg(unit))
 			}
 			if err := ctx.Host.RunRoot(cmd); err != nil {
 				return fmt.Errorf("systemctl enable/disable %s: %w", unit, err)
@@ -49,25 +52,25 @@ func Apply(ctx pluginapi.Context, s *Spec) error {
 			logger.Debugf("handleService: %s already active, skipping start\n", unit)
 			return nil
 		}
-		cmd = fmt.Sprintf("systemctl start %s", strconv.Quote(unit))
+		cmd = fmt.Sprintf("systemctl start %s", pluginapi.ShellArg(unit))
 	case "stopped", "stop":
 		if !serviceIsActive(ctx.Host, unit) {
 			logger.Debugf("handleService: %s already inactive, skipping stop\n", unit)
 			return nil
 		}
-		cmd = fmt.Sprintf("systemctl stop %s", strconv.Quote(unit))
+		cmd = fmt.Sprintf("systemctl stop %s", pluginapi.ShellArg(unit))
 	case "restarted", "restart":
 		if restartPolicySuppressed(s, ctx.StepChanges, unit, ctx.Host) {
 			logger.Debugf("handleService: %s skipping restart (restart_policy=on_change: no upstream change, service aligned)\n", unit)
 			return nil
 		}
-		cmd = fmt.Sprintf("systemctl restart %s", strconv.Quote(unit))
+		cmd = fmt.Sprintf("systemctl restart %s", pluginapi.ShellArg(unit))
 	case "reloaded", "reload", "reload-or-restart":
 		if restartPolicySuppressed(s, ctx.StepChanges, unit, ctx.Host) {
 			logger.Debugf("handleService: %s skipping reload (restart_policy=on_change: no upstream change, service aligned)\n", unit)
 			return nil
 		}
-		cmd = fmt.Sprintf("systemctl reload-or-restart %s", strconv.Quote(unit))
+		cmd = fmt.Sprintf("systemctl reload-or-restart %s", pluginapi.ShellArg(unit))
 	default:
 		return fmt.Errorf("unsupported service state %q for %s", s.State, unit)
 	}
@@ -88,6 +91,9 @@ func Plan(ctx pluginapi.Context, s *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	unit := normalizeServiceUnit(s.Name)
+	if err := validateServiceUnit(unit); err != nil {
+		return pluginapi.PlanResult{}, err
+	}
 	logger.Debugf("planService: name=%q unit=%q enabled=%v state=%q\n", s.Name, unit, formatBoolPtr(s.Enabled), s.State)
 
 	var details []string
@@ -240,6 +246,9 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	}
 
 	unit := normalizeServiceUnit(spec.Name)
+	if err := validateServiceUnit(unit); err != nil {
+		return record, err
+	}
 	state, err := snapshotServiceState(ctx.Host, unit)
 	if err != nil {
 		return record, fmt.Errorf("capture service snapshot for %q: %w", unit, err)
@@ -289,6 +298,19 @@ func restartPolicySuppressed(s *Spec, stepChanges map[string]bool, unit string, 
 	return true
 }
 
+// serviceUnitPattern is the whitelist for unit names reaching systemctl as
+// root. It covers every character systemd itself allows in a unit name and
+// nothing else, and the leading alphanumeric rejects a name like --force that
+// would otherwise be read as an option rather than an operand.
+var serviceUnitPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$`)
+
+func validateServiceUnit(unit string) error {
+	if !serviceUnitPattern.MatchString(unit) {
+		return fmt.Errorf("invalid service unit %q: must match %s", unit, serviceUnitPattern.String())
+	}
+	return nil
+}
+
 func normalizeServiceUnit(unit string) string {
 	name := strings.TrimSpace(unit)
 	if name == "sshd" {
@@ -301,7 +323,7 @@ func serviceIsEnabled(host pluginapi.Host, unit string) bool {
 	if host == nil {
 		return false
 	}
-	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", strconv.Quote(unit))
+	cmd := fmt.Sprintf("systemctl is-enabled %s >/dev/null 2>&1", pluginapi.ShellArg(unit))
 	return host.RunRoot(cmd) == nil
 }
 
@@ -309,7 +331,7 @@ func serviceIsActive(host pluginapi.Host, unit string) bool {
 	if host == nil {
 		return false
 	}
-	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", strconv.Quote(unit))
+	cmd := fmt.Sprintf("systemctl is-active %s >/dev/null 2>&1", pluginapi.ShellArg(unit))
 	return host.RunRoot(cmd) == nil
 }
 
@@ -324,7 +346,7 @@ func serviceUnitPresent(host pluginapi.Host, unit string) bool {
 	if host == nil {
 		return false
 	}
-	out, err := host.RunRootWithOutput("systemctl cat " + strconv.Quote(unit) + " 2>/dev/null || true")
+	out, err := host.RunRootWithOutput("systemctl cat " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
 	return err == nil && strings.TrimSpace(out) != ""
 }
 
@@ -333,12 +355,12 @@ func snapshotServiceState(host pluginapi.Host, unit string) (pluginapi.ServiceSt
 		return pluginapi.ServiceState{}, fmt.Errorf("host is required")
 	}
 
-	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + strconv.Quote(unit) + " 2>/dev/null || true")
+	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
 	if err != nil {
 		return pluginapi.ServiceState{}, err
 	}
 
-	activeOut, err := host.RunRootWithOutput("systemctl is-active " + strconv.Quote(unit) + " 2>/dev/null || true")
+	activeOut, err := host.RunRootWithOutput("systemctl is-active " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
 	if err != nil {
 		return pluginapi.ServiceState{}, err
 	}
@@ -358,6 +380,9 @@ func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) erro
 	if unit == "" {
 		return fmt.Errorf("service unit is empty")
 	}
+	if err := validateServiceUnit(unit); err != nil {
+		return err
+	}
 	if !state.Known {
 		return fmt.Errorf("service state for %q is unknown", unit)
 	}
@@ -366,17 +391,17 @@ func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) erro
 		return nil
 	}
 
-	enableCmd := "systemctl disable " + strconv.Quote(unit)
+	enableCmd := "systemctl disable " + pluginapi.ShellArg(unit)
 	if state.Enabled {
-		enableCmd = "systemctl enable " + strconv.Quote(unit)
+		enableCmd = "systemctl enable " + pluginapi.ShellArg(unit)
 	}
 	if err := host.RunRoot(enableCmd); err != nil {
 		return fmt.Errorf("restore service enabled state for %q: %w", unit, err)
 	}
 
-	activeCmd := "systemctl stop " + strconv.Quote(unit)
+	activeCmd := "systemctl stop " + pluginapi.ShellArg(unit)
 	if state.Active {
-		activeCmd = "systemctl restart " + strconv.Quote(unit)
+		activeCmd = "systemctl restart " + pluginapi.ShellArg(unit)
 	}
 	if err := host.RunRoot(activeCmd); err != nil {
 		return fmt.Errorf("restore service active state for %q: %w", unit, err)

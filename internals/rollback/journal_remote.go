@@ -3,10 +3,10 @@ package rollback
 import (
 	"fmt"
 	"path"
-	"strconv"
 	"strings"
 
 	"github.com/karvashish/hardline/internals/remote"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 var (
@@ -31,7 +31,7 @@ func SaveRemoteLast(client *remote.Client, j *Journal) error {
 
 	dir := path.Dir(remotePath)
 	if dir != "" && dir != "." {
-		if err := runRemoteRoot(client, "mkdir -p "+strconv.Quote(dir)); err != nil {
+		if err := runRemoteRoot(client, "mkdir -p "+pluginapi.ShellArg(dir)); err != nil {
 			return fmt.Errorf("create remote rollback state dir %q: %w", dir, err)
 		}
 	}
@@ -52,7 +52,7 @@ func SaveRemoteLast(client *remote.Client, j *Journal) error {
 func LoadRemoteLast(client *remote.Client, profileID string) (*Journal, error) {
 	dir := path.Dir(resolveRemoteStatePath(profileID, "x"))
 
-	output, err := runRemoteRootWithOutput(client, "ls -1 "+strconv.Quote(dir)+" 2>/dev/null | sort | tail -1")
+	output, err := runRemoteRootWithOutput(client, "ls -1 "+pluginapi.ShellArg(dir)+" 2>/dev/null | sort | tail -1")
 	if err != nil {
 		return nil, fmt.Errorf("list remote journals for %q: %w", profileID, err)
 	}
@@ -77,7 +77,7 @@ func DeleteRemoteJournal(client *remote.Client, profileID, runID string) error {
 	if remotePath == "" {
 		return fmt.Errorf("remote rollback state path is empty")
 	}
-	if err := runRemoteRoot(client, "rm -f "+strconv.Quote(remotePath)); err != nil {
+	if err := runRemoteRoot(client, "rm -f "+pluginapi.ShellArg(remotePath)); err != nil {
 		return fmt.Errorf("delete remote journal %q: %w", remotePath, err)
 	}
 	return nil
@@ -88,5 +88,9 @@ func defaultRemoteStatePath(profileID, runID string) string {
 	if profileKey == "" {
 		profileKey = "unknown"
 	}
-	return "/var/lib/hardline/runs/" + profileKey + "/" + runID + ".json"
+	runKey := sanitizePath(runID)
+	if runKey == "" {
+		runKey = "unknown"
+	}
+	return "/var/lib/hardline/runs/" + profileKey + "/" + runKey + ".json"
 }

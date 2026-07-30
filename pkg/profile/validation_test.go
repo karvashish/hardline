@@ -1,10 +1,12 @@
 package profile
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestAffirm_RequiresLoadedProfilePath(t *testing.T) {
@@ -102,16 +104,14 @@ func TestAffirm_SchemaReadAndParseErrors(t *testing.T) {
 }`)
 	p := &Profile{profilePath: profileDir}
 
-	setSchemaPathResolverForTest(t, func() string {
-		return filepath.Join(t.TempDir(), "missing.schema.json")
-	})
+	setSchemaFSForTest(t, fstest.MapFS{})
 	if err := p.Affirm(); err == nil {
 		t.Fatal("expected schema read failure")
 	}
 
-	invalidSchema := filepath.Join(t.TempDir(), "profile.schema.json")
-	writeFile(t, invalidSchema, "{not-json")
-	setSchemaPathResolverForTest(t, func() string { return invalidSchema })
+	setSchemaFSForTest(t, fstest.MapFS{
+		"profile.schema.json": &fstest.MapFile{Data: []byte("{not-json")},
+	})
 	if err := p.Affirm(); err == nil {
 		t.Fatal("expected invalid schema parse failure")
 	}
@@ -158,17 +158,14 @@ func TestAffirm_ActionFileReadAndDecodeErrors(t *testing.T) {
 	})
 }
 
-func TestProfileSchemaPath_ResolvesSchemaFile(t *testing.T) {
-	p := resolveProfileSchemaPath()
-	if !strings.HasSuffix(filepath.ToSlash(p), "schema/profile.schema.json") {
-		t.Fatalf("unexpected schema path %q", p)
-	}
-}
-
-func TestActionFileSchemaPath_ResolvesSchemaFile(t *testing.T) {
-	p := resolveActionFileSchemaPath()
-	if !strings.HasSuffix(filepath.ToSlash(p), "schema/action-file.schema.json") {
-		t.Fatalf("unexpected schema path %q", p)
+// TestSchemasLoadFromEmbeddedFS makes no assumption about a source tree on
+// disk: a release archive ships the binary alone, so this is what proves a
+// released hardline can still validate a profile.
+func TestSchemasLoadFromEmbeddedFS(t *testing.T) {
+	for _, name := range []string{profileSchemaName, actionFileSchemaName} {
+		if _, err := loadResolvedSchema(name); err != nil {
+			t.Fatalf("load embedded schema %q: %v", name, err)
+		}
 	}
 }
 
@@ -229,12 +226,12 @@ func TestAffirm_ValidatesDeclaredOverrides(t *testing.T) {
 	}
 }
 
-func setSchemaPathResolverForTest(t *testing.T, fn func() string) {
+func setSchemaFSForTest(t *testing.T, fsys fs.FS) {
 	t.Helper()
-	prev := resolveProfileSchemaPath
-	resolveProfileSchemaPath = fn
+	prev := schemaFS
+	schemaFS = fsys
 	t.Cleanup(func() {
-		resolveProfileSchemaPath = prev
+		schemaFS = prev
 	})
 }
 
@@ -245,5 +242,81 @@ func writeFile(t *testing.T, path string, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile %q failed: %v", path, err)
+	}
+}
+
+// TestAffirm_RejectsPluginConfigInjection pins the schema layer of the
+// injection defence: a hostile value must fail at verify, before hardline
+// connects to any host, not later when the plugin builds a root command.
+func TestAffirm_RejectsPluginConfigInjection(t *testing.T) {
+	cases := map[string]string{
+		"service": `{"id":"s","plugin":"service","config":{"name":"ssh$(touch /tmp/hardline-pwn)"}}`,
+		"file_meta path": `{"id":"s","plugin":"file_meta",
+			"config":{"path":"/etc/99-hardline$(id).conf","mode":"0600"}}`,
+		"file_meta owner": `{"id":"s","plugin":"file_meta",
+			"config":{"path":"/etc/shadow","owner":"root;id"}}`,
+		"template dest": `{"id":"s","plugin":"template",
+			"config":{"src":"templates/c.tmpl","dest":"/etc/99-hardline` + "`id`" + `.conf"}}`,
+		"template src": `{"id":"s","plugin":"template",
+			"config":{"src":"../shared/c.tmpl","dest":"/etc/99-hardline.conf"}}`,
+		"firewall dest": `{"id":"s","plugin":"firewall",
+			"config":{"managed_dest":"/etc/nftables.d/99-hardline$(id).nft"}}`,
+		"packages install": `{"id":"s","plugin":"packages","config":{"install":["curl;id"]}}`,
+	}
+
+	for name, step := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "profile.json"), `{
+  "id": "ok-profile",
+  "display_name": "OK Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": ["actions/a.json"],
+  "templates": []
+}`)
+			writeFile(t, filepath.Join(dir, "actions", "a.json"), `{"steps":[`+step+`]}`)
+
+			p, err := Load(dir)
+			if err != nil {
+				t.Fatalf("Load failed: %v", err)
+			}
+			if err := p.Affirm(); err == nil {
+				t.Fatal("expected the hostile step to be rejected at verify")
+			}
+		})
+	}
+}
+
+// TestAffirm_AcceptsOrdinaryPluginConfig guards the same patterns against
+// being so tight that a real profile stops validating.
+func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "profile.json"), `{
+  "id": "ok-profile",
+  "display_name": "OK Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": ["actions/a.json"],
+  "templates": []
+}`)
+	writeFile(t, filepath.Join(dir, "actions", "a.json"), `{"steps":[
+  {"id":"svc","plugin":"service","config":{"name":"getty@tty1.service","state":"started"}},
+  {"id":"fm","plugin":"file_meta","config":{"path":"/etc/shadow","owner":"root","group":"shadow","mode":"0640"}},
+  {"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/ssh/sshd_config.d/99-hardline.conf"}},
+  {"id":"fw","plugin":"firewall","config":{"managed_dest":"/etc/nftables.d/99-hardline.nft"}},
+  {"id":"pkg","plugin":"packages","config":{"install":["curl","libssl3"],"purge":["telnet"]}}
+]}`)
+
+	p, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if err := p.Affirm(); err != nil {
+		t.Fatalf("expected an ordinary profile to validate, got %v", err)
 	}
 }

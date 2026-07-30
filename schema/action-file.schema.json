@@ -1,9 +1,7 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/karvashish/hardline/pkg/profile/action-file",
-  "$ref": "#/$defs/ActionFile",
   "$defs": {
     "ActionFile": {
+      "additionalProperties": false,
       "properties": {
         "steps": {
           "items": {
@@ -12,33 +10,203 @@
           "type": "array"
         }
       },
-      "additionalProperties": false,
-      "type": "object",
       "required": [
         "steps"
-      ]
+      ],
+      "type": "object"
     },
     "Step": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "file_meta"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "group": {
+                    "pattern": "^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$",
+                    "type": "string"
+                  },
+                  "owner": {
+                    "pattern": "^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$",
+                    "type": "string"
+                  },
+                  "path": {
+                    "pattern": "^[A-Za-z0-9._/@-]+$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "firewall"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "managed_dest": {
+                    "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "firewall_template"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "managed_dest": {
+                    "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "packages"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "install": {
+                    "items": {
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9.+-]*$",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "purge": {
+                    "items": {
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9.+-]*$",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "service"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "name": {
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "template"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "dest": {
+                    "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "src": {
+                    "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
       "properties": {
+        "allow_unvalidated": {
+          "type": "boolean"
+        },
+        "config": {
+          "type": "object"
+        },
         "id": {
           "type": "string"
         },
         "plugin": {
           "type": "string"
-        },
-        "config": {
-          "type": "object"
-        },
-        "allow_unvalidated": {
-          "type": "boolean"
         }
       },
-      "additionalProperties": false,
-      "type": "object",
       "required": [
         "id",
         "plugin"
-      ]
+      ],
+      "type": "object"
     }
-  }
+  },
+  "$id": "https://github.com/karvashish/hardline/pkg/profile/action-file",
+  "$ref": "#/$defs/ActionFile",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

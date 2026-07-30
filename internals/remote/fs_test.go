@@ -64,7 +64,10 @@ func TestWriteRootFile(t *testing.T) {
 	if gotPath != "/tmp/.hardline-deadbeef" || gotMode != 0o600 {
 		t.Fatalf("unexpected temp write path=%q mode=%#o", gotPath, gotMode)
 	}
-	if !strings.Contains(sess.cmd, "install -m 644 /tmp/.hardline-deadbeef /etc/example") {
+	// Every operand is a single-quoted word before RunRoot wraps the whole
+	// command for sh -lc, which is why each ' appears here as '"'"'.
+	wantInstall := `'install -m 644 -- '"'"'/tmp/.hardline-deadbeef'"'"' '"'"'/etc/example'"'"' && rm -f -- '"'"'/tmp/.hardline-deadbeef'"'"''`
+	if !strings.Contains(sess.cmd, wantInstall) {
 		t.Fatalf("unexpected root install cmd %q", sess.cmd)
 	}
 

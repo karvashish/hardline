@@ -467,3 +467,53 @@ EOJSON
 EOJSON
   echo "${dir}"
 }
+
+# ─── Trust-boundary fixtures ─────────────────────────────────────────────────
+# Both generators take the hostile value as a parameter so the same shape can be
+# built with a benign one. Every rejection case is paired with that benign twin
+# as a positive control: without it, a fixture broken for an unrelated reason
+# (unsigned, malformed, wrong OS) would make the rejection test pass vacuously.
+
+# Writes the unit name into the action file verbatim, no escaping.
+make_profile_service_raw_name() {
+  local name="$1" unit="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-service.json"], "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-service.json" <<EOJSON
+{ "steps": [{ "id": "svc", "plugin": "service",
+  "config": { "name": "${unit}", "state": "started" } }] }
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Writes the actions[] reference verbatim. An action file exists both inside the
+# profile and in a sibling directory, so only the reference varies between the
+# control and the escape case.
+make_profile_action_ref() {
+  local name="$1" ref="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${DYNAMIC_PROFILES_DIR}/shared"
+  cat > "${DYNAMIC_PROFILES_DIR}/shared/x.json" <<'EOJSON'
+{ "steps": [{ "id": "s1", "plugin": "packages", "config": { "install": ["tree"] } }] }
+EOJSON
+  cp "${DYNAMIC_PROFILES_DIR}/shared/x.json" "${dir}/actions/00-pkg.json"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["${ref}"], "templates": []
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}

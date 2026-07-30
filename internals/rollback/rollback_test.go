@@ -9,7 +9,9 @@ import (
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/internals/remote"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/pluginapi"
+	"github.com/karvashish/hardline/pkg/profile"
 )
 
 // fakeBehavior scripts a plugin's rollback/conflict behavior for orchestration
@@ -43,15 +45,13 @@ func TestRollbackCommand_TargetValidationAndLoadError(t *testing.T) {
 	t.Run("missing state", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-
-		loadProfileID = func(string) (string, error) { return "profile", nil }
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 		loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) {
 			return nil, errors.New("read remote rollback state")
 		}
 
-		err := rollbackCommand(cli.Command{
+		err := rollbackWithBundle(cli.Command{
 			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
@@ -63,20 +63,18 @@ func TestRollbackCommand_TargetValidationAndLoadError(t *testing.T) {
 		}
 	})
 
-	t.Run("load profile ID error", func(t *testing.T) {
+	t.Run("missing verified bundle", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-
-		loadProfileID = func(string) (string, error) { return "", errors.New("no profile.json") }
 
 		err := rollbackCommand(cli.Command{
 			Profile: "/nonexistent",
 			Host:    "example.com",
 			User:    "root",
 			KeyPath: "/tmp/key",
-		})
-		if err == nil || !strings.Contains(err.Error(), "load profile ID") {
-			t.Fatalf("expected load profile ID error, got %v", err)
+		}, nil)
+		if err == nil || !strings.Contains(err.Error(), "verified profile bundle") {
+			t.Fatalf("expected missing bundle error, got %v", err)
 		}
 	})
 }
@@ -110,12 +108,11 @@ func TestRollbackCommand_Success(t *testing.T) {
 		seenCfg = cfg
 		return nil, nil
 	}
-	loadProfileID = func(string) (string, error) { return "profile", nil }
 	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
 	deleteJournal = func(_ *remote.Client, _, _ string) error { return nil }
 
-	err := rollbackCommand(cli.Command{
+	err := rollbackWithBundle(cli.Command{
 		Profile: "starter-secure-ubuntu-24.04-lts",
 		Host:    "example.com",
 		User:    "root",
@@ -140,12 +137,10 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 
 		j := NewJournal("example.com", "profile", "profile-dir")
 		j.Status = "failed"
-
-		loadProfileID = func(string) (string, error) { return "profile", nil }
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 		loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
-		err := rollbackCommand(cli.Command{
+		err := rollbackWithBundle(cli.Command{
 			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
@@ -160,11 +155,9 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("connect failed", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-
-		loadProfileID = func(string) (string, error) { return "profile", nil }
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, errors.New("dial") }
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
-		err := rollbackCommand(cli.Command{
+		err := rollbackWithBundle(cli.Command{
 			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
@@ -195,11 +188,10 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 				},
 			},
 		}
-		loadProfileID = func(string) (string, error) { return "profile", nil }
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 		loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
-		err := rollbackCommand(cli.Command{
+		err := rollbackWithBundle(cli.Command{
 			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
@@ -214,11 +206,9 @@ func TestRollbackCommand_ErrorPaths(t *testing.T) {
 	t.Run("sudo preflight failed", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
-
-		loadProfileID = func(string) (string, error) { return "profile", nil }
 		newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureRollbackSudo = func(_ *remote.Client) error { return errors.New("sudo denied") }
-		err := rollbackCommand(cli.Command{
+		err := rollbackWithBundle(cli.Command{
 			Profile: "starter-secure-ubuntu-24.04-lts",
 			Host:    "example.com",
 			User:    "root",
@@ -630,11 +620,11 @@ func TestRollbackWrapperExitHook(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 
-		runRollbackCommand = func(cli.Command) error { return errors.New("boom") }
+		runRollbackCommand = func(cli.Command, *verify.VerifiedBundle) error { return errors.New("boom") }
 		exitCode := -1
 		exitProcess = func(code int) { exitCode = code }
 
-		Rollback(cli.Command{})
+		rollbackWithBundleTop(cli.Command{})
 		if exitCode != 1 {
 			t.Fatalf("expected exit code 1, got %d", exitCode)
 		}
@@ -644,11 +634,11 @@ func TestRollbackWrapperExitHook(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 
-		runRollbackCommand = func(cli.Command) error { return nil }
+		runRollbackCommand = func(cli.Command, *verify.VerifiedBundle) error { return nil }
 		called := false
 		exitProcess = func(int) { called = true }
 
-		Rollback(cli.Command{})
+		rollbackWithBundleTop(cli.Command{})
 		if called {
 			t.Fatal("expected no exit on success")
 		}
@@ -677,7 +667,7 @@ func stubRollbackHooks() func() {
 	prevEnsureSudo := ensureRollbackSudo
 	prevLoadRemoteJournal := loadRemoteJournal
 	prevDeleteJournal := deleteJournal
-	prevLoadProfileID := loadProfileID
+
 	prevRunRollbackCommand := runRollbackCommand
 	prevExit := exitProcess
 
@@ -686,8 +676,28 @@ func stubRollbackHooks() func() {
 		ensureRollbackSudo = prevEnsureSudo
 		loadRemoteJournal = prevLoadRemoteJournal
 		deleteJournal = prevDeleteJournal
-		loadProfileID = prevLoadProfileID
+
 		runRollbackCommand = prevRunRollbackCommand
 		exitProcess = prevExit
+		rollbackBundleProfile = &profile.Profile{ID: "profile"}
 	}
+}
+
+// rollbackBundleProfile is the profile the stubbed verify phase hands to
+// rollback; nil stands in for a run with no verified bundle.
+var rollbackBundleProfile = &profile.Profile{ID: "profile"}
+
+func rollbackBundle() *verify.VerifiedBundle {
+	if rollbackBundleProfile == nil {
+		return nil
+	}
+	return &verify.VerifiedBundle{ProfileDir: "profile", Profile: rollbackBundleProfile}
+}
+
+func rollbackWithBundle(c cli.Command) error {
+	return rollbackCommand(c, rollbackBundle())
+}
+
+func rollbackWithBundleTop(c cli.Command) {
+	Rollback(c, rollbackBundle())
 }

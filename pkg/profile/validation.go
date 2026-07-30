@@ -3,26 +3,32 @@ package profile
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
-	"runtime"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/karvashish/hardline/schema"
 )
 
-var (
-	resolveProfileSchemaPath    = func() string { return schemaPath("profile.schema.json") }
-	resolveActionFileSchemaPath = func() string { return schemaPath("action-file.schema.json") }
+const (
+	profileSchemaName    = "profile.schema.json"
+	actionFileSchemaName = "action-file.schema.json"
 )
+
+// schemaFS is the embedded schema set. It is a variable only so tests can swap
+// in a fixture FS; nothing at runtime replaces it.
+var schemaFS fs.FS = schema.FS
 
 func (p *Profile) Affirm() error {
 	if p.profilePath == "" {
 		return fmt.Errorf("profile path is empty; load profile before validation")
 	}
 
-	profileJSONPath := p.abs("profile.json")
-	profileSchema, err := loadResolvedSchema(resolveProfileSchemaPath())
+	profileJSONPath := filepath.Join(p.profilePath, "profile.json")
+	profileSchema, err := loadResolvedSchema(profileSchemaName)
 	if err != nil {
 		return err
 	}
@@ -45,13 +51,16 @@ func (p *Profile) Affirm() error {
 	var actionSchema *jsonschema.Resolved
 	for _, rel := range manifest.Actions {
 		if actionSchema == nil {
-			actionSchema, err = loadResolvedSchema(resolveActionFileSchemaPath())
+			actionSchema, err = loadResolvedSchema(actionFileSchemaName)
 			if err != nil {
 				return err
 			}
 		}
 
-		actionPath := p.abs(rel)
+		actionPath, err := p.resolve(rel)
+		if err != nil {
+			return fmt.Errorf("profile action %w", err)
+		}
 		_, actionInstance, err := readJSONInstance(actionPath, "action file")
 		if err != nil {
 			return err
@@ -64,54 +73,44 @@ func (p *Profile) Affirm() error {
 	return nil
 }
 
-func loadResolvedSchema(path string) (*jsonschema.Resolved, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	u := &url.URL{Scheme: "file", Path: abs}
-
+// loadResolvedSchema reads name from the embedded schema FS. $ref targets
+// resolve through the same FS, keyed on the base name, so no schema is ever
+// read from the filesystem at runtime.
+func loadResolvedSchema(name string) (*jsonschema.Resolved, error) {
 	loader := func(uri *url.URL) (*jsonschema.Schema, error) {
-		data, err := os.ReadFile(uri.Path)
+		base := path.Base(uri.Path)
+		data, err := fs.ReadFile(schemaFS, base)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read embedded schema %q: %w", base, err)
 		}
 		var s jsonschema.Schema
 		if err := json.Unmarshal(data, &s); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode embedded schema %q: %w", base, err)
 		}
 		return &s, nil
 	}
 
-	schema, err := loader(u)
+	root, err := loader(&url.URL{Scheme: "file", Path: name})
 	if err != nil {
 		return nil, err
 	}
 
-	resolved, err := schema.Resolve(&jsonschema.ResolveOptions{Loader: loader})
+	resolved, err := root.Resolve(&jsonschema.ResolveOptions{Loader: loader})
 	if err != nil {
 		return nil, err
 	}
 	return resolved, nil
 }
 
-func readJSONInstance(path string, label string) ([]byte, any, error) {
-	data, err := os.ReadFile(path)
+func readJSONInstance(file string, label string) ([]byte, any, error) {
+	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read %s %q: %w", label, path, err)
+		return nil, nil, fmt.Errorf("read %s %q: %w", label, file, err)
 	}
 
 	var instance any
 	if err := json.Unmarshal(data, &instance); err != nil {
-		return nil, nil, fmt.Errorf("decode %s %q: %w", label, path, err)
+		return nil, nil, fmt.Errorf("decode %s %q: %w", label, file, err)
 	}
 	return data, instance, nil
-}
-
-func schemaPath(name string) string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		return filepath.Join("schema", name)
-	}
-	return filepath.Join(filepath.Dir(thisFile), "..", "..", "schema", name)
 }

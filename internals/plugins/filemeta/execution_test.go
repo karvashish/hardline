@@ -110,7 +110,7 @@ func TestApply(t *testing.T) {
 		if err := Apply(pluginapi.Context{Host: h}, &Spec{Path: "/etc/shadow", Mode: "0600"}); err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(h.joined(), `chmod "600"`) {
+		if !strings.Contains(h.joined(), `chmod '600'`) {
 			t.Fatalf("expected chmod 600, got %#v", h.cmds)
 		}
 	})
@@ -120,7 +120,7 @@ func TestApply(t *testing.T) {
 		if err := Apply(pluginapi.Context{Host: h}, &Spec{Path: "/etc/shadow", Owner: "bin", Group: "bin"}); err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(h.joined(), `chown "bin:bin"`) {
+		if !strings.Contains(h.joined(), `chown 'bin:bin'`) {
 			t.Fatalf("expected chown bin:bin, got %#v", h.cmds)
 		}
 	})
@@ -130,7 +130,7 @@ func TestApply(t *testing.T) {
 		if err := Apply(pluginapi.Context{Host: h}, &Spec{Path: "/etc/shadow", Owner: "bin"}); err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(h.joined(), `chown "bin"`) {
+		if !strings.Contains(h.joined(), `chown 'bin'`) {
 			t.Fatalf("expected chown bin, got %#v", h.cmds)
 		}
 	})
@@ -140,7 +140,7 @@ func TestApply(t *testing.T) {
 		if err := Apply(pluginapi.Context{Host: h}, &Spec{Path: "/etc/shadow", Group: "bin"}); err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(h.joined(), `chown ":bin"`) {
+		if !strings.Contains(h.joined(), `chown ':bin'`) {
 			t.Fatalf("expected chown :bin, got %#v", h.cmds)
 		}
 	})
@@ -172,7 +172,7 @@ func TestApply(t *testing.T) {
 		}
 		j := h.joined()
 		clearIdx := strings.Index(j, "chattr -ai")
-		chmodIdx := strings.Index(j, `chmod "600"`)
+		chmodIdx := strings.Index(j, `chmod '600'`)
 		setIdx := strings.LastIndex(j, "chattr +i")
 		if clearIdx < 0 || chmodIdx < 0 || setIdx < 0 || !(clearIdx < chmodIdx && chmodIdx < setIdx) {
 			t.Fatalf("expected clear -> chmod -> set ordering, got %#v", h.cmds)

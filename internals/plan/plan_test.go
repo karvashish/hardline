@@ -13,6 +13,7 @@ import (
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/internals/remote"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -557,14 +558,12 @@ func TestReportRenderingAndValidation(t *testing.T) {
 }
 
 func TestPlan_WithStubbedDependencies(t *testing.T) {
-	prevLoad := loadPlanProfile
 	prevVer := planVersionCmd
 	prevCmp := planCompareSemVer
 	prevSSH := newPlanSSHClient
 	prevRunProfile := runPlanForProfile
 	prevEnsurePlugins := ensurePlanPlugins
 	defer func() {
-		loadPlanProfile = prevLoad
 		planVersionCmd = prevVer
 		planCompareSemVer = prevCmp
 		newPlanSSHClient = prevSSH
@@ -579,23 +578,21 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 		Schema:      1,
 	})
 
-	loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
+	planBundleProfile = goodProfile
 	planVersionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	planCompareSemVer = func(_, _ string) (int, error) { return 1, nil }
 	newPlanSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 	runPlanForProfile = func(*remote.Client, *profile.Profile, planRunOptions) error { return nil }
 
-	t.Run("profile load error", func(t *testing.T) {
-		loadPlanProfile = func(string) (*profile.Profile, error) { return nil, errors.New("load fail") }
-		err := Plan(cli.Command{Profile: "x", Debug: false})
-		if err == nil || !strings.Contains(err.Error(), "profile load failed") {
-			t.Fatalf("expected profile load error, got %v", err)
+	t.Run("missing verified bundle", func(t *testing.T) {
+		if err := Plan(cli.Command{Profile: "x", Debug: false}, nil); err == nil ||
+			!strings.Contains(err.Error(), "verified profile bundle") {
+			t.Fatal("expected Plan to refuse to run without a verified bundle")
 		}
-		loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
 	})
 
 	t.Run("report output config error", func(t *testing.T) {
-		err := Plan(cli.Command{Profile: "x", Debug: true, ReportFormat: "json"})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true, ReportFormat: "json"})
 		if err == nil || !strings.Contains(err.Error(), "plan output configuration failed") {
 			t.Fatalf("expected report config error, got %v", err)
 		}
@@ -603,7 +600,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 
 	t.Run("version command error", func(t *testing.T) {
 		planVersionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{}, 0, errors.New("bad version") }
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "hardline version check failed") {
 			t.Fatalf("expected version command error, got %v", err)
 		}
@@ -612,7 +609,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 
 	t.Run("compare error", func(t *testing.T) {
 		planCompareSemVer = func(_, _ string) (int, error) { return 0, errors.New("bad semver") }
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "invalid profile.min_hardline value") {
 			t.Fatalf("expected compare error, got %v", err)
 		}
@@ -621,7 +618,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 
 	t.Run("version too old", func(t *testing.T) {
 		planCompareSemVer = func(_, _ string) (int, error) { return -1, nil }
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "too old") {
 			t.Fatalf("expected version too old error, got %v", err)
 		}
@@ -629,30 +626,17 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 	})
 
 	t.Run("schema too new", func(t *testing.T) {
-		loadPlanProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "0.1.0", ProfileSchema: 2}, nil
-		}
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		planBundleProfile = &profile.Profile{MinHardline: "0.1.0", ProfileSchema: 2}
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "profile schema") {
 			t.Fatalf("expected schema too new error, got %v", err)
 		}
-		loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
-	})
-
-	t.Run("affirm failure", func(t *testing.T) {
-		loadPlanProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "0.1.0", ProfileSchema: 1}, nil
-		}
-		err := Plan(cli.Command{Profile: "x", Debug: true})
-		if err == nil || !strings.Contains(err.Error(), "profile validation failed") {
-			t.Fatalf("expected affirm error, got %v", err)
-		}
-		loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
+		planBundleProfile = goodProfile
 	})
 
 	t.Run("required plugin missing", func(t *testing.T) {
 		ensurePlanPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return errors.New("required plugin missing") }
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
 			t.Fatalf("expected required plugin error, got %v", err)
 		}
@@ -665,16 +649,14 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 		if err := os.WriteFile(overridesPath, []byte(`{"smtp_port": 25}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		loadPlanProfile = func(string) (*profile.Profile, error) {
-			return mustLoadFixtureProfile(t, profileFixture{
-				ID:               "ok",
-				DisplayName:      "OK",
-				MinHardline:      "0.1.0",
-				Schema:           1,
-				AllowedOverrides: []string{"ssh_port"},
-			}), nil
-		}
-		err := Plan(cli.Command{
+		planBundleProfile = mustLoadFixtureProfile(t, profileFixture{
+			ID:               "ok",
+			DisplayName:      "OK",
+			MinHardline:      "0.1.0",
+			Schema:           1,
+			AllowedOverrides: []string{"ssh_port"},
+		})
+		err := planWithBundle(cli.Command{
 			Profile:       "x",
 			Debug:         true,
 			OverridesFile: overridesPath,
@@ -682,12 +664,12 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "profile override validation failed") {
 			t.Fatalf("expected override validation error, got %v", err)
 		}
-		loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
+		planBundleProfile = goodProfile
 	})
 
 	t.Run("connect failure", func(t *testing.T) {
 		newPlanSSHClient = func(connection.Config) (*remote.Client, error) { return nil, errors.New("connect fail") }
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "connect failed") {
 			t.Fatalf("expected connect failure, got %v", err)
 		}
@@ -696,7 +678,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 
 	t.Run("plan profile failure", func(t *testing.T) {
 		runPlanForProfile = func(*remote.Client, *profile.Profile, planRunOptions) error { return errors.New("plan fail") }
-		err := Plan(cli.Command{Profile: "x", Debug: true})
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
 		if err == nil || !strings.Contains(err.Error(), "plan fail") {
 			t.Fatalf("expected plan profile failure, got %v", err)
 		}
@@ -704,7 +686,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 	})
 
 	t.Run("success", func(t *testing.T) {
-		if err := Plan(cli.Command{Profile: "x", Host: "h1", User: "u1", KeyPath: "k1", Debug: false}); err != nil {
+		if err := planWithBundle(cli.Command{Profile: "x", Host: "h1", User: "u1", KeyPath: "k1", Debug: false}); err != nil {
 			t.Fatalf("did not expect error on success path: %v", err)
 		}
 	})
@@ -715,15 +697,13 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 		if err := os.WriteFile(overridesPath, []byte(`{"ssh_port": 2222}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		loadPlanProfile = func(string) (*profile.Profile, error) {
-			return mustLoadFixtureProfile(t, profileFixture{
-				ID:               "ok",
-				DisplayName:      "OK",
-				MinHardline:      "0.1.0",
-				Schema:           1,
-				AllowedOverrides: []string{"ssh_port"},
-			}), nil
-		}
+		planBundleProfile = mustLoadFixtureProfile(t, profileFixture{
+			ID:               "ok",
+			DisplayName:      "OK",
+			MinHardline:      "0.1.0",
+			Schema:           1,
+			AllowedOverrides: []string{"ssh_port"},
+		})
 		runPlanForProfile = func(_ *remote.Client, p *profile.Profile, options planRunOptions) error {
 			if string(p.RuntimeOverrides()["ssh_port"]) != "2222" {
 				t.Fatalf("expected runtime overrides on profile, got %+v", p.RuntimeOverrides())
@@ -734,7 +714,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 			return nil
 		}
 
-		if err := Plan(cli.Command{
+		if err := planWithBundle(cli.Command{
 			Profile:       "x",
 			Host:          "h1",
 			User:          "u1",
@@ -745,7 +725,7 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 			t.Fatalf("did not expect error on success path with overrides: %v", err)
 		}
 
-		loadPlanProfile = func(string) (*profile.Profile, error) { return goodProfile, nil }
+		planBundleProfile = goodProfile
 		runPlanForProfile = func(*remote.Client, *profile.Profile, planRunOptions) error { return nil }
 	})
 }
@@ -809,4 +789,11 @@ func mustLoadFixtureProfile(t *testing.T, f profileFixture) *profile.Profile {
 		t.Fatalf("load fixture profile failed: %v", err)
 	}
 	return p
+}
+
+// planBundleProfile is the profile the stubbed verify phase hands to Plan.
+var planBundleProfile *profile.Profile
+
+func planWithBundle(c cli.Command) error {
+	return Plan(c, &verify.VerifiedBundle{ProfileDir: c.Profile, Profile: planBundleProfile})
 }

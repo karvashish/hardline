@@ -49,13 +49,14 @@ func emitPhase(name string) {
 // runVerifyPhase emits the VERIFY banner, runs the verification pipeline, and
 // on a clean pass prints a confirmation line so the phase never renders as an
 // empty section.
-func runVerifyPhase(c cli.Command) error {
+func runVerifyPhase(c cli.Command) (*verify.VerifiedBundle, error) {
 	emitPhase("VERIFY")
-	if err := runVerify(c); err != nil {
-		return err
+	bundle, err := runVerify(c)
+	if err != nil {
+		return nil, err
 	}
 	logInfof("profile verification passed\n")
-	return nil
+	return bundle, nil
 }
 
 var (
@@ -133,12 +134,13 @@ func run(args []string) int {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
 		}
-		if err := runVerifyPhase(c); err != nil {
+		bundle, err := runVerifyPhase(c)
+		if err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
 		emitPhase("PLAN")
-		if err := runPlan(c); err != nil {
+		if err := runPlan(c, bundle); err != nil {
 			logErrorf("plan failed: %v\n", err)
 			return 1
 		}
@@ -158,17 +160,18 @@ func run(args []string) int {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
 		}
-		if err := runVerifyPhase(c); err != nil {
+		bundle, err := runVerifyPhase(c)
+		if err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
 		emitPhase("PLAN")
-		if err := runPlan(c); err != nil {
+		if err := runPlan(c, bundle); err != nil {
 			logErrorf("plan failed: %v\n", err)
 			return 1
 		}
 		emitPhase("APPLY")
-		if err := runApply(ctx, c); err != nil {
+		if err := runApply(ctx, c, bundle); err != nil {
 			logErrorf("apply failed: %v\n", err)
 			return 1
 		}
@@ -187,12 +190,13 @@ func run(args []string) int {
 			logErrorf("plugin load failed: %v\n", err)
 			return 1
 		}
-		if err := runVerifyPhase(c); err != nil {
+		bundle, err := runVerifyPhase(c)
+		if err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}
 		emitPhase("ROLLBACK")
-		runRollback(c)
+		runRollback(c, bundle)
 		return 0
 	case "verify-profile", "verify", "vp":
 		c := parseCmd(cmd, args[2:])
@@ -212,7 +216,7 @@ func run(args []string) int {
 		if !c.Debug {
 			logInfof("verify-profile %s\n", c.Profile)
 		}
-		if err := runVerify(c); err != nil {
+		if _, err := runVerify(c); err != nil {
 			logErrorf("verify failed: %v\n", err)
 			return 1
 		}

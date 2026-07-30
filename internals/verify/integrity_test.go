@@ -22,7 +22,7 @@ import (
 func TestVerifyProfileIntegrity_SuccessForSignedFixture(t *testing.T) {
 	profileDir := copySignedFixtureProfile(t)
 
-	if err := VerifyProfileIntegrity(profileDir, false); err != nil {
+	if _, err := VerifyProfileIntegrity(profileDir, false); err != nil {
 		t.Fatalf("expected signed fixture integrity check to pass, got error: %v", err)
 	}
 }
@@ -43,7 +43,7 @@ func TestVerifyProfileIntegrity_DetectsTamper(t *testing.T) {
 		t.Fatalf("close tamper target: %v", err)
 	}
 
-	err = VerifyProfileIntegrity(profileDir, false)
+	err = integrityErr(profileDir, false)
 	if err == nil {
 		t.Fatal("expected tampered profile to fail integrity check, got nil error")
 	}
@@ -60,7 +60,7 @@ func TestVerifyProfileIntegrity_DetectsUnexpectedFile(t *testing.T) {
 		t.Fatalf("write unexpected file: %v", err)
 	}
 
-	err := VerifyProfileIntegrity(profileDir, false)
+	err := integrityErr(profileDir, false)
 	if err == nil {
 		t.Fatal("expected unexpected file to fail integrity check, got nil error")
 	}
@@ -77,7 +77,7 @@ func TestVerifyProfileIntegrity_AllowsRuntimeOverridesFile(t *testing.T) {
 		t.Fatalf("write overrides file: %v", err)
 	}
 
-	if err := VerifyProfileIntegrity(profileDir, false); err != nil {
+	if _, err := VerifyProfileIntegrity(profileDir, false); err != nil {
 		t.Fatalf("expected runtime overrides file to be ignored by integrity check, got: %v", err)
 	}
 }
@@ -107,7 +107,7 @@ func TestVerifyProfileIntegrity_DetectsInvalidSignatureEncoding(t *testing.T) {
 		t.Fatalf("write invalid signature: %v", err)
 	}
 
-	err := VerifyProfileIntegrity(profileDir, false)
+	err := integrityErr(profileDir, false)
 	if err == nil {
 		t.Fatal("expected invalid signature to fail integrity check, got nil error")
 	}
@@ -260,7 +260,7 @@ func TestVerifyProfileIntegrity_ManifestValidationBranches(t *testing.T) {
 
 			writeSignedManifest(t, dir, tc.manifest, priv)
 
-			err := VerifyProfileIntegrity(dir, false)
+			err := integrityErr(dir, false)
 			if err == nil {
 				t.Fatal("expected VerifyProfileIntegrity to fail")
 			}
@@ -355,7 +355,7 @@ func TestVerifyProfileIntegrity_DecodeManifestError(t *testing.T) {
 	sig := ed25519.Sign(priv, manifestBytes)
 	writeTestFile(t, filepath.Join(dir, manifestSigName), []byte(base64.StdEncoding.EncodeToString(sig)+"\n"))
 
-	err := VerifyProfileIntegrity(dir, false)
+	err := integrityErr(dir, false)
 	if err == nil || !strings.Contains(err.Error(), "decode manifest") {
 		t.Fatalf("expected decode manifest error, got %v", err)
 	}
@@ -379,7 +379,7 @@ func TestVerifyProfileIntegrity_CollectProfileHashesError(t *testing.T) {
 		Files:     []manifestEntry{},
 	}, priv)
 
-	err := VerifyProfileIntegrity(dir, false)
+	err := integrityErr(dir, false)
 	if err == nil || !strings.Contains(err.Error(), "walk profile directory") {
 		t.Fatalf("expected collectProfileHashes walk error, got %v", err)
 	}
@@ -446,11 +446,11 @@ func TestBuildProfileManifest_Error(t *testing.T) {
 
 func TestVerifyProfile_Helper(t *testing.T) {
 	okDir := copySignedFixtureProfile(t)
-	if err := Verify(cli.Command{Profile: okDir}); err != nil {
+	if err := verifyErr(cli.Command{Profile: okDir}); err != nil {
 		t.Fatalf("expected Verify success, got %v", err)
 	}
 
-	err := Verify(cli.Command{Profile: filepath.Join(t.TempDir(), "missing")})
+	err := verifyErr(cli.Command{Profile: filepath.Join(t.TempDir(), "missing")})
 	if err == nil {
 		t.Fatal("expected Verify to fail for missing profile directory")
 	}
@@ -468,7 +468,7 @@ func TestVerifyProfile_MissingPluginFails(t *testing.T) {
 		affirmProfile = prevAffirm
 	}()
 
-	verifyIntegrity = func(string, bool) error { return nil }
+	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
 	loadVerifyProfile = func(string) (*profile.Profile, error) {
 		return &profile.Profile{
 			ActionFiles: []profile.ActionFile{
@@ -479,7 +479,7 @@ func TestVerifyProfile_MissingPluginFails(t *testing.T) {
 	affirmProfile = func(*profile.Profile) error { return nil }
 	ensureVerifyPlugins = pluginapi.EnsureProfilePlugins
 
-	err := Verify(cli.Command{Profile: "profile", Debug: true})
+	err := verifyErr(cli.Command{Profile: "profile", Debug: true})
 	if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
 		t.Fatalf("expected required plugin validation error, got %v", err)
 	}
@@ -487,7 +487,7 @@ func TestVerifyProfile_MissingPluginFails(t *testing.T) {
 
 func TestVerify_NoExitOnSuccess(t *testing.T) {
 	okDir := copySignedFixtureProfile(t)
-	if err := Verify(cli.Command{Profile: okDir, Debug: true}); err != nil {
+	if err := verifyErr(cli.Command{Profile: okDir, Debug: true}); err != nil {
 		t.Fatalf("expected Verify success, got %v", err)
 	}
 }
@@ -784,4 +784,11 @@ func mustGenerateRSAPublicPEM(t *testing.T) []byte {
 		Type:  "PUBLIC KEY",
 		Bytes: pubDER,
 	})
+}
+
+// integrityErr adapts the two-value VerifyProfileIntegrity for the many
+// tests that only assert on the error.
+func integrityErr(profileDir string, useLocalKey bool) error {
+	_, err := VerifyProfileIntegrity(profileDir, useLocalKey)
+	return err
 }

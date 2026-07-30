@@ -39,11 +39,11 @@ func TestRestoreFileMeta(t *testing.T) {
 		}
 		j := h.joined()
 		clearIdx := strings.Index(j, "chattr -ai")
-		chmodIdx := strings.Index(j, `chmod "640"`)
+		chmodIdx := strings.Index(j, `chmod '640'`)
 		if clearIdx < 0 || chmodIdx < 0 || clearIdx > chmodIdx {
 			t.Fatalf("expected clear before chmod, got %#v", h.cmds)
 		}
-		if !strings.Contains(j, `chown "root:shadow"`) || !strings.Contains(j, "chattr +i") {
+		if !strings.Contains(j, `chown 'root:shadow'`) || !strings.Contains(j, "chattr +i") {
 			t.Fatalf("expected chown and attr restore, got %#v", h.cmds)
 		}
 	})

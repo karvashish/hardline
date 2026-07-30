@@ -60,7 +60,7 @@ func Apply(ctx pluginapi.Context, t *Spec) error {
 
 	dir := path.Dir(dest)
 	if dir != "" && dir != "." {
-		if err := ctx.Host.RunRoot(fmt.Sprintf("mkdir -p %q", dir)); err != nil {
+		if err := ctx.Host.RunRoot("mkdir -p " + pluginapi.ShellArg(dir)); err != nil {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
@@ -331,11 +331,11 @@ func statTemplateDestination(rt templateStatRuntime, dest string) (int64, os.Fil
 	if rt == nil {
 		return 0, 0, fmt.Errorf("runtime is required")
 	}
-	if err := rt.RunRoot(fmt.Sprintf("test -e %s", strconv.Quote(dest))); err != nil {
+	if err := rt.RunRoot(fmt.Sprintf("test -e %s", pluginapi.ShellArg(dest))); err != nil {
 		return -1, 0, nil
 	}
 
-	out, err := rt.RunRootWithOutput(fmt.Sprintf("stat -c '%%a %%s' -- %s", strconv.Quote(dest)))
+	out, err := rt.RunRootWithOutput(fmt.Sprintf("stat -c '%%a %%s' -- %s", pluginapi.ShellArg(dest)))
 	if err != nil {
 		return 0, 0, err
 	}

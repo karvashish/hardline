@@ -9,9 +9,26 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-func writeSchema(path string, v any) {
+// writeSchema reflects v and writes it out. transform, when set, gets the
+// decoded schema so generated constraints the reflector cannot express (the
+// per-plugin config rules) can be attached before encoding.
+func writeSchema(path string, v any, transform func(map[string]any)) {
 	r := new(jsonschema.Reflector)
 	s := r.Reflect(v)
+
+	payload := any(s)
+	if transform != nil {
+		raw, err := json.Marshal(s)
+		if err != nil {
+			panic(err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			panic(err)
+		}
+		transform(decoded)
+		payload = decoded
+	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		panic(err)
@@ -25,14 +42,14 @@ func writeSchema(path string, v any) {
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(s); err != nil {
+	if err := enc.Encode(payload); err != nil {
 		panic(err)
 	}
 }
 
 func generateSchemas(profileSchemaPath, actionSchemaPath string) {
-	writeSchema(profileSchemaPath, &profile.Profile{})
-	writeSchema(actionSchemaPath, &profile.ActionFile{})
+	writeSchema(profileSchemaPath, &profile.Profile{}, nil)
+	writeSchema(actionSchemaPath, &profile.ActionFile{}, applyPluginConfigConstraints)
 }
 
 func main() {

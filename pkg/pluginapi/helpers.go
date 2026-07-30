@@ -5,9 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// ShellArg wraps s as a single POSIX sh word. Unlike strconv.Quote, which
+// emits Go double-quoted syntax, single quotes suppress command substitution
+// and parameter expansion, so profile-supplied values cannot execute as root.
+func ShellArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
 
 func CapturesDiffer(before, after CaptureResult) bool {
 	if len(before.Objects) != len(after.Objects) {
@@ -56,10 +64,18 @@ func CapturesDiffer(before, after CaptureResult) bool {
 	return false
 }
 
+// managedPathPattern is the whitelist for every root-executed destination path.
+// It excludes $, backtick, parentheses, quotes, backslash, glob characters and
+// whitespace, so an accepted path cannot alter a command even before quoting.
+var managedPathPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+
 func EnforceManagedPath(dest string) error {
 	p := strings.TrimSpace(dest)
 	if p == "" {
 		return fmt.Errorf("managed destination path is empty")
+	}
+	if !managedPathPattern.MatchString(p) {
+		return fmt.Errorf("destination %q contains characters outside the allowed set [A-Za-z0-9._/-]", p)
 	}
 	if !strings.HasPrefix(p, "/etc/") {
 		return fmt.Errorf("destination %q is outside /etc managed scope", p)
@@ -90,14 +106,14 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	testCmd := "test -e " + strconv.Quote(remotePath)
+	testCmd := "test -e " + ShellArg(remotePath)
 	if err := host.RunRoot(testCmd); err != nil {
 		snap.Existed = false
 		return snap, nil
 	}
 	snap.Existed = true
 
-	modeCmd := "stat -c %a " + strconv.Quote(remotePath)
+	modeCmd := "stat -c %a " + ShellArg(remotePath)
 	modeOut, err := host.RunRootWithOutput(modeCmd)
 	if err != nil {
 		return snap, err
@@ -122,7 +138,7 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 	}
 
 	if !snap.Existed {
-		return host.RunRoot("rm -f " + strconv.Quote(snap.Path))
+		return host.RunRoot("rm -f " + ShellArg(snap.Path))
 	}
 
 	mode := os.FileMode(0o600)
@@ -139,7 +155,7 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 
 	dir := path.Dir(snap.Path)
 	if dir != "" && dir != "." {
-		if err := host.RunRoot("mkdir -p " + strconv.Quote(dir)); err != nil {
+		if err := host.RunRoot("mkdir -p " + ShellArg(dir)); err != nil {
 			return fmt.Errorf("ensure directory %q: %w", dir, err)
 		}
 	}

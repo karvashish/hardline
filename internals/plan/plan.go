@@ -12,13 +12,13 @@ import (
 	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/internals/utils"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
 var (
-	loadPlanProfile   = profile.Load
 	planVersionCmd    = cli.VersionCmd
 	planCompareSemVer = cli.CompareSemVer
 	newPlanSSHClient  = connection.NewSSHClient
@@ -45,7 +45,7 @@ const (
 	dispositionAttention stepDisposition = "attention"
 )
 
-func Plan(c cli.Command) error {
+func Plan(c cli.Command, b *verify.VerifiedBundle) error {
 	if !c.Debug {
 		target := displayTargetHost(c.Host)
 		logger.Infof("Planning %s on %s\n", c.Profile, target)
@@ -57,12 +57,12 @@ func Plan(c cli.Command) error {
 		return logger.Wrap(err, "plan output configuration failed")
 	}
 
-	p, err := loadPlanProfile(c.Profile)
-	if err != nil {
-		return logger.Wrap(err, "profile load failed")
+	if b == nil || b.Profile == nil {
+		return errors.New("plan requires a verified profile bundle")
 	}
+	p := b.Profile
 
-	logger.Debugf("profile loaded, starting validation\n")
+	logger.Debugf("using verified profile bundle, starting validation\n")
 
 	ver, schemaVer, err := planVersionCmd()
 	if err != nil {
@@ -82,9 +82,6 @@ func Plan(c cli.Command) error {
 		return errors.New("profile schema " + strconv.Itoa(p.ProfileSchema) + " is newer than supported " + strconv.Itoa(schemaVer) + "; please upgrade hardline")
 	}
 
-	if err := p.Affirm(); err != nil {
-		return logger.Wrap(err, "profile validation failed")
-	}
 	if err := ensurePlanPlugins(registry.Shared(), p); err != nil {
 		return logger.Wrap(err, "required plugin validation failed")
 	}

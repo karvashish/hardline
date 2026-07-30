@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/karvashish/hardline/internals/cli"
+	"github.com/karvashish/hardline/internals/verify"
+	"github.com/karvashish/hardline/pkg/profile"
 )
 
 func TestRun_NoArgs_ShowsUsage(t *testing.T) {
@@ -165,11 +167,11 @@ func TestRun_PlanDispatch(t *testing.T) {
 	loadPlugins = func() error { return nil }
 
 	var verifyCalled, planCalled, nextStepsCalled bool
-	runVerify = func(cli.Command) error {
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) {
 		verifyCalled = true
-		return nil
+		return stubBundle(), nil
 	}
-	runPlan = func(c cli.Command) error {
+	runPlan = func(c cli.Command, _ *verify.VerifiedBundle) error {
 		if c.Name != "plan" {
 			t.Fatalf("unexpected command passed to plan: %+v", c)
 		}
@@ -182,11 +184,13 @@ func TestRun_PlanDispatch(t *testing.T) {
 			t.Fatalf("unexpected next-step args: %+v", c)
 		}
 	}
-	runApply = func(context.Context, cli.Command) error {
+	runApply = func(context.Context, cli.Command, *verify.VerifiedBundle) error {
 		t.Fatal("apply handler should not be called for plan command")
 		return nil
 	}
-	runRollback = func(cli.Command) { t.Fatal("rollback handler should not be called for plan command") }
+	runRollback = func(cli.Command, *verify.VerifiedBundle) {
+		t.Fatal("rollback handler should not be called for plan command")
+	}
 
 	code := run([]string{"hardline", "plan", "profile"})
 	if code != 0 {
@@ -228,22 +232,24 @@ func TestRun_ApplyRunsPlanThenApply(t *testing.T) {
 	loadPlugins = func() error { return nil }
 
 	var order []string
-	runVerify = func(cli.Command) error {
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) {
 		order = append(order, "verify")
-		return nil
+		return stubBundle(), nil
 	}
-	runPlan = func(cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
 		order = append(order, "plan")
 		return nil
 	}
 	runPlanNextSteps = func(cli.Command) {
 		t.Fatal("plan next steps should not be printed during apply")
 	}
-	runApply = func(context.Context, cli.Command) error {
+	runApply = func(context.Context, cli.Command, *verify.VerifiedBundle) error {
 		order = append(order, "apply")
 		return nil
 	}
-	runRollback = func(cli.Command) { t.Fatal("rollback handler should not be called for apply command") }
+	runRollback = func(cli.Command, *verify.VerifiedBundle) {
+		t.Fatal("rollback handler should not be called for apply command")
+	}
 
 	code := run([]string{"hardline", "apply", "profile"})
 	if code != 0 {
@@ -275,12 +281,12 @@ func TestRun_VerifyDispatch(t *testing.T) {
 			loadPlugins = func() error { return nil }
 
 			var verifyCalls int
-			runVerify = func(c cli.Command) error {
+			runVerify = func(c cli.Command) (*verify.VerifiedBundle, error) {
 				verifyCalls++
 				if c.Name != alias {
 					t.Fatalf("expected verify alias name %q, got %q", alias, c.Name)
 				}
-				return nil
+				return stubBundle(), nil
 			}
 
 			code := run([]string{"hardline", alias, "profile"})
@@ -307,11 +313,11 @@ func TestRun_VerifyProfileDispatch_PrintsStatus(t *testing.T) {
 	setDebugMode = func(bool) {}
 	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return nil }
-	runVerify = func(c cli.Command) error {
+	runVerify = func(c cli.Command) (*verify.VerifiedBundle, error) {
 		if c.Name != "verify-profile" {
 			t.Fatalf("expected verify-profile command name, got %q", c.Name)
 		}
-		return nil
+		return stubBundle(), nil
 	}
 
 	var out bytes.Buffer
@@ -339,9 +345,9 @@ func TestRun_VerifyPluginLoadFailure(t *testing.T) {
 	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
 
 	var verifyCalled bool
-	runVerify = func(cli.Command) error {
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) {
 		verifyCalled = true
-		return nil
+		return stubBundle(), nil
 	}
 	var errOut bytes.Buffer
 	logErrorf = func(format string, args ...any) {
@@ -376,20 +382,23 @@ func TestRun_RollbackDispatch(t *testing.T) {
 	loadPlugins = func() error { return nil }
 
 	var verifyCalled bool
-	runVerify = func(cli.Command) error {
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) {
 		verifyCalled = true
-		return nil
+		return stubBundle(), nil
 	}
 
 	var rollbackCalls int
-	runRollback = func(c cli.Command) {
+	runRollback = func(c cli.Command, _ *verify.VerifiedBundle) {
 		rollbackCalls++
 		if c.Name != "rollback" {
 			t.Fatalf("expected rollback command name, got %q", c.Name)
 		}
 	}
-	runPlan = func(cli.Command) error { t.Fatal("plan handler should not be called for rollback command"); return nil }
-	runApply = func(context.Context, cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
+		t.Fatal("plan handler should not be called for rollback command")
+		return nil
+	}
+	runApply = func(context.Context, cli.Command, *verify.VerifiedBundle) error {
 		t.Fatal("apply handler should not be called for rollback command")
 		return nil
 	}
@@ -503,7 +512,7 @@ func TestRun_PlanPluginLoadFailure(t *testing.T) {
 	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
 
 	var planCalled bool
-	runPlan = func(cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
 		planCalled = true
 		return nil
 	}
@@ -536,11 +545,11 @@ func TestRun_ApplyPluginLoadFailure(t *testing.T) {
 	loadPlugins = func() error { return fmt.Errorf("bad plugin") }
 
 	var planCalled, applyCalled bool
-	runPlan = func(cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
 		planCalled = true
 		return nil
 	}
-	runApply = func(context.Context, cli.Command) error {
+	runApply = func(context.Context, cli.Command, *verify.VerifiedBundle) error {
 		applyCalled = true
 		return nil
 	}
@@ -573,7 +582,7 @@ func TestRun_LogFileSetupFailure(t *testing.T) {
 	loadPlugins = func() error { t.Fatal("plugins should not load when log setup fails"); return nil }
 
 	var planCalled bool
-	runPlan = func(cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
 		planCalled = true
 		return nil
 	}
@@ -605,9 +614,9 @@ func TestRun_VerifyLogFileSetupFailure(t *testing.T) {
 	useLogFile = func(string) (func(), error) { return nil, fmt.Errorf("readonly") }
 
 	var verifyCalled bool
-	runVerify = func(cli.Command) error {
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) {
 		verifyCalled = true
-		return nil
+		return stubBundle(), nil
 	}
 	var errOut bytes.Buffer
 	logErrorf = func(format string, args ...any) {
@@ -637,7 +646,7 @@ func TestRun_RollbackLogFileSetupFailure(t *testing.T) {
 	useLogFile = func(string) (func(), error) { return nil, fmt.Errorf("readonly") }
 
 	var rollbackCalled bool
-	runRollback = func(cli.Command) { rollbackCalled = true }
+	runRollback = func(cli.Command, *verify.VerifiedBundle) { rollbackCalled = true }
 	var errOut bytes.Buffer
 	logErrorf = func(format string, args ...any) {
 		_, _ = fmt.Fprintf(&errOut, format, args...)
@@ -691,8 +700,8 @@ func TestRun_PlanFailureIsLoggedOnce(t *testing.T) {
 	setDebugMode = func(bool) {}
 	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return nil }
-	runVerify = func(cli.Command) error { return nil }
-	runPlan = func(cli.Command) error { return fmt.Errorf("plan boom") }
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) { return stubBundle(), nil }
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error { return fmt.Errorf("plan boom") }
 	runPlanNextSteps = func(cli.Command) {
 		t.Fatal("plan next steps should not run after plan failure")
 	}
@@ -721,10 +730,10 @@ func TestRun_PlanVerifyFailureStopsBeforePlan(t *testing.T) {
 	setDebugMode = func(bool) {}
 	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return nil }
-	runVerify = func(cli.Command) error { return fmt.Errorf("verify boom") }
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) { return nil, fmt.Errorf("verify boom") }
 
 	planCalled := false
-	runPlan = func(cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
 		planCalled = true
 		return nil
 	}
@@ -761,15 +770,15 @@ func TestRun_ApplyFailureStopsAfterPlan(t *testing.T) {
 	loadPlugins = func() error { return nil }
 
 	var order []string
-	runVerify = func(cli.Command) error {
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) {
 		order = append(order, "verify")
-		return nil
+		return stubBundle(), nil
 	}
-	runPlan = func(cli.Command) error {
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error {
 		order = append(order, "plan")
 		return nil
 	}
-	runApply = func(context.Context, cli.Command) error {
+	runApply = func(context.Context, cli.Command, *verify.VerifiedBundle) error {
 		order = append(order, "apply")
 		return fmt.Errorf("apply boom")
 	}
@@ -801,11 +810,11 @@ func TestRun_ApplyPlanFailureStopsBeforeApply(t *testing.T) {
 	setDebugMode = func(bool) {}
 	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return nil }
-	runVerify = func(cli.Command) error { return nil }
-	runPlan = func(cli.Command) error { return fmt.Errorf("plan boom") }
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) { return stubBundle(), nil }
+	runPlan = func(cli.Command, *verify.VerifiedBundle) error { return fmt.Errorf("plan boom") }
 
 	applyCalled := false
-	runApply = func(context.Context, cli.Command) error {
+	runApply = func(context.Context, cli.Command, *verify.VerifiedBundle) error {
 		applyCalled = true
 		return nil
 	}
@@ -837,10 +846,10 @@ func TestRun_RollbackVerifyFailureStopsBeforeRollback(t *testing.T) {
 	setDebugMode = func(bool) {}
 	useLogFile = func(string) (func(), error) { return func() {}, nil }
 	loadPlugins = func() error { return nil }
-	runVerify = func(cli.Command) error { return fmt.Errorf("verify boom") }
+	runVerify = func(cli.Command) (*verify.VerifiedBundle, error) { return nil, fmt.Errorf("verify boom") }
 
 	rollbackCalled := false
-	runRollback = func(cli.Command) {
+	runRollback = func(cli.Command, *verify.VerifiedBundle) {
 		rollbackCalled = true
 	}
 
@@ -947,4 +956,8 @@ func stubHandlers() func() {
 		exitFunc = prevExit
 		installSignalHandler = prevSignal
 	}
+}
+
+func stubBundle() *verify.VerifiedBundle {
+	return &verify.VerifiedBundle{ProfileDir: "p", Profile: &profile.Profile{ID: "p"}}
 }

@@ -52,77 +52,104 @@ var embeddedProfileSigningPubPEM []byte
 // statFunc is the function used to stat files; overridden in tests.
 var statFunc = os.Stat
 
-func VerifyProfileIntegrity(profileDir string, useLocalKey bool) error {
+// VerifiedManifest is what a passed integrity check yields: the digest of the
+// exact manifest bytes whose signature was checked, and the set of paths that
+// signature covers. Callers use Files to assert that everything the profile
+// declares is actually signed, and Digest to detect a mid-run edit.
+type VerifiedManifest struct {
+	Digest string
+	Files  map[string]struct{}
+}
+
+func VerifyProfileIntegrity(profileDir string, useLocalKey bool) (*VerifiedManifest, error) {
 	manifestPath := filepath.Join(profileDir, manifestFileName)
 	manifestSigPath := filepath.Join(profileDir, manifestSigName)
 
 	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return fmt.Errorf("read manifest %q: %w", manifestPath, err)
+		return nil, fmt.Errorf("read manifest %q: %w", manifestPath, err)
 	}
 
 	pubKey, err := resolvePublicKey(useLocalKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := verifyManifestSignature(manifestBytes, manifestSigPath, pubKey); err != nil {
-		return err
+		return nil, err
 	}
 
 	var manifest profileManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return fmt.Errorf("decode manifest %q: %w", manifestPath, err)
+		return nil, fmt.Errorf("decode manifest %q: %w", manifestPath, err)
 	}
 
 	if manifest.Version != 1 {
-		return fmt.Errorf("manifest version %d is unsupported (expected 1)", manifest.Version)
+		return nil, fmt.Errorf("manifest version %d is unsupported (expected 1)", manifest.Version)
 	}
 	if strings.ToLower(strings.TrimSpace(manifest.Algorithm)) != "sha256" {
-		return fmt.Errorf("manifest algorithm %q is unsupported (expected sha256)", manifest.Algorithm)
+		return nil, fmt.Errorf("manifest algorithm %q is unsupported (expected sha256)", manifest.Algorithm)
 	}
 
 	expected := make(map[string]string, len(manifest.Files))
 	for _, entry := range manifest.Files {
 		normalized, err := normalizeManifestPath(entry.Path)
 		if err != nil {
-			return fmt.Errorf("invalid manifest path %q: %w", entry.Path, err)
+			return nil, fmt.Errorf("invalid manifest path %q: %w", entry.Path, err)
 		}
 
 		sum := strings.ToLower(strings.TrimSpace(entry.SHA256))
 		if len(sum) != 64 {
-			return fmt.Errorf("invalid sha256 length for %q: got %d, expected 64", normalized, len(sum))
+			return nil, fmt.Errorf("invalid sha256 length for %q: got %d, expected 64", normalized, len(sum))
 		}
 		if _, err := hex.DecodeString(sum); err != nil {
-			return fmt.Errorf("invalid sha256 hex for %q: %w", normalized, err)
+			return nil, fmt.Errorf("invalid sha256 hex for %q: %w", normalized, err)
 		}
 		if _, exists := expected[normalized]; exists {
-			return fmt.Errorf("duplicate manifest entry for %q", normalized)
+			return nil, fmt.Errorf("duplicate manifest entry for %q", normalized)
 		}
 		expected[normalized] = sum
 	}
 
 	actual, err := collectProfileHashes(profileDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for rel := range actual {
 		if _, ok := expected[rel]; !ok {
-			return fmt.Errorf("unexpected file not listed in manifest: %s", rel)
+			return nil, fmt.Errorf("unexpected file not listed in manifest: %s", rel)
 		}
 	}
+	files := make(map[string]struct{}, len(expected))
 	for rel, want := range expected {
 		got, ok := actual[rel]
 		if !ok {
-			return fmt.Errorf("manifest references missing file: %s", rel)
+			return nil, fmt.Errorf("manifest references missing file: %s", rel)
 		}
 		if got != want {
-			return fmt.Errorf("hash mismatch for %s: expected %s got %s", rel, want, got)
+			return nil, fmt.Errorf("hash mismatch for %s: expected %s got %s", rel, want, got)
 		}
+		files[rel] = struct{}{}
 	}
 
-	return nil
+	return &VerifiedManifest{Digest: digestBytes(manifestBytes), Files: files}, nil
+}
+
+// ManifestDigest re-reads the profile manifest and hashes it, without checking
+// the signature. Used to detect a profile directory edited between the verify
+// phase and the first write of apply.
+func ManifestDigest(profileDir string) (string, error) {
+	manifestBytes, err := os.ReadFile(filepath.Join(profileDir, manifestFileName))
+	if err != nil {
+		return "", fmt.Errorf("re-read manifest for %q: %w", profileDir, err)
+	}
+	return digestBytes(manifestBytes), nil
+}
+
+func digestBytes(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func verifyManifestSignature(manifestBytes []byte, sigPath string, pubKey ed25519.PublicKey) error {

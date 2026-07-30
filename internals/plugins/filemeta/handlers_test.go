@@ -74,3 +74,28 @@ func TestPluginDecodeError(t *testing.T) {
 		t.Fatal("expected capture decode error")
 	}
 }
+
+func TestValidateSpecRejectsHostileOwnerGroup(t *testing.T) {
+	hostile := []string{
+		"root$(touch /tmp/hardline-pwn)",
+		"root`id`",
+		"root;id", "root|id", "root&id",
+		"root x", "root'x", `root"x`, `root\x`,
+		"-rf", "--force",
+		strings.Repeat("a", 33),
+	}
+	for _, v := range hostile {
+		if err := validateSpec(&Spec{Path: "/etc/shadow", Owner: v}); err == nil {
+			t.Fatalf("expected owner %q to be rejected", v)
+		}
+		if err := validateSpec(&Spec{Path: "/etc/shadow", Group: v}); err == nil {
+			t.Fatalf("expected group %q to be rejected", v)
+		}
+	}
+
+	for _, v := range []string{"root", "shadow", "www-data", "systemd-network", "_apt"} {
+		if err := validateSpec(&Spec{Path: "/etc/shadow", Owner: v, Group: v}); err != nil {
+			t.Fatalf("expected owner/group %q to pass, got %v", v, err)
+		}
+	}
+}

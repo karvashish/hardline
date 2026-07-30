@@ -11,7 +11,7 @@ func TestWriteSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "schema.json")
 	writeSchema(path, struct {
 		Name string `json:"name"`
-	}{})
+	}{}, nil)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -66,7 +66,7 @@ func TestWriteSchemaPanicsOnInvalidPath(t *testing.T) {
 
 	writeSchema(filepath.Join(blocker, "schema.json"), struct {
 		Name string `json:"name"`
-	}{})
+	}{}, nil)
 }
 
 func TestWriteSchemaPanicsWhenCreateFails(t *testing.T) {
@@ -80,7 +80,7 @@ func TestWriteSchemaPanicsWhenCreateFails(t *testing.T) {
 
 	writeSchema(dir, struct {
 		Name string `json:"name"`
-	}{})
+	}{}, nil)
 }
 
 func TestMainWritesDefaultSchemas(t *testing.T) {
@@ -122,4 +122,42 @@ func readSchemaObject(t *testing.T, path string) map[string]any {
 		t.Fatalf("decode schema %q: %v", path, err)
 	}
 	return out
+}
+
+func TestApplyPluginConfigConstraints(t *testing.T) {
+	schema := map[string]any{"$defs": map[string]any{"Step": map[string]any{}}}
+	applyPluginConfigConstraints(schema)
+
+	step := schema["$defs"].(map[string]any)["Step"].(map[string]any)
+	branches, ok := step["allOf"].([]any)
+	if !ok || len(branches) != len(pluginConfigConstraints) {
+		t.Fatalf("expected one branch per constrained plugin, got %#v", step["allOf"])
+	}
+
+	var names []string
+	for _, b := range branches {
+		cond := b.(map[string]any)["if"].(map[string]any)
+		names = append(names, cond["properties"].(map[string]any)["plugin"].(map[string]any)["const"].(string))
+	}
+	for i := 1; i < len(names); i++ {
+		if names[i] < names[i-1] {
+			t.Fatalf("branches must be sorted so regeneration is byte-stable, got %v", names)
+		}
+	}
+}
+
+func TestApplyPluginConfigConstraintsPanicsOnUnexpectedSchema(t *testing.T) {
+	for _, bad := range []map[string]any{
+		{},
+		{"$defs": map[string]any{}},
+	} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("expected a panic for %#v", bad)
+				}
+			}()
+			applyPluginConfigConstraints(bad)
+		}()
+	}
 }

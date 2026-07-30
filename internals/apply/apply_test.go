@@ -15,6 +15,7 @@ import (
 	"github.com/karvashish/hardline/internals/connection"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/internals/rollback"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 )
@@ -38,23 +39,43 @@ func TestApply_ErrorPaths(t *testing.T) {
 			return nil, errors.New("dial failed")
 		}
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "connect failed") {
 			t.Fatalf("expected connect failed error, got %v", err)
 		}
 	})
 
-	t.Run("profile load failed", func(t *testing.T) {
+	t.Run("missing verified bundle", func(t *testing.T) {
+		restore := stubApplyDeps()
+		defer restore()
+
+		if err := Apply(context.Background(), c, nil); err == nil ||
+			!strings.Contains(err.Error(), "verified profile bundle") {
+			t.Fatal("expected Apply to refuse to run without a verified bundle")
+		}
+	})
+
+	t.Run("profile edited after verification", func(t *testing.T) {
 		restore := stubApplyDeps()
 		defer restore()
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) { return nil, errors.New("no profile") }
+		applied := false
+		runApplyProfile = func(context.Context, *remote.Client, *profile.Profile, *rollback.Journal) error {
+			applied = true
+			return nil
+		}
+		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+		compareSemVer = func(a, b string) (int, error) { return 0, nil }
+		manifestDigest = func(string) (string, error) { return "a-different-digest", nil }
 
-		err := Apply(context.Background(), c)
-		if err == nil || !strings.Contains(err.Error(), "profile load failed") {
-			t.Fatalf("expected profile load failed error, got %v", err)
+		err := applyWithBundle(context.Background(), c)
+		if err == nil || !strings.Contains(err.Error(), "changed after verification") {
+			t.Fatalf("expected mid-run edit to abort apply, got %v", err)
+		}
+		if applied {
+			t.Fatal("expected nothing to be applied after a failed integrity re-check")
 		}
 	})
 
@@ -64,12 +85,10 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
-		}
+		applyBundleProfile = &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{}, 0, errors.New("bad version") }
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "hardline version check failed") {
 			t.Fatalf("expected hardline version check failed error, got %v", err)
 		}
@@ -81,13 +100,11 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "x.y.z", ProfileSchema: 1}, nil
-		}
+		applyBundleProfile = &profile.Profile{MinHardline: "x.y.z", ProfileSchema: 1}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, errors.New("bad semver") }
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "invalid profile.min_hardline value") {
 			t.Fatalf("expected invalid min_hardline error, got %v", err)
 		}
@@ -99,13 +116,11 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "2.0.0", ProfileSchema: 1}, nil
-		}
+		applyBundleProfile = &profile.Profile{MinHardline: "2.0.0", ProfileSchema: 1}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return -1, nil }
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "too old") {
 			t.Fatalf("expected too old error, got %v", err)
 		}
@@ -117,33 +132,13 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 2}, nil
-		}
+		applyBundleProfile = &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 2}
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "profile schema") {
 			t.Fatalf("expected schema too new error, got %v", err)
-		}
-	})
-
-	t.Run("profile validation failed", func(t *testing.T) {
-		restore := stubApplyDeps()
-		defer restore()
-
-		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
-		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}, nil
-		}
-		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
-		compareSemVer = func(a, b string) (int, error) { return 0, nil }
-
-		err := Apply(context.Background(), c)
-		if err == nil || !strings.Contains(err.Error(), "profile validation failed") {
-			t.Fatalf("expected profile validation error, got %v", err)
 		}
 	})
 
@@ -153,14 +148,12 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-		}
+		applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
 		ensureApplyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return errors.New("required plugin missing") }
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
 			t.Fatalf("expected required plugin validation error, got %v", err)
 		}
@@ -172,16 +165,14 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-		}
+		applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
 		runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
 			return errors.New("boom")
 		}
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "boom") {
 			t.Fatalf("expected apply profile error, got %v", err)
 		}
@@ -193,9 +184,7 @@ func TestApply_ErrorPaths(t *testing.T) {
 
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		loadProfile = func(string) (*profile.Profile, error) {
-			return mustLoadApplyFixtureProfile(t, applyProfileFixture{ID: "p", MinHardline: "1.0.0", Schema: 1}), nil
-		}
+		applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{ID: "p", MinHardline: "1.0.0", Schema: 1})
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
 		runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -209,7 +198,7 @@ func TestApply_ErrorPaths(t *testing.T) {
 			KeyPath: "/tmp/key",
 			Debug:   true,
 		}
-		err := Apply(context.Background(), bad)
+		err := applyWithBundle(context.Background(), bad)
 		if err == nil || !strings.Contains(err.Error(), "persist local rollback journal failed") {
 			t.Fatalf("expected local rollback journal persist error, got %v", err)
 		}
@@ -222,7 +211,7 @@ func TestApply_ErrorPaths(t *testing.T) {
 		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 		ensureApplySudo = func(_ *remote.Client) error { return errors.New("sudo denied") }
 
-		err := Apply(context.Background(), c)
+		err := applyWithBundle(context.Background(), c)
 		if err == nil || !strings.Contains(err.Error(), "sudo preflight failed") {
 			t.Fatalf("expected sudo preflight error, got %v", err)
 		}
@@ -250,9 +239,7 @@ func TestApply_Success(t *testing.T) {
 		return nil, nil
 	}
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return nil }
@@ -275,7 +262,7 @@ func TestApply_Success(t *testing.T) {
 		return nil
 	}
 
-	if err := Apply(context.Background(), c); err != nil {
+	if err := applyWithBundle(context.Background(), c); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	if !called {
@@ -309,13 +296,11 @@ func TestApplyCommand_PassesRuntimeOverrides(t *testing.T) {
 
 	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{
-			MinHardline:      "1.0.0",
-			Schema:           1,
-			AllowedOverrides: []string{"ssh_port"},
-		}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{
+		MinHardline:      "1.0.0",
+		Schema:           1,
+		AllowedOverrides: []string{"ssh_port"},
+	})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return nil }
@@ -327,7 +312,7 @@ func TestApplyCommand_PassesRuntimeOverrides(t *testing.T) {
 		return nil
 	}
 
-	if err := Apply(context.Background(), c); err != nil {
+	if err := applyWithBundle(context.Background(), c); err != nil {
 		t.Fatalf("applyCommand failed: %v", err)
 	}
 }
@@ -349,9 +334,7 @@ func TestApplyCommand_KeepLocalRollback(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -369,7 +352,7 @@ func TestApplyCommand_KeepLocalRollback(t *testing.T) {
 		return nil
 	}
 
-	if err := Apply(context.Background(), c); err != nil {
+	if err := applyWithBundle(context.Background(), c); err != nil {
 		t.Fatalf("applyCommand failed: %v", err)
 	}
 	if saveCalls < 2 {
@@ -393,9 +376,7 @@ func TestApplyCommand_TargetJournalSaveFailed(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -403,7 +384,7 @@ func TestApplyCommand_TargetJournalSaveFailed(t *testing.T) {
 	}
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return errors.New("remote boom") }
 
-	err := Apply(context.Background(), c)
+	err := applyWithBundle(context.Background(), c)
 	if err == nil || !strings.Contains(err.Error(), "persist target rollback journal failed") {
 		t.Fatalf("expected target rollback journal save error, got %v", err)
 	}
@@ -425,9 +406,7 @@ func TestApplyCommand_ApplyFailureAndLocalJournalSaveFailure(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -443,7 +422,7 @@ func TestApplyCommand_ApplyFailureAndLocalJournalSaveFailure(t *testing.T) {
 		return nil
 	}
 
-	err := Apply(context.Background(), c)
+	err := applyWithBundle(context.Background(), c)
 	if err == nil || !strings.Contains(err.Error(), "apply boom; persist local rollback journal failed: save boom") {
 		t.Fatalf("expected combined apply/save failure, got %v", err)
 	}
@@ -465,9 +444,7 @@ func TestApplyCommand_SuccessNonDebugCleanupWarning(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -476,7 +453,7 @@ func TestApplyCommand_SuccessNonDebugCleanupWarning(t *testing.T) {
 	saveTargetJournal = func(client *remote.Client, journal *rollback.Journal) error { return nil }
 	removeRunnerJournal = func(journal *rollback.Journal) error { return errors.New("cleanup boom") }
 
-	if err := Apply(context.Background(), c); err != nil {
+	if err := applyWithBundle(context.Background(), c); err != nil {
 		t.Fatalf("expected success with cleanup warning, got %v", err)
 	}
 }
@@ -498,9 +475,7 @@ func TestApplyCommand_KeepLocalRollbackWarning(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	runApplyProfile = func(_ context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {
@@ -517,7 +492,7 @@ func TestApplyCommand_KeepLocalRollbackWarning(t *testing.T) {
 		return nil
 	}
 
-	if err := Apply(context.Background(), c); err != nil {
+	if err := applyWithBundle(context.Background(), c); err != nil {
 		t.Fatalf("expected success with keep warning, got %v", err)
 	}
 }
@@ -831,7 +806,6 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 
 func stubApplyDeps() func() {
 	prevNewSSH := newSSHClient
-	prevLoad := loadProfile
 	prevVersion := versionCmd
 	prevCompare := compareSemVer
 	prevEnsureSudo := ensureApplySudo
@@ -845,9 +819,11 @@ func stubApplyDeps() func() {
 	prevRunStep := runStep
 	prevAcquireLock := acquireRemoteApplyLock
 	prevReleaseLock := releaseRemoteApplyLock
+	prevManifestDigest := manifestDigest
+	applyBundleProfile = &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}
+	manifestDigest = func(string) (string, error) { return "digest", nil }
 	return func() {
 		newSSHClient = prevNewSSH
-		loadProfile = prevLoad
 		versionCmd = prevVersion
 		compareSemVer = prevCompare
 		ensureApplySudo = prevEnsureSudo
@@ -861,6 +837,7 @@ func stubApplyDeps() func() {
 		runStep = prevRunStep
 		acquireRemoteApplyLock = prevAcquireLock
 		releaseRemoteApplyLock = prevReleaseLock
+		manifestDigest = prevManifestDigest
 	}
 }
 
@@ -884,7 +861,7 @@ func TestApplyCommand_LockContention(t *testing.T) {
 		return fmt.Errorf("another hardline apply is already running on this host; if stale, run: sudo rmdir %s", remoteApplyLockDir)
 	}
 
-	err := Apply(context.Background(), c)
+	err := applyWithBundle(context.Background(), c)
 	if err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Fatalf("expected lock contention error, got %v", err)
 	}
@@ -912,16 +889,14 @@ func TestApplyCommand_LockReleasedOnSuccess(t *testing.T) {
 		released = true
 		return nil
 	}
-	loadProfile = func(string) (*profile.Profile, error) {
-		return mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1}), nil
-	}
+	applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
 	runApplyProfile = func(_ context.Context, _ *remote.Client, _ *profile.Profile, _ *rollback.Journal) error { return nil }
 	saveTargetJournal = func(_ *remote.Client, _ *rollback.Journal) error { return nil }
 	removeRunnerJournal = func(_ *rollback.Journal) error { return nil }
 
-	if err := Apply(context.Background(), c); err != nil {
+	if err := applyWithBundle(context.Background(), c); err != nil {
 		t.Fatalf("Apply failed: %v", err)
 	}
 	if !released {
@@ -951,13 +926,13 @@ func TestApplyCommand_LockReleasedOnFailure(t *testing.T) {
 		released = true
 		return nil
 	}
-	loadProfile = func(string) (*profile.Profile, error) {
-		return nil, errors.New("load boom")
-	}
+	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
+	compareSemVer = func(a, b string) (int, error) { return 0, nil }
+	manifestDigest = func(string) (string, error) { return "", errors.New("digest boom") }
 
-	err := Apply(context.Background(), c)
-	if err == nil || !strings.Contains(err.Error(), "load boom") {
-		t.Fatalf("expected load error, got %v", err)
+	err := applyWithBundle(context.Background(), c)
+	if err == nil || !strings.Contains(err.Error(), "digest boom") {
+		t.Fatalf("expected re-check error, got %v", err)
 	}
 	if !released {
 		t.Fatal("expected apply lock to be released after failure")
@@ -1008,4 +983,15 @@ func mustLoadApplyFixtureProfile(t *testing.T, f applyProfileFixture) *profile.P
 		t.Fatalf("load fixture profile failed: %v", err)
 	}
 	return p
+}
+
+// applyBundleProfile is the profile the stubbed verify phase hands to Apply.
+var applyBundleProfile *profile.Profile
+
+func applyWithBundle(ctx context.Context, c cli.Command) error {
+	return Apply(ctx, c, &verify.VerifiedBundle{
+		ProfileDir:     c.Profile,
+		ManifestDigest: "digest",
+		Profile:        applyBundleProfile,
+	})
 }

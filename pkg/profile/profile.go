@@ -22,14 +22,18 @@ type OSInfo struct {
 }
 
 type Profile struct {
-	ID               string   `json:"id"`
+	// id becomes a directory component of the remote journal path, and
+	// actions/templates entries are read as signed content, so both are
+	// pattern-bound here to fail a hostile profile at verify. resolve()
+	// still enforces the ".." and symlink rules a pattern cannot express.
+	ID               string   `json:"id" jsonschema:"pattern=^[A-Za-z0-9][A-Za-z0-9._-]*$"`
 	DisplayName      string   `json:"display_name"`
 	Version          string   `json:"version"`
 	OS               OSInfo   `json:"os"`
 	ProfileSchema    int      `json:"profile_schema" jsonschema:"default=1"`
 	MinHardline      string   `json:"min_hardline"`
-	Actions          []string `json:"actions"`
-	Templates        []string `json:"templates"`
+	Actions          []string `json:"actions" jsonschema:"pattern=^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$"`
+	Templates        []string `json:"templates" jsonschema:"pattern=^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$"`
 	AllowedOverrides []string `json:"allowed_overrides,omitempty" jsonschema:"pattern=^[a-z][a-z0-9_]*$"`
 
 	profilePath      string                     `json:"-"`
@@ -83,16 +87,56 @@ func Load(dir string) (*Profile, error) {
 	return &p, nil
 }
 
-func (p *Profile) abs(rel string) string {
-	return filepath.Join(p.profilePath, rel)
+// resolve turns a profile-supplied reference into an absolute path that is
+// provably inside the profile directory. The signature covers only files under
+// profilePath, so a reference that escapes - through an absolute path, a ..
+// segment, or a symlinked subdirectory - would be read unsigned and mutable by
+// anyone who can write to the target. A reference that does not exist yet is
+// returned as-is; the caller's read reports the missing file.
+func (p *Profile) resolve(rel string) (string, error) {
+	clean := filepath.ToSlash(strings.TrimSpace(rel))
+	if clean == "" {
+		return "", fmt.Errorf("profile reference is empty")
+	}
+	if strings.ContainsRune(rel, '\\') {
+		return "", fmt.Errorf("profile reference %q must not contain a backslash", rel)
+	}
+	if strings.HasPrefix(clean, "/") || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("profile reference %q must be relative to the profile directory", rel)
+	}
+	for _, seg := range strings.Split(clean, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("profile reference %q must not contain a %q segment", rel, "..")
+		}
+	}
+
+	full := filepath.Join(p.profilePath, filepath.FromSlash(clean))
+
+	resolvedDir, err := filepath.EvalSymlinks(filepath.Dir(full))
+	if err != nil {
+		return full, nil
+	}
+	root, err := filepath.EvalSymlinks(p.profilePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve profile directory %q: %w", p.profilePath, err)
+	}
+	inside, err := filepath.Rel(root, resolvedDir)
+	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("profile reference %q resolves outside the profile directory", rel)
+	}
+	return full, nil
 }
 
-func (p *Profile) ActionPaths() []string {
+func (p *Profile) ActionPaths() ([]string, error) {
 	out := make([]string, 0, len(p.Actions))
 	for _, rel := range p.Actions {
-		out = append(out, p.abs(rel))
+		full, err := p.resolve(rel)
+		if err != nil {
+			return nil, fmt.Errorf("profile action %w", err)
+		}
+		out = append(out, full)
 	}
-	return out
+	return out, nil
 }
 
 func (s Step) PluginName() string {
@@ -125,7 +169,10 @@ func (p *Profile) isDeclaredTemplate(rel string) bool {
 }
 
 func (p *Profile) loadActions() error {
-	paths := p.ActionPaths()
+	paths, err := p.ActionPaths()
+	if err != nil {
+		return err
+	}
 	result := make([]ActionFile, 0, len(paths))
 
 	logger.Debugf("profile.loadActions: %d action paths\n", len(paths))
@@ -163,10 +210,13 @@ func (p *Profile) LoadTemplate(rel string) ([]byte, error) {
 		return nil, fmt.Errorf("template %q not declared in profile.json", rel)
 	}
 
-	path := p.abs(rel)
-	b, err := os.ReadFile(path)
+	full, err := p.resolve(rel)
 	if err != nil {
-		return nil, fmt.Errorf("read template %q: %w", path, err)
+		return nil, fmt.Errorf("profile template %w", err)
+	}
+	b, err := os.ReadFile(full)
+	if err != nil {
+		return nil, fmt.Errorf("read template %q: %w", full, err)
 	}
 	return b, nil
 }

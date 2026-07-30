@@ -153,21 +153,30 @@ func defaultStateDir() (string, error) {
 	return filepath.Join(os.TempDir(), "hardline", "runs"), nil
 }
 
+// sanitizePath reduces a host or profile ID to a single filename component.
+// Everything outside the whitelist becomes _, so the result carries no path
+// separator and no shell metacharacter into the remote journal commands. An
+// all-dot result would still traverse, so it is rejected as empty.
 func sanitizePath(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
 
-	replacer := strings.NewReplacer(
-		"/", "_",
-		"\\", "_",
-		":", "_",
-		" ", "_",
-		"\t", "_",
-		"\n", "_",
-	)
-	return replacer.Replace(s)
+	out := []byte(s)
+	for i := 0; i < len(out); i++ {
+		c := out[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == '-':
+		default:
+			out[i] = '_'
+		}
+	}
+	if strings.Trim(string(out), ".") == "" {
+		return ""
+	}
+	return string(out)
 }
 
 func localLastPaths(host, profileID string) (string, string, string, error) {

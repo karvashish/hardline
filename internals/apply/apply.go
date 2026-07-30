@@ -13,6 +13,7 @@ import (
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/internals/rollback"
 	"github.com/karvashish/hardline/internals/utils"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
@@ -24,7 +25,6 @@ const remoteApplyLockDir = "/var/lib/hardline/.apply-lock.d"
 
 var (
 	newSSHClient           = connection.NewSSHClient
-	loadProfile            = profile.Load
 	versionCmd             = cli.VersionCmd
 	compareSemVer          = cli.CompareSemVer
 	ensureApplySudo        = connection.EnsureNonInteractiveSudo
@@ -38,13 +38,28 @@ var (
 	runStep                = handleStepWithRegistry
 	acquireRemoteApplyLock = defaultAcquireRemoteApplyLock
 	releaseRemoteApplyLock = defaultReleaseRemoteApplyLock
+	manifestDigest         = verify.ManifestDigest
 )
+
+// reverifyManifestDigest closes the window between the verify phase and the
+// first write: anything that edited the profile directory since would otherwise
+// change what gets applied without ever being re-signed.
+func reverifyManifestDigest(b *verify.VerifiedBundle) error {
+	current, err := manifestDigest(b.ProfileDir)
+	if err != nil {
+		return logger.Wrap(err, "re-check profile integrity before apply")
+	}
+	if current != b.ManifestDigest {
+		return errors.New("profile " + b.ProfileDir + " changed after verification; re-run verify before applying")
+	}
+	return nil
+}
 
 func defaultAcquireRemoteApplyLock(client *remote.Client) error {
 	if client == nil {
 		return nil
 	}
-	cmd := "mkdir -p /var/lib/hardline && mkdir " + strconv.Quote(remoteApplyLockDir)
+	cmd := "mkdir -p /var/lib/hardline && mkdir " + pluginapi.ShellArg(remoteApplyLockDir)
 	if err := client.RunRoot(cmd); err != nil {
 		return errors.New("another hardline apply is already running on this host; if stale, run: sudo rmdir " + remoteApplyLockDir)
 	}
@@ -55,15 +70,20 @@ func defaultReleaseRemoteApplyLock(client *remote.Client) error {
 	if client == nil {
 		return nil
 	}
-	return client.RunRoot("rmdir " + strconv.Quote(remoteApplyLockDir))
+	return client.RunRoot("rmdir " + pluginapi.ShellArg(remoteApplyLockDir))
 }
 
-func Apply(ctx context.Context, c cli.Command) error {
+func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 	if !c.Debug {
 		logger.Infof("apply %s\n", c.Profile)
 	}
 
 	logger.Debugf("apply: profile=%q host=%q user=%q key=%q\n", c.Profile, c.Host, c.User, c.KeyPath)
+
+	if b == nil || b.Profile == nil {
+		return errors.New("apply requires a verified profile bundle")
+	}
+	p := b.Profile
 
 	config := &connection.Config{
 		User:    c.User,
@@ -95,16 +115,11 @@ func Apply(ctx context.Context, c cli.Command) error {
 		}
 	}()
 
-	p, err := loadProfile(c.Profile)
-	if err != nil {
-		return logger.Wrap(err, "profile load failed")
-	}
-
 	if err := connection.CheckRemoteOS(sshClient, p.OS.Family, p.OS.Version); err != nil {
 		return logger.Wrap(err, "OS compatibility check failed")
 	}
 
-	logger.Debugf("profile loaded, starting applyProfile\n")
+	logger.Debugf("using verified profile bundle, starting applyProfile\n")
 
 	ver, schemaVer, err := versionCmd()
 	if err != nil {
@@ -124,9 +139,6 @@ func Apply(ctx context.Context, c cli.Command) error {
 		return errors.New("profile schema " + strconv.Itoa(p.ProfileSchema) + " is newer than supported " + strconv.Itoa(schemaVer) + "; please upgrade hardline")
 	}
 
-	if err := p.Affirm(); err != nil {
-		return logger.Wrap(err, "profile validation failed")
-	}
 	if err := ensureApplyPlugins(registry.Shared(), p); err != nil {
 		return logger.Wrap(err, "required plugin validation failed")
 	}
@@ -139,6 +151,10 @@ func Apply(ctx context.Context, c cli.Command) error {
 		return logger.Wrap(err, "profile override validation failed")
 	}
 	p.SetRuntimeOverrides(overrides)
+
+	if err := reverifyManifestDigest(b); err != nil {
+		return err
+	}
 
 	journal := rollback.NewJournal(c.Host, p.ID, c.Profile)
 	if err := saveRunnerJournal(journal); err != nil {

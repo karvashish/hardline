@@ -84,6 +84,16 @@ func validateSpec(spec *Spec) error {
 			return fmt.Errorf("file_meta: %w", err)
 		}
 	}
+	if owner := strings.TrimSpace(spec.Owner); owner != "" {
+		if err := validateUserGroup("owner", owner); err != nil {
+			return fmt.Errorf("file_meta: %w", err)
+		}
+	}
+	if group := strings.TrimSpace(spec.Group); group != "" {
+		if err := validateUserGroup("group", group); err != nil {
+			return fmt.Errorf("file_meta: %w", err)
+		}
+	}
 	if strings.TrimSpace(spec.Mode) == "" &&
 		strings.TrimSpace(spec.Owner) == "" &&
 		strings.TrimSpace(spec.Group) == "" &&

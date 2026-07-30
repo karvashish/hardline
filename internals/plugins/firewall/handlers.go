@@ -61,6 +61,9 @@ func Plugin() pluginapi.Plugin {
 				if obj.File == nil {
 					return fmt.Errorf("firewall rollback: missing file snapshot")
 				}
+				if obj.File.Path == NftablesMainConfigPath {
+					return restoreNftablesMainConfig(host, *obj.File)
+				}
 				return pluginapi.RestoreFileSnapshot(host, *obj.File)
 			case pluginapi.ObjectValidate:
 				return nil

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/karvashish/hardline/internals/registry"
 	"github.com/karvashish/hardline/internals/remote"
 	"github.com/karvashish/hardline/internals/utils"
+	"github.com/karvashish/hardline/internals/verify"
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -30,26 +30,25 @@ var (
 	deleteJournal = func(client *remote.Client, profileID, runID string) error {
 		return DeleteRemoteJournal(client, profileID, runID)
 	}
-	lookupPlugin  = registry.Shared().Lookup
-	loadProfileID = defaultLoadProfileID
-	exitProcess   = os.Exit
+	lookupPlugin = registry.Shared().Lookup
+	exitProcess  = os.Exit
 )
 
-func Rollback(c cli.Command) {
-	if err := runRollbackCommand(c); err != nil {
+func Rollback(c cli.Command, b *verify.VerifiedBundle) {
+	if err := runRollbackCommand(c, b); err != nil {
 		logger.Errorf("rollback failed: %v\n", err)
 		exitProcess(1)
 	}
 }
 
-func rollbackCommand(c cli.Command) error {
+func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 	logger.Infof("rollback %s\n", c.Profile)
 	runStart := rollbackNow()
 
-	profileID, err := loadProfileID(c.Profile)
-	if err != nil {
-		return fmt.Errorf("load profile ID: %w", err)
+	if b == nil || b.Profile == nil {
+		return fmt.Errorf("rollback requires a verified profile bundle")
 	}
+	profileID := b.Profile.ID
 
 	cfg := connection.Config{
 		User:    c.User,
@@ -113,23 +112,6 @@ func writeRollbackFooter(journal *Journal, duration time.Duration) {
 	row(logger.ColorBold+"Duration"+logger.ColorReset+" : ", formatRollbackDuration(duration))
 	b.WriteString("\n")
 	logger.Infof("%s", b.String())
-}
-
-func defaultLoadProfileID(profilePath string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(profilePath, "profile.json"))
-	if err != nil {
-		return "", fmt.Errorf("read profile.json: %w", err)
-	}
-	var manifest struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return "", fmt.Errorf("parse profile.json: %w", err)
-	}
-	if strings.TrimSpace(manifest.ID) == "" {
-		return "", fmt.Errorf("profile.json missing id field")
-	}
-	return strings.TrimSpace(manifest.ID), nil
 }
 
 func stepActuallyChanged(step StepRecord) bool {

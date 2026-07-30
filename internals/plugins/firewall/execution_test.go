@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -723,8 +724,16 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].File == nil {
+		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 2 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
+		}
+		// Reverse-ordered rollback restores the managed file first, so
+		// nftables.conf must be the first object recorded.
+		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != NftablesMainConfigPath {
+			t.Fatalf("expected %s captured first, got %+v", NftablesMainConfigPath, rec.Objects[0].File)
+		}
+		if rec.Objects[1].File == nil || rec.Objects[1].File.Path != ManagedDestination(validDeterministicFirewallSpec()) {
+			t.Fatalf("expected managed destination captured second, got %+v", rec.Objects[1].File)
 		}
 	})
 
@@ -1037,4 +1046,62 @@ func (s firewallExecHostStub) WriteRootFile(path string, data []byte, mode os.Fi
 
 func (s firewallExecHostStub) RunRootWithTimeout(cmd string, _ time.Duration) (string, error) {
 	return s.RunRootWithOutput(cmd)
+}
+
+// TestRollbackRestoresNftablesMainConfig covers the mutation apply makes
+// outside the managed destination: without it, rollback reports success while
+// leaving the appended include behind.
+func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
+	plug := Plugin()
+
+	t.Run("restores prior content byte-for-byte", func(t *testing.T) {
+		original := "table inet filter {}\n"
+		var wrotePath string
+		var wroteData []byte
+		var wroteMode os.FileMode
+		host := firewallExecHostStub{
+			writeRootFile: func(p string, data []byte, mode os.FileMode) error {
+				wrotePath, wroteData, wroteMode = p, data, mode
+				return nil
+			},
+		}
+
+		snap := pluginapi.FileSnapshot{
+			Path:       NftablesMainConfigPath,
+			Existed:    true,
+			Mode:       "644",
+			ContentB64: base64.StdEncoding.EncodeToString([]byte(original)),
+		}
+		if err := plug.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &snap}); err != nil {
+			t.Fatalf("rollback failed: %v", err)
+		}
+		if wrotePath != NftablesMainConfigPath || string(wroteData) != original || wroteMode != 0o644 {
+			t.Fatalf("unexpected restore: path=%q data=%q mode=%#o", wrotePath, wroteData, wroteMode)
+		}
+	})
+
+	t.Run("deletes a file that did not exist before apply", func(t *testing.T) {
+		var cmds []string
+		host := firewallExecHostStub{runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		}}
+
+		snap := pluginapi.FileSnapshot{Path: NftablesMainConfigPath, Existed: false}
+		if err := plug.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &snap}); err != nil {
+			t.Fatalf("rollback failed: %v", err)
+		}
+		if len(cmds) != 1 || !strings.Contains(cmds[0], "rm -f") {
+			t.Fatalf("expected a delete, got %#v", cmds)
+		}
+	})
+
+	t.Run("refuses a path that is not the main config", func(t *testing.T) {
+		if err := restoreNftablesMainConfig(firewallExecHostStub{}, pluginapi.FileSnapshot{Path: "/etc/passwd"}); err == nil {
+			t.Fatal("expected a non-constant path to be refused")
+		}
+		if err := restoreNftablesMainConfig(nil, pluginapi.FileSnapshot{Path: NftablesMainConfigPath}); err == nil {
+			t.Fatal("expected a nil host to be refused")
+		}
+	})
 }

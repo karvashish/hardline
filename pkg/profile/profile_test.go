@@ -2,6 +2,7 @@ package profile
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -86,7 +87,10 @@ func TestLoad_AndTemplateHelpers_SuccessAndErrors(t *testing.T) {
 	if len(p.ActionFiles) != 1 {
 		t.Fatalf("expected 1 action file, got %d", len(p.ActionFiles))
 	}
-	paths := p.ActionPaths()
+	paths, err := p.ActionPaths()
+	if err != nil {
+		t.Fatalf("ActionPaths failed: %v", err)
+	}
 	if len(paths) != 1 {
 		t.Fatalf("expected 1 action path, got %d", len(paths))
 	}
@@ -305,4 +309,51 @@ func writeProfileJSON(t *testing.T, dir string, actions, templates []string) {
   "templates": `+templatesJSON+`,
   "allowed_overrides": []
 }`)
+}
+
+// TestResolveRejectsEscapes covers references that stay syntactically inside
+// the profile but read content the signature never covered.
+func TestResolveRejectsEscapes(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(dir, "outside")
+	inner := filepath.Join(dir, "profile")
+	if err := os.MkdirAll(filepath.Join(outside, "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(outside, "shared", "x.json"), `{"steps":[]}`)
+	if err := os.Symlink(filepath.Join(outside, "shared"), filepath.Join(inner, "linked")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	p := &Profile{profilePath: inner}
+	cases := map[string]string{
+		"../outside/shared/x.json": "must not contain",
+		"a/../../x.json":           "must not contain",
+		"/etc/passwd":              "must be relative",
+		`..\x.json`:                "backslash",
+		"":                         "empty",
+		"   ":                      "empty",
+		"linked/x.json":            "resolves outside",
+	}
+	for rel, wantErr := range cases {
+		got, err := p.resolve(rel)
+		if err == nil {
+			t.Fatalf("expected %q to be rejected, resolved to %q", rel, got)
+		}
+		if !strings.Contains(err.Error(), wantErr) {
+			t.Fatalf("resolve(%q) error = %q, want substring %q", rel, err.Error(), wantErr)
+		}
+	}
+
+	writeFile(t, filepath.Join(inner, "actions", "ok.json"), `{"steps":[]}`)
+	if _, err := p.resolve("actions/ok.json"); err != nil {
+		t.Fatalf("expected an ordinary relative reference to resolve, got %v", err)
+	}
+	// A reference that does not exist is left to the caller's read to report.
+	if _, err := p.resolve("actions/missing.json"); err != nil {
+		t.Fatalf("expected a missing file to resolve, got %v", err)
+	}
 }

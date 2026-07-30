@@ -22,10 +22,10 @@ func TestApply(t *testing.T) {
 		err := Apply(pluginapi.Context{Host: serviceRuntimeStub{
 			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
-				if cmd == `systemctl is-enabled "ssh" >/dev/null 2>&1` {
+				if cmd == `systemctl is-enabled 'ssh' >/dev/null 2>&1` {
 					return errors.New("disabled")
 				}
-				if cmd == `systemctl is-active "ssh" >/dev/null 2>&1` {
+				if cmd == `systemctl is-active 'ssh' >/dev/null 2>&1` {
 					return nil
 				}
 				return nil
@@ -35,7 +35,7 @@ func TestApply(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 		joined := strings.Join(cmds, "\n")
-		for _, want := range []string{`systemctl enable "ssh"`, `systemctl restart "ssh"`} {
+		for _, want := range []string{`systemctl enable 'ssh'`, `systemctl restart 'ssh'`} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("expected command %q, got %v", want, cmds)
 			}
@@ -54,7 +54,7 @@ func TestApply(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 		joined := strings.Join(cmds, "\n")
-		for _, want := range []string{`systemctl disable "cron"`, `systemctl stop "cron"`} {
+		for _, want := range []string{`systemctl disable 'cron'`, `systemctl stop 'cron'`} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("expected command %q, got %v", want, cmds)
 			}
@@ -72,7 +72,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl restart "cron"`) {
+		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl restart 'cron'`) {
 			t.Fatalf("restart should have run: %v", cmds)
 		}
 	})
@@ -88,7 +88,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl reload-or-restart "cron"`) {
+		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl reload-or-restart 'cron'`) {
 			t.Fatalf("reload-or-restart should have run: %v", cmds)
 		}
 	})
@@ -107,7 +107,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if strings.Contains(strings.Join(cmds, "\n"), `systemctl restart "cron"`) {
+		if strings.Contains(strings.Join(cmds, "\n"), `systemctl restart 'cron'`) {
 			t.Fatalf("restart should have been skipped: %v", cmds)
 		}
 	})
@@ -126,7 +126,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl restart "cron"`) {
+		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl restart 'cron'`) {
 			t.Fatalf("restart should have run when upstream changed: %v", cmds)
 		}
 	})
@@ -148,7 +148,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl restart "cron"`) {
+		if !strings.Contains(strings.Join(cmds, "\n"), `systemctl restart 'cron'`) {
 			t.Fatalf("restart should have run when service inactive: %v", cmds)
 		}
 	})
@@ -164,7 +164,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if strings.Contains(strings.Join(cmds, "\n"), `systemctl start "cron"`) {
+		if strings.Contains(strings.Join(cmds, "\n"), `systemctl start 'cron'`) {
 			t.Fatalf("start should have been skipped: %v", cmds)
 		}
 	})
@@ -174,7 +174,7 @@ func TestApply(t *testing.T) {
 		err := Apply(pluginapi.Context{Host: serviceRuntimeStub{
 			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
-				if cmd == `systemctl is-active "cron" >/dev/null 2>&1` {
+				if cmd == `systemctl is-active 'cron' >/dev/null 2>&1` {
 					return errors.New("inactive")
 				}
 				return nil
@@ -183,7 +183,7 @@ func TestApply(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if strings.Contains(strings.Join(cmds, "\n"), `systemctl stop "cron"`) {
+		if strings.Contains(strings.Join(cmds, "\n"), `systemctl stop 'cron'`) {
 			t.Fatalf("stop should have been skipped: %v", cmds)
 		}
 	})
@@ -198,7 +198,7 @@ func TestApply(t *testing.T) {
 	t.Run("enable command error", func(t *testing.T) {
 		err := Apply(pluginapi.Context{Host: serviceRuntimeStub{
 			runRoot: func(cmd string) error {
-				if cmd == `systemctl is-enabled "cron" >/dev/null 2>&1` {
+				if cmd == `systemctl is-enabled 'cron' >/dev/null 2>&1` {
 					return errors.New("disabled")
 				}
 				return errors.New("boom")
@@ -212,7 +212,7 @@ func TestApply(t *testing.T) {
 	t.Run("state command error", func(t *testing.T) {
 		err := Apply(pluginapi.Context{Host: serviceRuntimeStub{
 			runRoot: func(cmd string) error {
-				if cmd == `systemctl is-active "cron" >/dev/null 2>&1` {
+				if cmd == `systemctl is-active 'cron' >/dev/null 2>&1` {
 					return errors.New("inactive")
 				}
 				return errors.New("boom")
@@ -447,14 +447,14 @@ func (s serviceRuntimeStub) RunRoot(cmd string) error {
 	switch {
 	case strings.HasPrefix(cmd, "systemctl is-enabled "):
 		unit := strings.TrimSuffix(strings.TrimPrefix(cmd, "systemctl is-enabled "), " >/dev/null 2>&1")
-		unit = strings.Trim(unit, `"`)
+		unit = strings.Trim(unit, `'`)
 		if s.enabled[unit] {
 			return nil
 		}
 		return errors.New("disabled")
 	case strings.HasPrefix(cmd, "systemctl is-active "):
 		unit := strings.TrimSuffix(strings.TrimPrefix(cmd, "systemctl is-active "), " >/dev/null 2>&1")
-		unit = strings.Trim(unit, `"`)
+		unit = strings.Trim(unit, `'`)
 		if s.active[unit] {
 			return nil
 		}
@@ -479,4 +479,43 @@ func (serviceRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { ret
 
 func (s serviceRuntimeStub) RunRootWithTimeout(cmd string, _ time.Duration) (string, error) {
 	return s.RunRootWithOutput(cmd)
+}
+
+func TestValidateServiceUnit(t *testing.T) {
+	for _, unit := range []string{"ssh", "cron", "systemd-timesyncd.service", "getty@tty1.service", "auditd.socket", "apt-daily.timer", "multi-user.target"} {
+		if err := validateServiceUnit(unit); err != nil {
+			t.Fatalf("expected %q to pass, got %v", unit, err)
+		}
+	}
+
+	reject := []string{
+		"", " ", "ssh ", "ssh\n",
+		"ssh$(touch /tmp/hardline-pwn)",
+		"ssh`id`",
+		"ssh${HOME}",
+		"ssh;id", "ssh|id", "ssh&id", "ssh>x", "ssh<x",
+		"ssh'x", `ssh"x`, `ssh\x`, "ssh*", "ssh/../x",
+		"--force", "-rf", "-",
+		strings.Repeat("a", 129),
+	}
+	for _, unit := range reject {
+		if err := validateServiceUnit(unit); err == nil {
+			t.Fatalf("expected %q to be rejected", unit)
+		}
+	}
+}
+
+func TestValidateServiceSpecRejectsInjection(t *testing.T) {
+	spec := &Spec{Name: "ssh$(touch /tmp/hardline-pwn)", State: "restarted"}
+	if err := validateServiceSpec(spec); err == nil {
+		t.Fatal("expected hostile unit name to be rejected at the plugin boundary")
+	}
+
+	h := serviceRuntimeStub{}
+	if _, err := Plan(pluginapi.Context{Host: h}, spec); err == nil {
+		t.Fatal("expected Plan to reject a hostile unit name before running any command")
+	}
+	if err := Apply(pluginapi.Context{Host: h}, spec); err == nil {
+		t.Fatal("expected Apply to reject a hostile unit name")
+	}
 }

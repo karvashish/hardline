@@ -52,12 +52,13 @@ Planning is richer than a single yes or no:
 - `OperatorSummary` is the condensed description used in reports
 - `Highlights` carries warnings or special notes
 
-Rollback capture is object-based instead of plugin-specific string output. A `CaptureResult` can record:
+Rollback capture is object-based instead of plugin-specific string output. A `CaptureResult` carries a `RollbackMode`, a list of `ObjectRecord`s, optional `Notes`, and an optional `Reload`. The object kinds it can record are:
 
-- file objects
-- service objects
-- package objects
-- validation or no-op records
+- `file` objects
+- `file_meta` objects
+- `service` objects
+- `package` objects
+- `validate` no-op records
 
 The rollback modes exposed in `pkg/pluginapi` are:
 
@@ -65,21 +66,27 @@ The rollback modes exposed in `pkg/pluginapi` are:
 - `best_effort`
 - `noop`
 
+`CaptureResult.Reload` is step-level service intent rather than observed state — the action, the restart policy, and the dependency step IDs. Rollback reads it to decide whether to re-run a restart after reverting the step's dependencies.
+
 ## Built-In Plugins
 
-Registered in `internals/registry/registry.go`:
+Registered in `internals/registry/registry.go`, in this order:
 
 - `packages`
 - `template`
 - `service`
 - `firewall`
+- `file_meta`
+
+The shared registry is built once at package init; a built-in that fails to register panics rather than degrading silently.
 
 Notable behavior:
 
-- `packages` uses `apt-get`, state files under `/var/lib/hardline`, and longer timeouts
+- `packages` uses `apt-get`, per-operation marker files under `/var/lib/hardline`, and a 30-minute per-command timeout
 - `template` treats declared template files as static bytes
 - `service` uses `StepChanges` to suppress restarts and reloads when `restart_policy.type=on_change`
 - `firewall` normalizes nftables policy into a deterministic include file
+- `file_meta` re-stamps mode, owner, group, and the `i`/`a` chattr flags on paths that already exist
 
 ## External Plugin Loading
 

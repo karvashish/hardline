@@ -31,7 +31,7 @@ Hardline is installed system-wide under `/etc/hardline`. Everything sensitive - 
 ### Download And Verify
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.1.2   # replace with the release tag you want
 OS=linux
 ARCH=amd64   # or arm64
 
@@ -77,7 +77,7 @@ sudo ln -sf /etc/hardline/profiletool /usr/local/bin/profiletool
 hardline version
 ```
 
-If you copy the binary somewhere without its sibling `plugins/`, the external `firewall_template.so` plugin stops loading. Built-in plugins (`packages`, `template`, `service`, `firewall`) still work, but any profile step that lists `firewall_template` as its plugin will fail.
+If you copy the binary somewhere without its sibling `plugins/`, the external `firewall_template.so` plugin stops loading. Built-in plugins (`packages`, `template`, `service`, `firewall`, `file_meta`) still work, but any profile step that lists `firewall_template` as its plugin will fail.
 
 ### Profile Signing Key (Optional)
 
@@ -94,12 +94,14 @@ sudo chmod 0644 /etc/hardline/profile_signing_pub.pem
 
 `/etc/hardline/profile_signing_pub.pem` is also where `hardline verify-profile --allow-local-key` looks for a locally-trusted public key, so keeping both halves here means verify and sign both just work.
 
+`keygen` always writes a third copy of the public key to `internals/verify/profile_signing_pub.pem` **relative to the current working directory**, creating that directory if it does not exist. That path is the source-tree location of the key embedded into the `hardline` binary at build time, so the behavior only makes sense from a repo checkout. When you run `keygen` from an installed binary, `cd` to a scratch directory first and delete the stray `internals/` tree it leaves behind.
+
 ### Download The Example Profile
 
 The example Ubuntu 24.04 hardening profile is shipped as its own archive so you can try Hardline without cloning the repo:
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.1.2   # replace with the release tag you want
 curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz"
 curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz.sha256"
 sha256sum -c "starter-secure-ubuntu-24.04-lts-${VERSION}.tar.gz.sha256"
@@ -115,7 +117,7 @@ Both macOS architectures are published - `darwin/amd64` for Intel Macs, `darwin/
 The install follows the same root-owned `/etc/hardline` layout as [Linux](#linux), with these macOS-specific differences: verify with `shasum`, own the tree as `root:wheel` (macOS has no `root` group - GID 0 is `wheel`), and clear the Gatekeeper quarantine flag, which is set on archives downloaded through a browser.
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.1.2   # replace with the release tag you want
 ARCH=arm64   # or amd64 on Intel Macs
 
 curl -LO "https://github.com/karvashish/hardline/releases/download/${VERSION}/hardline-${VERSION}-darwin-${ARCH}.tar.gz"
@@ -146,7 +148,7 @@ The same rules as Linux apply from here: external plugins load from the `plugins
 On Windows, pick the matching `.zip`:
 
 ```powershell
-$Version = "v0.1.0"
+$Version = "v0.1.2"   # replace with the release tag you want
 $Arch = "amd64"   # or "arm64"
 $Archive = "hardline-$Version-windows-$Arch.zip"
 Invoke-WebRequest -Uri "https://github.com/karvashish/hardline/releases/download/$Version/$Archive" -OutFile $Archive
@@ -164,7 +166,7 @@ cd "hardline-$Version-windows-$Arch"
 
 Add the extracted directory to `PATH` via **System Properties → Environment Variables**, or use `$env:PATH` for the current shell session.
 
-**External plugins are not supported on Windows** - the Windows builds are statically linked with CGO disabled, and Go's plugin system only works on Linux, FreeBSD, and macOS. Built-in plugins (`packages`, `template`, `service`, `firewall`) are compiled into the binary and work normally. Hardline on Windows is intended as a workstation CLI for managing remote Linux hosts over SSH - not for applying profiles to a Windows host. See the [Platform Support](#platform-support) table below for the full matrix.
+**External plugins are not supported on Windows** - the Windows builds are statically linked with CGO disabled, and Go's plugin system only works on Linux, FreeBSD, and macOS. Built-in plugins (`packages`, `template`, `service`, `firewall`, `file_meta`) are compiled into the binary and work normally. Hardline on Windows is intended as a workstation CLI for managing remote Linux hosts over SSH - not for applying profiles to a Windows host. See the [Platform Support](#platform-support) table below for the full matrix.
 
 ## Platform Support
 

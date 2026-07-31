@@ -21,8 +21,8 @@ Config fields:
 
 - `path`: absolute path to an existing file or directory on the target host
 - `mode`: octal file mode string such as `0600` (compared against the host's `stat -c %a`, so `0640` and `640` are equal)
-- `owner`: user name or numeric uid to `chown` to
-- `group`: group name or numeric gid to `chown` to
+- `owner`: user name or numeric uid to `chown` to, matching `^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$`
+- `group`: group name or numeric gid to `chown` to, same pattern as `owner`
 - `immutable`: optional boolean — `true` sets the `i` (immutable) attr, `false` clears it, omitted leaves it untouched
 - `append_only`: optional boolean — `true` sets the `a` (append-only) attr, `false` clears it, omitted leaves it untouched
 
@@ -31,7 +31,7 @@ At least one of `mode`, `owner`, `group`, `immutable`, or `append_only` must be 
 ## Semantics
 
 - **Existing paths only.** The target must already exist. `file_meta` never creates files or directories — a missing target makes `plan` flag the step and `apply` hard-fail. This is why it is not scope-locked to `/etc/99-hardline*` the way `template` is.
-- **Absolute, printable-ASCII path.** The path must be an absolute, normalized path of printable ASCII characters with no whitespace or control bytes. Relative paths, `..` traversal, `//`, the filesystem root `/`, NUL/newline/CR, and non-ASCII (homoglyph) characters are all rejected at verify/plan time before any root command runs. A trailing slash is tolerated and stripped.
+- **Absolute path from a narrow character whitelist.** The path must match `^[A-Za-z0-9._/@-]+$` and be absolute and normalized. `@` is kept for systemd template unit paths; `$`, backticks, parentheses, quotes, glob characters, whitespace, control bytes, and all non-ASCII (homoglyph) characters are outside the set. Relative paths, `..` traversal, `//`, and the filesystem root `/` are also rejected, all at verify/plan time before any root command runs. A trailing slash is tolerated and stripped.
 - **Directory targets stamp the directory itself.** Pointing `path` at a directory changes that directory's own metadata. There is no recursion and no glob expansion; contents are never touched. To stamp several paths, write several steps.
 - **Bounded `chattr`.** Only the `i` (immutable) and `a` (append-only) attributes are managed. Every other ext-family attribute on the target is read but never modified.
 

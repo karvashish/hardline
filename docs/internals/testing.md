@@ -28,6 +28,13 @@ Build-related targets that matter for docs and internals work:
 - `make sign-profile`
 - `make sign-profiles`
 
+Two guard targets are worth knowing:
+
+- `make check-schemas` regenerates `schema/` and fails if the result differs from what is committed. The schemas are embedded into the binary, so a stale commit ships stale validation rules.
+- `make check-standalone` runs `scripts/check-standalone.sh`.
+
+`make examples` regenerates the artifacts under `docs/examples/` against a throwaway host, using the same provision-and-teardown wrapper as `make itest-all`.
+
 Integration tests:
 
 - shell harness in `integration-tests/` (orchestrator `itest.sh`; helpers in `lib/`: `harness.sh`, `fixtures.sh`, `runners.sh`)
@@ -57,8 +64,9 @@ What the integration harness covers:
 - file_meta cases covering mode/owner/group changes, immutable/append-only set and clear, lift→chmod→relock on an immutable target, directory-target stamping, idempotency, deterministic rollback, drift conflict detection, absent-target failure, and rejected paths
 - safety and failure paths such as wrong-OS rejection, unreachable hosts, unknown plugins, managed-path enforcement, malformed profiles, missing templates, and version gates
 - runtime override behavior including auto-discovery, explicit override-file precedence, signature invariants, invalid override rejection, and remote apply/plan cases with overrides
+- trust-boundary cases: command-injection guards on root-executed values, signed-bundle coverage, refusal of a profile edited after verification, and firewall include rollback
 
-The source of truth for the current scenario set is the `SCENARIOS` list in `integration-tests/itest.sh`, which groups the suite into CLI/verification, base-profile, template, packages, firewall, service, file-meta, rollback, and overrides sections. Each scenario runs the real command and then verifies the resulting host state independently over SSH — file content/mode, `dpkg`, `nft list`, service MainPID/state-change and journal entries — rather than asserting on hardline's own log output.
+The source of truth for the current scenario set is the `SCENARIOS` list in `integration-tests/itest.sh`, which groups the suite into CLI/verification, base-profile, template, packages, firewall, service, file-meta, rollback, overrides, and trust-boundary sections. A subset listed in `BOOTSTRAP_SET` needs the base profile applied first for the nftables include and base table; the `all` run bootstraps that by ordering `base-profile` first. Each scenario runs the real command and then verifies the resulting host state independently over SSH — file content/mode, `dpkg`, `nft list`, service MainPID/state-change and journal entries — rather than asserting on hardline's own log output.
 
 ## Good Places To Start Reading
 

@@ -40,7 +40,7 @@ profiletool sign \
   --private-key ./tmp/profile_signing.key
 ```
 
-If you want the binary itself to trust a rotated embedded key, rebuild Hardline after key generation.
+`keygen` also writes the public key to `internals/verify/profile_signing_pub.pem` relative to the current working directory, regardless of `--public-out`. That is the source-tree path embedded into `hardline` at build time, so run `keygen` from a repo checkout when you are rotating the embedded key, and rebuild Hardline afterwards for the binary to trust it.
 
 Related:
 

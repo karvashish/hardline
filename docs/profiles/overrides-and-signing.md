@@ -39,8 +39,14 @@ profiletool sign \
   --private-key ./tmp/profile_signing.key
 ```
 
-The generated manifest includes all regular files under the profile directory except:
+`sign` also takes `--manifest-out` and `--sig-out`; they default to `<profile-dir>/manifest.json` and `<profile-dir>/manifest.sig`.
+
+The generated manifest includes all regular files under the profile directory, recursively, except:
 
 - `manifest.json`
 - `manifest.sig`
 - `profile.overrides.json`
+
+Anything else that is not a regular file — a symlink, socket, or device node — aborts the walk with `unsupported non-regular profile file`, during both signing and verification.
+
+Verification is stricter than a file list check. On top of matching every recorded SHA-256, `verify-profile` rejects a profile directory that contains a file the manifest does not list, and separately asserts that every path in `profile.json`'s `actions` and `templates` arrays is covered by the signed manifest. A signed pointer to unsigned content is not accepted.

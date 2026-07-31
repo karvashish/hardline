@@ -4,9 +4,11 @@ Errors you're likely to hit on day one, and what to do about them. For interrupt
 
 ## SSH And Connection
 
-### `ssh host is required` / `ssh user is required` / `ssh key path is required`
+### `ssh host is required` / `ssh user is required`
 
 `plan`, `apply`, and `rollback` all require remote connection details. Pass `--host`, `--user`, and `--keypath` (or their shorthands `-H`, `-u`, `-k`).
+
+An omitted `--keypath` has no dedicated message — Hardline tries to read the empty path and surfaces the OS error (`open : no such file or directory`).
 
 ### `known_hosts file ... does not exist`
 
@@ -68,7 +70,7 @@ The `sudo` timestamp cache expired between steps, or the `sudoers` policy has `t
 
 ## Profile Verification
 
-### `manifest.sig: signature verification failed`
+### `manifest signature verification failed`
 
 Hardline verified the profile against its trusted public key and the signature didn't match. Most common causes:
 
@@ -78,11 +80,11 @@ Hardline verified the profile against its trusted public key and the signature d
 
 See [Signing And Verification](signing-and-verification.md) for the full key rotation story.
 
-### `manifest.json: file ... not listed in manifest` or `hash mismatch for ...`
+### `unexpected file not listed in manifest: ...`, `manifest references missing file: ...`, or `hash mismatch for ...`
 
-A file in the profile directory was added, removed, or modified after the manifest was written. Re-sign the profile.
+A file in the profile directory was added, removed, or modified after the manifest was written. Re-sign the profile. `manifest.json`, `manifest.sig`, and `profile.overrides.json` are the only files exempt from the hash walk.
 
-### `local signing key is group-writable` or `world-writable`
+### `local signing key ... has insecure permissions`
 
 Hardline refuses to use `/etc/hardline/profile_signing_pub.pem` unless its mode is `0644` or stricter with no group or world write bit. Fix:
 
@@ -96,9 +98,9 @@ The target host does not match the `os` block declared in `profile.json`. Either
 
 ## Overrides
 
-### `profile does not allow overrides` or `override key not allowed: ...`
+### `profile does not allow overrides: <keys>`
 
-Your overrides file contains a key that is not listed in `allowed_overrides` in `profile.json`. Either:
+Your overrides file contains one or more keys that are not listed in `allowed_overrides` in `profile.json`. The message names every offending key. Either:
 
 - Remove the offending key from your overrides file
 - Add the key to `allowed_overrides` and re-sign the profile (only the profile author can do this meaningfully — the override is scoped to what the profile's plugins will actually read)
@@ -113,29 +115,33 @@ Also note: `profile.overrides.json` is deliberately excluded from the signed man
 
 ## Packages Plugin
 
-### `apt lock held by another process`
+### `apt/dpkg lock is held by another process (PIDs: ...)`
 
-Some other `apt-get`, `dpkg`, `unattended-upgrades`, or the kernel's auto-updater is already running on the target. Hardline does not wait for locks — it fails fast so you can investigate. Wait a minute and retry, or inspect:
+Some other `apt-get`, `dpkg`, `unattended-upgrades`, or the kernel's auto-updater is already running on the target. Hardline checks `/var/lib/dpkg/lock`, `/var/lib/apt/lists/lock`, and `/var/lib/dpkg/lock-frontend` with `fuser` and does not wait — it fails fast with the holding PIDs so you can investigate. Wait a minute and retry, or inspect:
 
 ```bash
-sudo fuser /var/lib/dpkg/lock-frontend
+sudo lsof /var/lib/dpkg/lock
 ```
 
 If `unattended-upgrades` runs frequently on your target, consider scheduling Hardline runs outside the upgrade window.
 
-### `package name invalid`
+### `invalid package name "..."`
 
-The packages plugin validates package names against a conservative regex. Backslashes, spaces, and shell metacharacters are rejected. If you need a package manager feature the built-in plugin won't express, write an external plugin.
+The packages plugin validates every name against `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`. Underscores, slashes, backslashes, spaces, and shell metacharacters are all rejected, and a name may not start with `.`, `+`, or `-`. If you need a package manager feature the built-in plugin won't express, write an external plugin.
 
 ## Firewall Plugin
 
-### `nftables not installed` / `nft command not found`
+### `nftables config check failed` / errors from `nft`
 
-The base profile's firewall plugin expects `nftables` userspace tools on the target. Install them explicitly in an earlier step via the `packages` plugin, or choose a profile that doesn't use the firewall plugin.
+The firewall plugin shells out to `nft` on the target and has no separate presence check, so a missing `nftables` package surfaces as the underlying command failing — most visibly from `nft -c -f /etc/nftables.conf` during validation. Install the userspace tools in an earlier step via the `packages` plugin, or choose a profile that doesn't use the firewall plugin.
+
+### `nftables.conf missing include for /etc/nftables.d/*.nft`
+
+The plugin requires `/etc/nftables.conf` to contain `include "/etc/nftables.d/*.nft"` and appends the line when it is absent. This error means the check ran against a target where the append had not happened yet or was reverted.
 
 ### Rules apply but traffic still blocked
 
-Hardline writes a deterministic include file at `/etc/nftables.d/99-hardline-firewall.nft` and ensures `/etc/nftables.conf` sources `/etc/nftables.d/*.nft`. If your target has a pre-existing `nftables` ruleset that conflicts (for example, `ufw` or a cloud-init-managed ruleset), the two sets can race. Inspect the live table:
+The firewall plugin writes a deterministic ruleset file to the `managed_dest` path declared in the step — `/etc/nftables.d/99-hardline-firewall.nft` in the shipped starter profile — and ensures `/etc/nftables.conf` sources `/etc/nftables.d/*.nft`. If your target has a pre-existing `nftables` ruleset that conflicts (for example, `ufw` or a cloud-init-managed ruleset), the two sets can race. Inspect the live table:
 
 ```bash
 sudo nft list ruleset
@@ -159,9 +165,13 @@ That is the conflict protection working as designed. A managed file, package, or
 
 Review the reported conflicts carefully. If you're confident the newer state is unwanted, re-run with `--force-rollback`. If the newer state came from another tool or a second Hardline profile, prefer fixing the conflict at its source.
 
-### `no rollback journal found`
+### `no journal found for profile "..."`
 
-No successful apply has been recorded for this profile on this host. Either it was never applied, or the journal was cleaned up (the remote journal is deleted after a successful rollback, and `--keep-local-rollback` controls the runner-side copy).
+No successful apply has been recorded for this profile on this host — `/var/lib/hardline/runs/<profileID>/` is empty or absent. Either it was never applied, or the journal was cleaned up (the remote journal is deleted after a successful rollback, and `--keep-local-rollback` controls the runner-side copy).
+
+### `last run is not marked successful (status="failed")`
+
+A journal exists but records a failed or interrupted apply. `rollback` only replays journals with `status: success`; a failed apply already attempted its own automatic rollback. See [Failure And Recovery](failure-and-recovery.md).
 
 ## Version And Install
 

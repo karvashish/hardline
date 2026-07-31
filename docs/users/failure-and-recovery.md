@@ -10,7 +10,7 @@ Before describing failures, it's worth being explicit about what Hardline actual
 - **`apply` captures `Before` state and writes a journal entry before running any plugin that mutates state.** Each step's `Before` snapshot is on disk (local journal) before the plugin runs.
 - **If a step fails after earlier steps succeeded, `apply` auto-rolls back those earlier steps using the journal it just wrote.** You do not have to run `rollback` manually after a mid-run failure — Hardline attempts it automatically on the way out.
 - **A successful `apply` persists its journal remotely.** Subsequent `rollback` invocations read that remote journal.
-- **Rollback walks steps in reverse order, compares current remote state to the recorded post-apply state, and refuses to overwrite anything that has changed since.** `--force-rollback` bypasses that check; the default does not.
+- **Rollback walks steps in reverse order, compares current remote state to the recorded post-apply state, and refuses to overwrite anything that has changed since.** `--force-rollback` bypasses that check; the default does not. Steps that touch service objects are held back and reverted last, after the reverse pass, so a service is not restarted before the config it depends on has been restored.
 
 What Hardline does **not** guarantee:
 
@@ -94,7 +94,7 @@ If your target runs `unattended-upgrades` frequently enough that it keeps racing
 
 ## Rollback Conflicts
 
-When `rollback` refuses to proceed with an error like `object modified after apply`, something — another tool, a manual edit, a second Hardline profile — touched a managed object between the apply and the rollback.
+When `rollback` refuses to proceed with `step "<id>": files were modified after this profile ran — rolling back will overwrite those changes`, something — another tool, a manual edit, a second Hardline profile — touched a managed object between the apply and the rollback. The error lists each conflicting object and ends with `re-run with --force-rollback to overwrite`.
 
 Options, in increasing risk order:
 
@@ -106,9 +106,9 @@ Options, in increasing risk order:
 
 Two profiles that write the **same managed file** on the same host produce journals that describe contradictory histories. The conflict check in `rollback` catches this on the default path — but if you reach for `--force-rollback`, you will silently destroy state.
 
-This is a file-specific problem. For packages and services the overlap is self-cancelling: if profile A installs `htop`, profile B's attempt to install it lands with `Before.WasInstalled = true` and `After.WasInstalled = true` — identical snapshots — so B's step is treated as a no-op and [skipped during rollback](../../internals/rollback/rollback.go#L133). Service state is the same coarse binary (`enabled`, `active`), and service restarts are idempotent. File contents are not binary and not idempotent — every byte-level divergence between A and B is a real change that the journal records and that rollback will act on.
+This is a file-specific problem. For packages and services the overlap is self-cancelling: if profile A installs `htop`, profile B's attempt to install it lands with `Before.WasInstalled = true` and `After.WasInstalled = true` — identical snapshots — so B's step is treated as a no-op and skipped during rollback (`stepActuallyChanged` in [`internals/rollback/rollback.go`](https://github.com/karvashish/hardline/blob/main/internals/rollback/rollback.go)). Service state is the same coarse binary (`enabled`, `active`), and service restarts are idempotent. File contents are not binary and not idempotent — every byte-level divergence between A and B is a real change that the journal records and that rollback will act on.
 
-Each step's journal entry holds `Before` (pre-apply content) and `After` (post-apply content) snapshots. Rollback restores `Before`. Before restoring, it compares the **current** remote file to `After` and refuses if they differ (see [`checkStepConflicts` in rollback.go](../../internals/rollback/rollback.go#L246)). The overlap trap works like this:
+Each step's journal entry holds `Before` (pre-apply content) and `After` (post-apply content) snapshots. Rollback restores `Before`. Before restoring, it compares the **current** remote file to `After` and refuses if they differ (see `checkStepConflicts` in [`internals/rollback/rollback.go`](https://github.com/karvashish/hardline/blob/main/internals/rollback/rollback.go), which delegates to each plugin's `DetectConflict`). The overlap trap works like this:
 
 1. Apply profile **A**. A's journal: `Before = original`, `After = A's contents`.
 2. Apply profile **B**, which writes to the same file. B's journal: `Before = A's contents`, `After = B's contents`. The file on disk now holds `B's contents`.
@@ -135,7 +135,7 @@ The local journal path is:
 ${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json
 ```
 
-Since the default is under `/tmp`, it is wiped on runner reboot. If you rely on the local journal for post-hoc audit or disaster recovery, **set `HARDLINE_STATE_DIR` to a persistent location** (for example `/var/lib/hardline/runs` on the runner) and pass `--keep-local-rollback` on every apply.
+The default root is Go's `os.TempDir()` — `$TMPDIR` if set, otherwise `/tmp` — so it is wiped on runner reboot. If you rely on the local journal for post-hoc audit or disaster recovery, **set `HARDLINE_STATE_DIR` to a persistent location** (for example `/var/lib/hardline/runs` on the runner) and pass `--keep-local-rollback` on every apply.
 
 ## Partial Apply Left No Remote Journal
 
@@ -151,7 +151,9 @@ This is the single most important reason to use `--keep-local-rollback` on criti
 
 ## Version Drift Between Runner And Target
 
-Hardline checks the profile's `min_hardline` field against its own build version. If the runner is older than the profile expects, it refuses to run. Upgrade the runner before applying.
+Hardline checks the profile's `min_hardline` field against its own build version. If the runner is older than the profile expects, it refuses to run. Prerelease suffixes are ignored in that comparison, so an `-rc` build satisfies the same `min_hardline` as its final release.
+
+It also checks the profile's `profile_schema` against the schema version the binary supports, and refuses when the profile's is newer. Both checks run in `plan` and again in `apply`. Upgrade the runner before applying.
 
 There is no corresponding check for the *target* host — Hardline assumes the target does not need a Hardline binary. Nothing is installed on the target by Hardline itself.
 

@@ -21,4 +21,4 @@ This page is the profile-authoring docs hub. The detailed reference is split int
 
 ## Example
 
-The main example profile lives in [`starter-secure-ubuntu-24.04-lts/profile.json`](../starter-secure-ubuntu-24.04-lts/profile.json).
+The main example profile lives in [`starter-secure-ubuntu-24.04-lts/profile.json`](https://github.com/karvashish/hardline/blob/main/starter-secure-ubuntu-24.04-lts/profile.json).

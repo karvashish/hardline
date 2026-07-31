@@ -5,8 +5,8 @@ PLUGIN_OUTDIR := $(OUTDIR)/plugins
 FIREWALL_TEMPLATE_PLUGIN := $(PLUGIN_OUTDIR)/firewall_template.so
 SCHEMA_BIN := $(OUTDIR)/genschema
 PROFILE_TOOL_BIN := $(OUTDIR)/profiletool
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -s -w -X internals/cli.version=$(VERSION)
+VERSION := $(shell sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' internals/cli/version.json 2>/dev/null)
+LDFLAGS := -s -w
 COVER_PROFILE := $(abspath $(OUTDIR)/active.cover.out)
 GO_CACHE_DIR := $(abspath $(OUTDIR)/.gocache)
 MIN_COVERAGE ?= 90

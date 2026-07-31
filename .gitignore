@@ -36,3 +36,5 @@ go.work.sum
 .agent/
 
 .plan.md
+# MkDocs build output
+site/

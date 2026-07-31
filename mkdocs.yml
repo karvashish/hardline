@@ -1,0 +1,95 @@
+site_name: Hardline
+site_description: Signed-profile Linux hardening over SSH
+site_url: https://karvashish.github.io/hardline/
+repo_url: https://github.com/karvashish/hardline
+repo_name: karvashish/hardline
+edit_uri: edit/main/docs/
+copyright: Apache-2.0
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+
+validation:
+  omitted_files: warn
+  absolute_links: ignore
+  unrecognized_links: warn
+  anchors: warn
+
+not_in_nav: |
+  examples/starter-secure-ubuntu-24.04-lts/**
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Hub: user-guide.md
+      - Overview: users/overview.md
+      - Install: users/install.md
+      - Getting Started: users/getting-started.md
+      - CLI Reference: users/cli-reference.md
+      - Overrides: users/overrides.md
+      - Signing And Verification: users/signing-and-verification.md
+      - Failure And Recovery: users/failure-and-recovery.md
+      - Troubleshooting: users/troubleshooting.md
+  - Profile Authoring:
+      - Hub: profile-authoring.md
+      - Hello World Profile: profiles/hello-world.md
+      - Profile Structure: profiles/structure.md
+      - Action Files: profiles/action-files.md
+      - Built-In Plugins: profiles/builtin-plugins.md
+      - Packages Plugin: profiles/packages-plugin.md
+      - Template Plugin: profiles/template-plugin.md
+      - Service Plugin: profiles/service-plugin.md
+      - Firewall Plugin: profiles/firewall-plugin.md
+      - File Meta Plugin: profiles/file-meta-plugin.md
+      - Overrides And Signing: profiles/overrides-and-signing.md
+      - External Plugins: profiles/external-plugins.md
+  - Internals:
+      - Hub: internals.md
+      - Architecture: internals/architecture.md
+      - Data Models: internals/data-models.md
+      - Execution Flow: internals/execution-flow.md
+      - Planning And Reports: internals/planning-and-reports.md
+      - Plugin System: internals/plugin-system.md
+      - Remote Execution: internals/remote-execution.md
+      - Rollback: internals/rollback.md
+      - Safety And Trust: internals/safety-and-trust.md
+      - Testing: internals/testing.md
+  - Example Run Artifacts: examples/README.md
+  - Releasing: releasing.md

@@ -83,6 +83,8 @@ sudo chmod 0600 /etc/hardline/profile_signing.key
 sudo chmod 0644 /etc/hardline/profile_signing_pub.pem
 ```
 
+`keygen` writes a third copy of the public key to `internals/verify/profile_signing_pub.pem` **relative to your current directory**, creating that directory if needed. That is the source-tree path embedded into `hardline` at build time. Running the command above under `sudo` from your working directory therefore leaves a root-owned `internals/` tree behind; delete it, or run `keygen` from a scratch directory.
+
 Sign the profile:
 
 ```bash

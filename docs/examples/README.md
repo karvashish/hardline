@@ -1,6 +1,6 @@
 # Example Run Artifacts
 
-Real output from running the shipped [`starter-secure-ubuntu-24.04-lts`](../../starter-secure-ubuntu-24.04-lts/) profile against a fresh Ubuntu 24.04 LTS host, captured so you can see what Hardline produces without running it yourself.
+Real output from running the shipped [`starter-secure-ubuntu-24.04-lts`](https://github.com/karvashish/hardline/tree/main/starter-secure-ubuntu-24.04-lts) profile against a fresh Ubuntu 24.04 LTS host, captured so you can see what Hardline produces without running it yourself.
 
 The run followed the documented flow: `verify-profile`, then `plan`, then `apply` (23 steps), then `rollback`. Logs are the `--log-file` output (plain text, one timestamped line per entry).
 

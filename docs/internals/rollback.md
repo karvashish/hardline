@@ -34,6 +34,7 @@ StepRecord
   before[]
   after[]
   notes[]
+  reload?
 ```
 
 That matters because rollback is based on what the remote host actually looked like, not on what the step config said it "should" have done.
@@ -42,13 +43,15 @@ That matters because rollback is based on what the remote host actually looked l
 
 Local runner journal:
 
-- `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json`
+- `${HARDLINE_STATE_DIR:-<os.TempDir()>/hardline/runs}/<host>/<profileID>.json`
+
+`os.TempDir()` is `$TMPDIR` when set, otherwise `/tmp` on Linux and macOS.
 
 Remote success journals:
 
 - `/var/lib/hardline/runs/<profileID>/<runID>.json`
 
-The local path uses sanitized host and profile ID components. The remote path uses one file per successful apply run, so rollback can pop the newest run and leave older successful runs underneath it.
+Both paths run their host and profile ID components through `sanitizePath`, which replaces every character outside `[A-Za-z0-9._-]` with `_` and rejects an all-dot result. That keeps a path separator or shell metacharacter out of the remote journal commands. The local journal is written to a `.tmp` sibling and renamed into place, at mode `0600`. The remote path uses one file per successful apply run, so rollback can pop the newest run and leave older successful runs underneath it.
 
 Two practical consequences are easy to miss:
 
@@ -121,7 +124,7 @@ When serialized:
 - a SHA-256 checksum of that canonical JSON is computed
 - the checksum is written back into the final JSON
 
-When loaded, rollback verifies that checksum before trusting the journal contents.
+When loaded, rollback rejects any journal whose `version` is not exactly `2`, then verifies the checksum before trusting the contents. A journal with an empty `checksum` field is accepted without the check.
 
 That checksum does not make the journal tamper-proof against a privileged attacker, but it does protect against corruption and accidental damage. If the file on disk does not match the recorded checksum, rollback refuses to trust it.
 
@@ -187,9 +190,15 @@ The same local-journal path is used when the apply context is cancelled by `SIGI
 
 Rollback walks step records in reverse order.
 
-Within each step, it restores the recorded `Before` objects in reverse object order.
+Within each step, it restores the recorded `Before` objects in reverse object order, delegating each one to the owning plugin's `Rollback`. Three mode-dependent behaviors follow from that:
 
-Two important behaviors are easy to miss:
+- a step whose `RollbackMode` is `noop` returns immediately without touching the host
+- under `best_effort`, an object that fails to restore is logged as a warning and the walk continues to the next object
+- under `deterministic`, the first failing object aborts the whole rollback
+
+A step whose plugin is no longer registered is a hard error, not a skip: `rollback step "<id>": plugin "<type>" is not registered`. Removing a plugin from the binary therefore strands any journal that used it.
+
+Two more behaviors are easy to miss:
 
 - steps whose `Before` and `After` snapshots are identical are skipped, unless a service step's recorded reload intent fires (see below)
 - service-bearing steps are deferred until after non-service steps, so file and package restoration happens first

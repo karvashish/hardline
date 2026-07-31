@@ -45,18 +45,23 @@ Plan artifacts can be written as:
 Rules:
 
 - `--report-format` requires `--report-file`
-- if no format is passed, Hardline infers it from the filename extension
-- directories for report files are created automatically
+- if no format is passed, Hardline infers it from the filename extension (`.json`, `.yaml`, `.yml`, `.md`); any other extension is an error
+- directories for report files are created automatically, at mode `0755`
+- both rules are checked by `validatePlanOutputs` at the top of `plan.Plan`, before the SSH connection is opened, so a bad `--report-file` fails without touching the host
 
 ## What Goes Into A Report
 
 The generated report includes:
 
-- profile ID, display name, and version
-- target host plus OS family and version
-- summary counts for aligned, planned, and attention states
-- per-step `status`, `summary`, `operator_summary`, `details`, `diff`, `highlights`, and `will_change`
-- suggested next-step commands for apply and rollback, reusing the original profile argument path
+- `kind`, currently always `hardline_plan`
+- `profile`: ID, display name, and version
+- `target`: host plus OS family and version, taken from the profile's `os` block rather than from the host
+- `summary`: `steps_inspected`, `already_aligned`, `changes_planned`, `needs_attention`, and `rollback_available`
+- `changes_planned` and `needs_attention`: top-level rollups, omitted when empty
+- `steps`: per-step `id`, `type`, `status`, `summary`, `operator_summary`, `details`, `diff`, `highlights`, and `will_change`
+- `next_steps`: suggested apply and rollback commands, reusing the original profile argument path and carrying `--overrides-file` through when one was passed
+
+Each step is classified into one of three dispositions — `aligned`, `planned`, or `attention` — and the summary counts are derived from that classification.
 
 ## Apply And Reports
 

@@ -1,6 +1,14 @@
 # External Plugins
 
-Hardline can load additional plugins from a `plugins/` directory next to the binary.
+Hardline can load additional plugins from a `plugins/` directory next to the binary, resolved from `os.Executable()` (so a symlink on `PATH` resolves to the real install directory first).
+
+Loading rules:
+
+- a missing `plugins/` directory is not an error; it is skipped silently
+- only files whose extension is `.so`, case-insensitively, are considered; subdirectories are ignored
+- files load in sorted filename order, and any one failure aborts the whole load
+- registering two plugins under the same name fails with `plugin already registered for name`
+- when at least one plugin is present, Hardline prints a warning that they run as root and are not signature-verified
 
 The external plugin contract is:
 

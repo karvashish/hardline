@@ -16,7 +16,7 @@ That's it — the rest is automatic.
 
 ## What CI enforces
 
-The [`Validate release PR shape`](../.github/workflows/validate-release-pr.yml) check is a required status check on `main`. It applies two rule sets depending on the PR title.
+The [`Validate release PR shape`](https://github.com/karvashish/hardline/blob/main/.github/workflows/validate-release-pr.yml) check is a required status check on `main`. It applies two rule sets depending on the PR title.
 
 ### Release PRs (title matches `^\[release\] version X.Y.Z(-prerelease)?$`)
 
@@ -35,16 +35,18 @@ The [`Validate release PR shape`](../.github/workflows/validate-release-pr.yml) 
 
 ## What happens after merge
 
-The [`tag-release.yml`](../.github/workflows/tag-release.yml) workflow runs on every push to `main`. When the squashed commit subject starts with `[release] version `, it:
+The [`tag-release.yml`](https://github.com/karvashish/hardline/blob/main/.github/workflows/tag-release.yml) workflow runs on every push to `main`. When the squashed commit subject starts with `[release] version `, it:
 
 1. Re-verifies that `internals/cli/version.json` matches the version in the subject.
 2. Creates the annotated tag `v<version>` and pushes it to `origin`.
 
-Pushing the tag is the only trigger. [`release.yml`](../.github/workflows/release.yml) fires on its own `push.tags` because the tag is pushed with `RELEASE_TAG_PAT` — a user PAT, not `GITHUB_TOKEN`, so GitHub's anti-recursion rule does not apply. And it cannot apply: the "Release tags" ruleset rejects a `GITHUB_TOKEN` tag push outright, so any tag that lands at all was pushed by a bypass-capable PAT and does trigger the build.
+Pushing the tag is the only trigger. [`release.yml`](https://github.com/karvashish/hardline/blob/main/.github/workflows/release.yml) fires on its own `push.tags` because the tag is pushed with `RELEASE_TAG_PAT` — a user PAT, not `GITHUB_TOKEN`, so GitHub's anti-recursion rule does not apply. And it cannot apply: the "Release tags" ruleset rejects a `GITHUB_TOKEN` tag push outright, so any tag that lands at all was pushed by a bypass-capable PAT and does trigger the build.
 
 `release.yml` also keeps a `workflow_dispatch` entry taking a tag as input. That is a manual escape hatch for re-running a build against an existing tag; it is not part of the automatic path. An earlier version of `tag-release.yml` invoked it on every release, which produced two concurrent builds racing to publish the same GitHub Release (seen on `v0.2.0-rc1`).
 
-`release.yml` then runs unit tests, builds Linux (amd64/arm64) and Windows (amd64/arm64) binaries, packages the starter profile, and publishes a GitHub Release with all the artifacts attached and auto-generated release notes.
+`release.yml` then runs unit tests, builds Linux (amd64/arm64), macOS (amd64/arm64), and Windows (amd64/arm64) binaries, packages the starter profile, and publishes a GitHub Release with all the artifacts attached and auto-generated release notes. Seven archives in total, each with a companion `.sha256`.
+
+macOS `amd64` has no Intel runner, so it is built on Apple Silicon under Rosetta with an x86_64 Go toolchain — a native-amd64 environment rather than a cross build, so the cgo plugin links cleanly. Each Unix archive is checked with `file` against an expected architecture token before it is staged, so a silently mis-targeted build fails the job.
 
 ### Required secret: `RELEASE_TAG_PAT`
 
@@ -58,7 +60,7 @@ To rotate or initially provision:
 
 ## Why version.json instead of `git describe`
 
-The version is embedded into the binary at compile time by `//go:embed`-ing `internals/cli/version.json` (see [`internals/cli/version.go`](../internals/cli/version.go)). Keeping the source of truth in a tracked file (gated by the release-PR workflow) means:
+The version is embedded into the binary at compile time by `//go:embed`-ing `internals/cli/version.json` (see [`internals/cli/version.go`](https://github.com/karvashish/hardline/blob/main/internals/cli/version.go)). Keeping the source of truth in a tracked file (gated by the release-PR workflow) means:
 
 - Every commit on `main` has a single, honest version on disk.
 - `go run ./cmd/hardline` and `go build` without any flags produce a correctly-versioned binary.
@@ -68,4 +70,6 @@ The trade-off is the small amount of CI machinery above. The release-PR validato
 
 ## Pre-release versions
 
-Pre-releases use a suffix on the patch component: `0.1.0-rc1`, `0.2.0-beta.2`, etc. The validator accepts any `-[a-zA-Z0-9.]+` suffix. `release.yml` marks the GitHub Release as a pre-release automatically whenever the tag contains `-`.
+Pre-releases use a suffix on the patch component: `0.1.0-rc1`, `0.2.0-beta.2`, etc. The validator's full title pattern is `^\[release\] version ([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?)$`. `release.yml` marks the GitHub Release as a pre-release automatically whenever the tag contains `-`.
+
+A prerelease suffix is ignored when a profile's `min_hardline` is checked, so an `-rc` build satisfies the same minimum as its final release.

@@ -174,7 +174,7 @@ hardline version
 | Variable | Used by | Description |
 | --- | --- | --- |
 | `HARDLINE_KNOWN_HOSTS` | `plan`, `apply`, `rollback` | Path to the SSH `known_hosts` file Hardline checks before connecting. When unset, Hardline uses `~/.ssh/known_hosts`. Hardline refuses to connect to a host whose key is not already present; it does not perform TOFU. |
-| `HARDLINE_STATE_DIR` | `apply`, `rollback` | Root directory for the runner-side rollback journal. When unset, Hardline uses `/tmp/hardline/runs`. Override this if you want to persist local journals outside `/tmp`, or if you're running on a host that clears `/tmp` on reboot. |
+| `HARDLINE_STATE_DIR` | `apply`, `rollback` | Root directory for the runner-side rollback journal. When unset, Hardline uses `<temp>/hardline/runs`, where `<temp>` is Go's `os.TempDir()` — `$TMPDIR` if set, otherwise `/tmp` on Linux and macOS. Override this if you want to persist local journals outside the temp directory, or if you're running on a host that clears it on reboot. |
 
 ## Exit Codes
 

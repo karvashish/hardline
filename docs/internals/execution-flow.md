@@ -22,16 +22,20 @@ The process also installs a signal handler. The first `SIGINT` or `SIGTERM` canc
 
 ## `verify-profile`
 
-`verify.Verify`:
+`verify.Verify`, in order:
 
-1. verifies `manifest.json` against `manifest.sig`
-2. chooses the embedded public key or `/etc/hardline/profile_signing_pub.pem`
+1. resolves the signing public key — the embedded one by default, `/etc/hardline/profile_signing_pub.pem` under `--allow-local-key`
+2. verifies `manifest.json` against `manifest.sig`, then re-hashes every regular file in the directory and requires an exact two-way match with the manifest entries
 3. loads `profile.json`
-4. validates `profile.json` and every action file against the generated schemas
-5. validates `allowed_overrides`
-6. resolves runtime overrides and rejects unknown keys
-7. ensures each referenced plugin exists
-8. ensures declared templates exist on disk
+4. `Affirm` validates `profile.json` and every action file against the embedded schemas, and validates the `allowed_overrides` list itself
+5. resolves runtime overrides and rejects keys not in `allowed_overrides`
+6. ensures each referenced plugin exists in the registry
+7. asserts every path in `actions` and `templates` is covered by the signed manifest
+8. stats each declared template to confirm it exists on disk
+
+Step 7 runs before step 8 on purpose: coverage rejects any reference pointing outside the signed tree, so the stat never touches a path the signature did not cover.
+
+`Verify` returns a `VerifiedBundle` holding the profile directory, the digest of the exact manifest bytes whose signature was checked, and the loaded `*profile.Profile`. `plan`, `apply`, and `rollback` take that bundle rather than a directory path, so they operate on the profile whose signature was checked instead of re-reading a directory that may have changed since.
 
 This stage is deliberately local. No SSH connection is required.
 
@@ -39,11 +43,11 @@ This stage is deliberately local. No SSH connection is required.
 
 Then `plan.Plan`:
 
-1. validates plan output flags
-2. loads the profile
-3. checks `min_hardline` and `profile_schema`
-4. validates the profile and plugin availability
-5. resolves runtime overrides and stores them on the profile
+1. validates plan output flags, before any network work
+2. takes the profile from the `VerifiedBundle` rather than reloading it
+3. checks `min_hardline` and `profile_schema` against the binary
+4. validates plugin availability
+5. resolves runtime overrides, validates them, and stores them on the profile
 6. connects to the remote host over SSH
 7. checks the remote OS
 8. runs each step's `Plugin.Plan`
@@ -69,14 +73,18 @@ Then `apply.Apply` itself:
 
 1. connects to the remote host
 2. checks non-interactive sudo
-3. acquires `/var/lib/hardline/.apply-lock.d`
-4. reloads and validates the profile
-5. resolves overrides again
-6. creates a local rollback journal
-7. captures pre-step state, applies a step, captures post-step state
-8. updates step-change tracking for downstream `service` steps
-9. auto-rolls back on failure after prior mutation
-10. persists the successful journal remotely
+3. acquires `/var/lib/hardline/.apply-lock.d` via `mkdir`, which is atomic, and releases it on the way out
+4. checks the remote OS
+5. re-checks `min_hardline` and `profile_schema`, and plugin availability
+6. resolves overrides again and stores them on the profile
+7. re-hashes `manifest.json` and compares it to the digest recorded at verify time, aborting if the profile directory changed in between
+8. creates a local rollback journal
+9. captures pre-step state, applies a step, captures post-step state
+10. updates step-change tracking for downstream `service` steps
+11. auto-rolls back on failure after prior mutation
+12. persists the successful journal remotely, then deletes the local copy unless `--keep-local-rollback` was passed
+
+Step 7 is the window-closing check: verification happens before the SSH connection is even opened, so without it an edit made to the profile directory during the connect-and-preflight phase would be applied unsigned.
 
 Within each step, the apply package does:
 
@@ -92,7 +100,7 @@ If a step fails after prior mutations, apply triggers rollback using the recorde
 
 Then `rollback.Rollback`:
 
-1. loads the profile ID from `profile.json`
+1. takes the profile ID from the verified bundle
 2. connects to the remote host
 3. checks non-interactive sudo
 4. loads the newest remote journal for that profile

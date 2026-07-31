@@ -56,10 +56,10 @@ Field reference:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `id` | yes | Stable profile identifier used in journals and logs |
+| `id` | yes | Stable profile identifier used in journals and logs. Must match `^[A-Za-z0-9][A-Za-z0-9._-]*$` |
 | `display_name` | yes | Human-readable name shown in output |
 | `version` | yes | Profile version string |
-| `os` | yes | Target OS family, version, and variant |
+| `os` | yes | Target OS. All three subfields — `family`, `version`, `variant` — are required |
 | `profile_schema` | yes | Schema version supported by Hardline |
 | `min_hardline` | yes | Minimum Hardline version allowed to run the profile |
 | `actions` | yes | Ordered list of action file paths, relative to the profile root |
@@ -72,7 +72,9 @@ Override key names must match:
 ^[a-z][a-z0-9_]*$
 ```
 
-Duplicates are rejected.
+Duplicates are rejected. `additionalProperties` is `false`, so any field not in the table above fails schema validation.
+
+At run time Hardline compares only `os.family` against the target's `/etc/os-release` `ID`, and `os.version` against `VERSION_ID`. `os.variant` is required by the schema and carried in the profile, but nothing on the host is checked against it.
 
 ## One Managed File, One Profile
 

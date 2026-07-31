@@ -26,11 +26,11 @@ If you want to see how Hardline is tested, jump to [Testing](internals/testing.m
 
 ## Related Files
 
-- [`cmd/hardline/main.go`](../cmd/hardline/main.go)
-- [`cmd/profiletool/main.go`](../cmd/profiletool/main.go)
-- [`integration-tests/itest.sh`](../integration-tests/itest.sh)
-- [`integration-tests/terraform/main.tf`](../integration-tests/terraform/main.tf)
-- [`internals/plan/plan.go`](../internals/plan/plan.go)
-- [`pkg/profile/profile.go`](../pkg/profile/profile.go)
-- [`schema/profile.schema.json`](../schema/profile.schema.json)
-- [`schema/action-file.schema.json`](../schema/action-file.schema.json)
+- [`cmd/hardline/main.go`](https://github.com/karvashish/hardline/blob/main/cmd/hardline/main.go)
+- [`cmd/profiletool/main.go`](https://github.com/karvashish/hardline/blob/main/cmd/profiletool/main.go)
+- [`integration-tests/itest.sh`](https://github.com/karvashish/hardline/blob/main/integration-tests/itest.sh)
+- [`integration-tests/terraform/main.tf`](https://github.com/karvashish/hardline/blob/main/integration-tests/terraform/main.tf)
+- [`internals/plan/plan.go`](https://github.com/karvashish/hardline/blob/main/internals/plan/plan.go)
+- [`pkg/profile/profile.go`](https://github.com/karvashish/hardline/blob/main/pkg/profile/profile.go)
+- [`schema/profile.schema.json`](https://github.com/karvashish/hardline/blob/main/schema/profile.schema.json)
+- [`schema/action-file.schema.json`](https://github.com/karvashish/hardline/blob/main/schema/action-file.schema.json)

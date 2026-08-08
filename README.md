@@ -1,5 +1,7 @@
 # Hardline - Signed-Profile Linux Hardening
 
+**Documentation: [karvashish.github.io/hardline](https://karvashish.github.io/hardline/)**
+
 [![Unit Tests](https://github.com/karvashish/hardline/actions/workflows/unit-tests.yml/badge.svg?branch=main&event=push)](https://github.com/karvashish/hardline/actions/workflows/unit-tests.yml)
 [![Build](https://github.com/karvashish/hardline/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/karvashish/hardline/actions/workflows/build.yml)
 

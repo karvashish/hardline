@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "actions/10-ssh.json",
+      "sha256": "2fb7e5a604bf916d818b32b84f00892df084c56f89a1ba572318a861cfccacb9"
+    },
+    {
+      "path": "actions/20-firewall.json",
+      "sha256": "f8902a2a69fb85bf6e32cedb5cf788ce14f8114556f5d7005ad05efe5d0f8aef"
+    },
+    {
+      "path": "profile.json",
+      "sha256": "0e2055ff7ed6ade6ce1ee720e8a296c7d7dfb2e4e447e4f1f3032e194b9d37f6"
+    },
+    {
+      "path": "templates/10-ssh-hardening.tmpl",
+      "sha256": "3ff97734811b9f31ce5c101a70629aa80a07b84ab0334ec7b2e3739f6a2418e8"
+    }
+  ]
+}

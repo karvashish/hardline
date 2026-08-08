@@ -1,9 +1,9 @@
 # Hardline - Signed-Profile Linux Hardening
 
-**Documentation: [karvashish.github.io/hardline](https://karvashish.github.io/hardline/)**
-
 [![Unit Tests](https://github.com/karvashish/hardline/actions/workflows/unit-tests.yml/badge.svg?branch=main&event=push)](https://github.com/karvashish/hardline/actions/workflows/unit-tests.yml)
 [![Build](https://github.com/karvashish/hardline/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/karvashish/hardline/actions/workflows/build.yml)
+
+**Documentation: [karvashish.github.io/hardline](https://karvashish.github.io/hardline/)**
 
 Hardline is a signed-profile runner for applying opinionated system configuration to remote Linux hosts over SSH. It verifies profile contents locally, checks the target host before changes, produces a plan, applies steps with non-interactive `sudo`, and stores rollback journals so the last successful run can be reverted.
 

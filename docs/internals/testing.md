@@ -68,6 +68,12 @@ What the integration harness covers:
 
 The source of truth for the current scenario set is the `SCENARIOS` list in `integration-tests/itest.sh`, which groups the suite into CLI/verification, base-profile, template, packages, firewall, service, file-meta, rollback, overrides, and trust-boundary sections. A subset listed in `BOOTSTRAP_SET` needs the base profile applied first for the nftables include and base table; the `all` run bootstraps that by ordering `base-profile` first. Each scenario runs the real command and then verifies the resulting host state independently over SSH — file content/mode, `dpkg`, `nft list`, service MainPID/state-change and journal entries — rather than asserting on hardline's own log output.
 
+## Demo Profile
+
+`demo-profile/` is a five-step profile covering `file_meta`, `template`, `service`, and `firewall`. It deliberately omits `packages`, whose apt work would dominate the runtime, so a full verify/plan/apply/rollback cycle against a host provisioned by `make itest-gcp-up` finishes in about a minute. It is signed with the same key as the starter profile and is included in `make sign-profiles`.
+
+It backs the demo recording in the README and on the docs home page. The recording tooling lives outside this repo; the GIF it produces is committed at `docs/assets/demo.gif`.
+
 ## Good Places To Start Reading
 
 If you are new to the codebase, this order works well:

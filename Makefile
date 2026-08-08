@@ -22,6 +22,7 @@ SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
 SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
 PROFILE_DIRS := \
 	starter-secure-ubuntu-24.04-lts \
+	demo-profile \
 	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
 
 WIN_GOARCH ?= amd64

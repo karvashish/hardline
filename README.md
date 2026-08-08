@@ -5,6 +5,10 @@
 
 Hardline is a signed-profile runner for applying opinionated system configuration to remote Linux hosts over SSH. It verifies profile contents locally, checks the target host before changes, produces a plan, applies steps with non-interactive `sudo`, and stores rollback journals so the last successful run can be reverted.
 
+![Hardline demo: verify, plan, apply, and roll back a signed profile on a fresh Ubuntu 24.04 host](docs/assets/demo.gif)
+
+A real run of [`demo-profile/`](demo-profile/) against a throwaway Ubuntu 24.04 host, with plain `ssh` reading the host's own state before apply, after apply, and after rollback. Output is verbatim; timing and paths are not.
+
 ## What's In The Trusted Execution Surface
 
 A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is five typed plugin configs:

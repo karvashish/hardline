@@ -14,9 +14,17 @@ import (
 	"time"
 )
 
+const (
+	testMainConfig = MainConfigDebian
+	testDest       = "/etc/nftables.d/99-hardline-firewall.nft"
+)
+
+var testIncludeCheck = includeCheckCmd(testMainConfig, testDest)
+
 func TestNormalizeDesiredSpec(t *testing.T) {
 	spec, err := NormalizeDesiredSpec(&Spec{
 		Backend:     "nftables",
+		MainConfig:  testMainConfig,
 		Family:      "inet",
 		Table:       "filter",
 		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
@@ -379,14 +387,14 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 	t.Run("ensure include direct", func(t *testing.T) {
 		calls := 0
 		err := EnsureNftablesInclude(firewallExecHostStub{runRoot: func(cmd string) error {
-			if cmd == IncludeCheckCmd {
+			if cmd == testIncludeCheck {
 				calls++
 				if calls == 1 {
 					return errors.New("missing")
 				}
 			}
 			return nil
-		}})
+		}}, testMainConfig, testDest)
 		if err != nil {
 			t.Fatalf("EnsureNftablesInclude failed: %v", err)
 		}
@@ -395,25 +403,25 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		}
 
 		err = EnsureNftablesInclude(firewallExecHostStub{runRoot: func(cmd string) error {
-			if cmd == IncludeCheckCmd {
+			if cmd == testIncludeCheck {
 				return errors.New("missing")
 			}
-			if strings.Contains(cmd, ">> /etc/nftables.conf") {
+			if strings.Contains(cmd, ">> '/etc/nftables.conf'") {
 				return errors.New("append fail")
 			}
 			return nil
-		}})
+		}}, testMainConfig, testDest)
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure error, got %v", err)
 		}
 
 		calledAppend := false
 		err = EnsureNftablesInclude(firewallExecHostStub{runRoot: func(cmd string) error {
-			if strings.Contains(cmd, ">> /etc/nftables.conf") {
+			if strings.Contains(cmd, ">> '/etc/nftables.conf'") {
 				calledAppend = true
 			}
 			return nil
-		}})
+		}}, testMainConfig, testDest)
 		if err != nil {
 			t.Fatalf("EnsureNftablesInclude present-include path failed: %v", err)
 		}
@@ -452,7 +460,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		err = Apply(pluginapi.Context{Host: firewallExecHostStub{
 			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
-				if cmd == IncludeCheckCmd {
+				if cmd == testIncludeCheck {
 					checkCount++
 					if checkCount == 1 {
 						return errors.New("missing")
@@ -468,16 +476,16 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`) {
+		if !strings.Contains(strings.Join(cmds, "\n"), `printf '\n%s\n' 'include "/etc/nftables.d/*.nft"' >> '/etc/nftables.conf'`) {
 			t.Fatalf("expected include append command, got %v", cmds)
 		}
 
 		err = Apply(pluginapi.Context{Host: firewallExecHostStub{
 			runRoot: func(cmd string) error {
-				if cmd == IncludeCheckCmd {
+				if cmd == testIncludeCheck {
 					return errors.New("missing")
 				}
-				if strings.Contains(cmd, ">> /etc/nftables.conf") {
+				if strings.Contains(cmd, ">> '/etc/nftables.conf'") {
 					return errors.New("append failed")
 				}
 				return nil
@@ -549,15 +557,15 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "family is required") {
 			t.Fatalf("expected family required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.Context{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet"})
+		_, err = Plan(pluginapi.Context{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet"})
 		if err == nil || !strings.Contains(err.Error(), "table is required") {
 			t.Fatalf("expected table required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.Context{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter"})
+		_, err = Plan(pluginapi.Context{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter"})
 		if err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
 			t.Fatalf("expected managed_dest required error, got %v", err)
 		}
-		_, err = Plan(pluginapi.Context{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+		_, err = Plan(pluginapi.Context{Host: firewallRuntimeStub{}}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 		if err == nil || !strings.Contains(err.Error(), "policies are required") {
 			t.Fatalf("expected policies required error, got %v", err)
 		}
@@ -650,15 +658,15 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			}
 		}
 
-		if err := ValidateApply(firewallExecHostStub{runRoot: func(string) error { return nil }}); err != nil {
+		if err := ValidateApply(firewallExecHostStub{runRoot: func(string) error { return nil }}, testMainConfig, testDest); err != nil {
 			t.Fatalf("ValidateApply failed: %v", err)
 		}
 		err = ValidateApply(firewallExecHostStub{runRoot: func(cmd string) error {
-			if cmd == IncludeCheckCmd {
+			if cmd == testIncludeCheck {
 				return errors.New("missing")
 			}
 			return nil
-		}})
+		}}, testMainConfig, testDest)
 		if err == nil || !strings.Contains(err.Error(), "missing include") {
 			t.Fatalf("expected include error, got %v", err)
 		}
@@ -667,7 +675,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				return errors.New("bad")
 			}
 			return nil
-		}})
+		}}, testMainConfig, testDest)
 		if err == nil || !strings.Contains(err.Error(), "config check failed") {
 			t.Fatalf("expected config check error, got %v", err)
 		}
@@ -684,7 +692,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected 'add include' in diff for missing include, got %s", includeDiff)
 		}
 
-		vres, err := ValidatePlan(firewallRuntimeStub{include: false, configErr: errors.New("bad")})
+		vres, err := ValidatePlan(firewallRuntimeStub{include: false, configErr: errors.New("bad")}, testMainConfig, testDest)
 		if err != nil {
 			t.Fatalf("ValidatePlan failed: %v", err)
 		}
@@ -692,7 +700,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if !strings.Contains(joined, "missing") || !strings.Contains(joined, "reports errors") {
 			t.Fatalf("unexpected validate plan details: %s", joined)
 		}
-		vres, err = ValidatePlan(firewallRuntimeStub{include: true})
+		vres, err = ValidatePlan(firewallRuntimeStub{include: true}, testMainConfig, testDest)
 		if err != nil {
 			t.Fatalf("ValidatePlan success path failed: %v", err)
 		}
@@ -729,8 +737,8 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		}
 		// Reverse-ordered rollback restores the managed file first, so
 		// nftables.conf must be the first object recorded.
-		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != NftablesMainConfigPath {
-			t.Fatalf("expected %s captured first, got %+v", NftablesMainConfigPath, rec.Objects[0].File)
+		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != MainConfigDebian {
+			t.Fatalf("expected %s captured first, got %+v", MainConfigDebian, rec.Objects[0].File)
 		}
 		if rec.Objects[1].File == nil || rec.Objects[1].File.Path != ManagedDestination(validDeterministicFirewallSpec()) {
 			t.Fatalf("expected managed destination captured second, got %+v", rec.Objects[1].File)
@@ -867,16 +875,16 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 	})
 
 	t.Run("validate helper utilities", func(t *testing.T) {
-		if firewallIncludePresent(nil) {
+		if firewallIncludePresent(nil, testMainConfig, testDest) {
 			t.Fatalf("nil runtime should report missing include")
 		}
-		if !firewallIncludePresent(firewallRuntimeStub{include: true}) {
+		if !firewallIncludePresent(firewallRuntimeStub{include: true}, testMainConfig, testDest) {
 			t.Fatalf("expected include to be detected")
 		}
-		if err := firewallConfigTest(nil); err == nil || !strings.Contains(err.Error(), "host is required") {
+		if err := firewallConfigTest(nil, testMainConfig); err == nil || !strings.Contains(err.Error(), "host is required") {
 			t.Fatalf("expected runtime-required error, got %v", err)
 		}
-		if err := firewallConfigTest(firewallRuntimeStub{configErr: errors.New("bad")}); err == nil || !strings.Contains(err.Error(), "bad") {
+		if err := firewallConfigTest(firewallRuntimeStub{configErr: errors.New("bad")}, testMainConfig); err == nil || !strings.Contains(err.Error(), "bad") {
 			t.Fatalf("expected nft config error, got %v", err)
 		}
 	})
@@ -904,6 +912,7 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 func validDeterministicFirewallSpec() *Spec {
 	return &Spec{
 		Backend:     "nftables",
+		MainConfig:  testMainConfig,
 		Family:      "inet",
 		Table:       "filter",
 		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
@@ -940,12 +949,13 @@ type firewallRuntimeStub struct {
 
 func (s firewallRuntimeStub) RunRoot(cmd string) error {
 	switch cmd {
-	case IncludeCheckCmd:
+	case testIncludeCheck:
 		if s.include {
 			return nil
 		}
 		return errors.New("missing")
-	case "nft -c -f /etc/nftables.conf >/dev/null 2>&1":
+	case "nft -c -f '" + MainConfigDebian + "' >/dev/null 2>&1",
+		"nft -c -f '" + MainConfigRHEL + "' >/dev/null 2>&1":
 		return s.configErr
 	default:
 		return nil
@@ -1067,7 +1077,7 @@ func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 		}
 
 		snap := pluginapi.FileSnapshot{
-			Path:       NftablesMainConfigPath,
+			Path:       MainConfigDebian,
 			Existed:    true,
 			Mode:       "644",
 			ContentB64: base64.StdEncoding.EncodeToString([]byte(original)),
@@ -1075,7 +1085,7 @@ func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 		if err := plug.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &snap}); err != nil {
 			t.Fatalf("rollback failed: %v", err)
 		}
-		if wrotePath != NftablesMainConfigPath || string(wroteData) != original || wroteMode != 0o644 {
+		if wrotePath != MainConfigDebian || string(wroteData) != original || wroteMode != 0o644 {
 			t.Fatalf("unexpected restore: path=%q data=%q mode=%#o", wrotePath, wroteData, wroteMode)
 		}
 	})
@@ -1087,7 +1097,7 @@ func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 			return nil
 		}}
 
-		snap := pluginapi.FileSnapshot{Path: NftablesMainConfigPath, Existed: false}
+		snap := pluginapi.FileSnapshot{Path: MainConfigDebian, Existed: false}
 		if err := plug.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &snap}); err != nil {
 			t.Fatalf("rollback failed: %v", err)
 		}
@@ -1100,7 +1110,7 @@ func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 		if err := restoreNftablesMainConfig(firewallExecHostStub{}, pluginapi.FileSnapshot{Path: "/etc/passwd"}); err == nil {
 			t.Fatal("expected a non-constant path to be refused")
 		}
-		if err := restoreNftablesMainConfig(nil, pluginapi.FileSnapshot{Path: NftablesMainConfigPath}); err == nil {
+		if err := restoreNftablesMainConfig(nil, pluginapi.FileSnapshot{Path: MainConfigDebian}); err == nil {
 			t.Fatal("expected a nil host to be refused")
 		}
 	})

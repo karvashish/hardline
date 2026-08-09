@@ -19,8 +19,9 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 		ID:     "ft",
 		Plugin: "firewall_template",
 		Config: map[string]any{
-			"backend": "nftables",
-			"policy":  "allow",
+			"backend":     "nftables",
+			"main_config": MainConfigDebian,
+			"policy":      "allow",
 			"allow": []any{
 				map[string]any{"port": 0, "proto": "tcp"},
 			},
@@ -34,8 +35,9 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 		ID:     "ft",
 		Plugin: "firewall_template",
 		Config: map[string]any{
-			"backend": "nftables",
-			"policy":  "allow",
+			"backend":     "nftables",
+			"main_config": MainConfigDebian,
+			"policy":      "allow",
 			"allow": []any{
 				map[string]any{"port": 0, "proto": "tcp"},
 			},
@@ -53,8 +55,9 @@ func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 		ID:     "ft",
 		Plugin: "firewall_template",
 		Config: map[string]any{
-			"backend": "nftables",
-			"policy":  "allow",
+			"backend":     "nftables",
+			"main_config": MainConfigDebian,
+			"policy":      "allow",
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "profile context is required") {
@@ -69,8 +72,9 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 		ID:     "ft",
 		Plugin: "firewall_template",
 		Config: map[string]any{
-			"backend": "nftables",
-			"policy":  "allow",
+			"backend":     "nftables",
+			"main_config": MainConfigDebian,
+			"policy":      "allow",
 		},
 	}
 
@@ -92,13 +96,14 @@ func TestValidateFirewallTemplateSpec(t *testing.T) {
 	if err := validateFirewallTemplateSpec(&Spec{}); err == nil || !strings.Contains(err.Error(), "backend is required") {
 		t.Fatalf("expected backend error, got %v", err)
 	}
-	if err := validateFirewallTemplateSpec(&Spec{Backend: "nftables"}); err == nil || !strings.Contains(err.Error(), "policy is required") {
+	if err := validateFirewallTemplateSpec(&Spec{Backend: "nftables", MainConfig: MainConfigDebian}); err == nil || !strings.Contains(err.Error(), "policy is required") {
 		t.Fatalf("expected policy error, got %v", err)
 	}
 	err := validateFirewallTemplateSpec(&Spec{
-		Backend: "nftables",
-		Policy:  "allow",
-		Allow:   []AllowRule{{Port: 22, Proto: "sctp"}},
+		Backend:    "nftables",
+		MainConfig: MainConfigDebian,
+		Policy:     "allow",
+		Allow:      []AllowRule{{Port: 22, Proto: "sctp"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "unsupported firewall_template protocol") {
 		t.Fatalf("expected proto validation error, got %v", err)

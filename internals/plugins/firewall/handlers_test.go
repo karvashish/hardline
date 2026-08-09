@@ -1,6 +1,8 @@
 package firewall
 
 import (
+	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -46,6 +48,7 @@ func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 		Plugin: "firewall",
 		Config: map[string]any{
 			"backend":      "nftables",
+			"main_config":  MainConfigDebian,
 			"family":       "inet",
 			"table":        "filter",
 			"managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
@@ -73,6 +76,7 @@ func TestPlugin_PlanAndRollback(t *testing.T) {
 		Plugin: "firewall",
 		Config: map[string]any{
 			"backend":      "nftables",
+			"main_config":  MainConfigDebian,
 			"family":       "inet",
 			"table":        "filter",
 			"managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
@@ -110,5 +114,107 @@ func TestValidateFirewallSpec(t *testing.T) {
 	spec.ManagedDest = ""
 	if err := validateFirewallSpec(spec); err == nil || !strings.Contains(err.Error(), "managed_dest is required") {
 		t.Fatalf("expected managed_dest error, got %v", err)
+	}
+
+	spec = validDeterministicFirewallSpec()
+	spec.MainConfig = ""
+	if err := validateFirewallSpec(spec); err == nil || !strings.Contains(err.Error(), "main_config is required") {
+		t.Fatalf("expected main_config error, got %v", err)
+	}
+
+	for _, bad := range []string{"/etc/nftables.d/99-hardline.nft", "/tmp/nftables.conf", "/etc/passwd"} {
+		spec = validDeterministicFirewallSpec()
+		spec.MainConfig = bad
+		if err := validateFirewallSpec(spec); err == nil || !strings.Contains(err.Error(), "unsupported firewall main_config") {
+			t.Fatalf("main_config %q: expected rejection, got %v", bad, err)
+		}
+	}
+
+	for _, good := range []string{MainConfigDebian, MainConfigRHEL} {
+		spec = validDeterministicFirewallSpec()
+		spec.MainConfig = good
+		if err := validateFirewallSpec(spec); err != nil {
+			t.Fatalf("main_config %q: expected acceptance, got %v", good, err)
+		}
+	}
+}
+
+func TestRHELMainConfigWiring(t *testing.T) {
+	var cmds []string
+	host := firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			if strings.HasPrefix(cmd, "grep -E -q") || strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("missing")
+			}
+			return nil
+		},
+		writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+	}
+
+	spec := validDeterministicFirewallSpec()
+	spec.MainConfig = MainConfigRHEL
+	if err := Apply(pluginapi.Context{Host: host}, spec); err == nil {
+		t.Fatal("expected the second include check to fail on this stub")
+	}
+
+	joined := strings.Join(cmds, "\n")
+	if !strings.Contains(joined, "'/etc/sysconfig/nftables.conf'") {
+		t.Fatalf("expected the RHEL main config to be used, got %v", cmds)
+	}
+	if strings.Contains(joined, "/etc/nftables.conf'") {
+		t.Fatalf("Debian main config must not appear in a RHEL run, got %v", cmds)
+	}
+}
+
+func TestIncludeLineFollowsManagedDest(t *testing.T) {
+	if got := IncludeLine("/etc/nftables.d/99-hardline-firewall.nft"); got != `include "/etc/nftables.d/*.nft"` {
+		t.Fatalf("unexpected include line: %q", got)
+	}
+	if got := IncludeLine("/etc/hardline.d/99-hardline-firewall.nft"); got != `include "/etc/hardline.d/*.nft"` {
+		t.Fatalf("include line must follow managed_dest, got %q", got)
+	}
+}
+
+func TestFirewallConfigTestUsesTheProfileMainConfig(t *testing.T) {
+	for _, mainConfig := range []string{MainConfigDebian, MainConfigRHEL} {
+		var got string
+		host := firewallExecHostStub{runRoot: func(cmd string) error {
+			got = cmd
+			return nil
+		}}
+		if err := firewallConfigTest(host, mainConfig); err != nil {
+			t.Fatalf("main_config %q: unexpected error: %v", mainConfig, err)
+		}
+		want := "nft -c -f '" + mainConfig + "' >/dev/null 2>&1"
+		if got != want {
+			t.Fatalf("main_config %q: ran %q, want %q", mainConfig, got, want)
+		}
+	}
+
+	if err := firewallConfigTest(nil, MainConfigDebian); err == nil {
+		t.Fatal("expected a host-required error")
+	}
+	// A tampered journal or a spec that skipped validation must not reach nft.
+	if err := firewallConfigTest(firewallExecHostStub{}, "/etc/evil.conf"); err == nil {
+		t.Fatal("expected an unsupported main_config to be rejected")
+	}
+}
+
+func TestPlanValidateChecksTheProfileMainConfig(t *testing.T) {
+	var cmds []string
+	host := firewallExecHostStub{runRoot: func(cmd string) error {
+		cmds = append(cmds, cmd)
+		return nil
+	}}
+	if _, err := ValidatePlan(host, MainConfigRHEL, "/etc/nftables.d/99-hardline-firewall.nft"); err != nil {
+		t.Fatalf("ValidatePlan failed: %v", err)
+	}
+	joined := strings.Join(cmds, "\n")
+	if !strings.Contains(joined, "nft -c -f '/etc/sysconfig/nftables.conf'") {
+		t.Fatalf("plan validated the wrong file: %v", cmds)
+	}
+	if strings.Contains(joined, "nft -c -f '/etc/nftables.conf'") {
+		t.Fatalf("plan validated the Debian path on a RHEL profile: %v", cmds)
 	}
 }

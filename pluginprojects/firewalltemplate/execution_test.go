@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/karvashish/hardline/pkg/pluginapi"
@@ -22,7 +23,7 @@ func TestApply(t *testing.T) {
 	})
 
 	t.Run("profile required", func(t *testing.T) {
-		err := Apply(pluginapi.Context{}, &Spec{Backend: "nftables"})
+		err := Apply(pluginapi.Context{}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -30,7 +31,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("template load error", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/other.tmpl": "ok"})
-		err := Apply(pluginapi.Context{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl"})
+		err := Apply(pluginapi.Context{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, TemplateSrc: "templates/nftables_base.tmpl"})
 		if err == nil || !strings.Contains(err.Error(), "load nftables template") {
 			t.Fatalf("expected load error, got %v", err)
 		}
@@ -38,7 +39,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("parse and execute errors", func(t *testing.T) {
 		p := mustLoadProfileForFirewallTemplateTests(t, map[string]string{"templates/bad.tmpl": "{{"})
-		err := Apply(pluginapi.Context{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"})
+		err := Apply(pluginapi.Context{Host: fwTemplateExecHostStub{}, Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, TemplateSrc: "templates/bad.tmpl"})
 		if err == nil || !strings.Contains(err.Error(), "parse nftables template") {
 			t.Fatalf("expected parse error, got %v", err)
 		}
@@ -47,7 +48,7 @@ func TestApply(t *testing.T) {
 		err = Apply(pluginapi.Context{Host: fwTemplateExecHostStub{
 			runRoot:       func(string) error { return nil },
 			writeRootFile: func(string, []byte, os.FileMode) error { return nil },
-		}, Profile: p}, &Spec{Backend: "nftables", TemplateSrc: "templates/bad.tmpl"})
+		}, Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, TemplateSrc: "templates/bad.tmpl"})
 		if err == nil || !strings.Contains(err.Error(), "execute nftables template") {
 			t.Fatalf("expected execute error, got %v", err)
 		}
@@ -58,7 +59,7 @@ func TestApply(t *testing.T) {
 
 		err := Apply(pluginapi.Context{Host: fwTemplateExecHostStub{
 			runRoot: func(string) error { return errors.New("boom") },
-		}, Profile: p}, &Spec{Backend: "nftables"})
+		}, Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian})
 		if err == nil || !strings.Contains(err.Error(), "mkdir") {
 			t.Fatalf("expected mkdir error, got %v", err)
 		}
@@ -66,16 +67,16 @@ func TestApply(t *testing.T) {
 		checkCount := 0
 		err = Apply(pluginapi.Context{Host: fwTemplateExecHostStub{
 			runRoot: func(cmd string) error {
-				if cmd == firewallTemplateIncludeCheckCmd {
+				if cmd == includeCheckCmd(MainConfigDebian, DefaultManagedDestination) {
 					checkCount++
 					return errors.New("missing")
 				}
-				if strings.Contains(cmd, ">> /etc/nftables.conf") {
+				if strings.Contains(cmd, ">> '/etc/nftables.conf'") {
 					return errors.New("append failed")
 				}
 				return nil
 			},
-		}, Profile: p}, &Spec{Backend: "nftables"})
+		}, Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian})
 		if err == nil || !strings.Contains(err.Error(), "ensure") {
 			t.Fatalf("expected ensure error, got %v", err)
 		}
@@ -83,7 +84,7 @@ func TestApply(t *testing.T) {
 			t.Fatalf("expected one include check, got %d", checkCount)
 		}
 
-		err = Apply(pluginapi.Context{Profile: p}, &Spec{Backend: "nftables"})
+		err = Apply(pluginapi.Context{Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian})
 		if err == nil || !strings.Contains(err.Error(), "host context is required") {
 			t.Fatalf("expected host error, got %v", err)
 		}
@@ -96,7 +97,7 @@ func TestApply(t *testing.T) {
 				return nil
 			},
 			writeRootFile: func(string, []byte, os.FileMode) error { return errors.New("boom") },
-		}, Profile: p}, &Spec{Backend: "nftables"})
+		}, Profile: p}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian})
 		if err == nil || !strings.Contains(err.Error(), "write root file") {
 			t.Fatalf("expected write error, got %v", err)
 		}
@@ -115,7 +116,8 @@ func TestApply(t *testing.T) {
 				return nil
 			},
 		}, Profile: p}, &Spec{
-			Backend: "nftables",
+			Backend:    "nftables",
+			MainConfig: MainConfigDebian,
 			Allow: []AllowRule{
 				{Port: 22, Proto: "tcp"},
 			},
@@ -136,7 +138,8 @@ func TestApply(t *testing.T) {
 				return nil
 			},
 		}, Profile: p}, &Spec{
-			Backend: "nftables",
+			Backend:    "nftables",
+			MainConfig: MainConfigDebian,
 			Allow: []AllowRule{
 				{Port: 22, Proto: "tcp"},
 			},
@@ -166,7 +169,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("expected unsupported backend summary, got res=%+v err=%v", res, err)
 	}
 
-	res, err = Plan(pluginapi.Context{Host: fwTemplateRuntimeStub{}}, &Spec{Backend: "nftables"})
+	res, err = Plan(pluginapi.Context{Host: fwTemplateRuntimeStub{}}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian})
 	if err != nil {
 		t.Fatalf("expected defaulted template plan success, got %v", err)
 	}
@@ -174,7 +177,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("expected plan summary to use defaults, got %+v", res)
 	}
 
-	res, err = Plan(pluginapi.Context{Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+	res, err = Plan(pluginapi.Context{Host: fwTemplateRuntimeStub{statInfo: fakeFileInfo{mode: 0o644, size: 10}}}, &Spec{Backend: "nftables", MainConfig: MainConfigDebian, TemplateSrc: "templates/nftables_base.tmpl", TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
@@ -199,17 +202,115 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 		t.Fatalf("expected managed path error, got %v", err)
 	}
 
-	rec, err := Capture(pluginapi.Context{Host: fwTemplateExecHostStub{
+	host := fwTemplateExecHostStub{
 		runRoot:           func(string) error { return nil },
 		runRootWithOutput: func(string) (string, error) { return "644", nil },
 		readRootFile:      func(string) (string, error) { return "abc", nil },
-	}}, "ft", &Spec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+	}
+
+	_, err = Capture(pluginapi.Context{Host: host}, "ft",
+		&Spec{TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported main_config") {
+		t.Fatalf("expected an unsupported main_config error, got %v", err)
+	}
+
+	rec, err := Capture(pluginapi.Context{Host: host}, "ft", &Spec{
+		TemplateDest: "/etc/nftables.d/99-hardline-firewall.nft",
+		MainConfig:   MainConfigRHEL,
+	})
 	if err != nil {
 		t.Fatalf("Capture failed: %v", err)
 	}
-	if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].File == nil {
+	// Apply appends the include to the main config, so both files are
+	// journalled, main config first so reverse-order rollback restores the
+	// managed file before the include that points at its directory.
+	if rec.RollbackMode != "deterministic" || len(rec.Objects) != 2 {
 		t.Fatalf("unexpected rollback record: %+v", rec)
 	}
+	if rec.Objects[0].File == nil || rec.Objects[0].File.Path != MainConfigRHEL {
+		t.Fatalf("expected the main config first, got %+v", rec.Objects[0].File)
+	}
+	if rec.Objects[1].File == nil || rec.Objects[1].File.Path != "/etc/nftables.d/99-hardline-firewall.nft" {
+		t.Fatalf("expected the managed destination second, got %+v", rec.Objects[1].File)
+	}
+}
+
+func TestRollbackRestoresTheMainConfig(t *testing.T) {
+	t.Run("restores prior content byte-for-byte", func(t *testing.T) {
+		var wrotePath string
+		var wrote []byte
+		host := fwTemplateExecHostStub{
+			writeRootFile: func(path string, data []byte, _ os.FileMode) error {
+				wrotePath, wrote = path, data
+				return nil
+			},
+		}
+		snap := pluginapi.FileSnapshot{
+			Path:       MainConfigDebian,
+			Existed:    true,
+			Mode:       "644",
+			ContentB64: base64.StdEncoding.EncodeToString([]byte("flush ruleset\n")),
+		}
+		if err := restoreMainConfig(host, snap); err != nil {
+			t.Fatalf("restore failed: %v", err)
+		}
+		if wrotePath != MainConfigDebian || string(wrote) != "flush ruleset\n" {
+			t.Fatalf("restored %q with %q", wrotePath, wrote)
+		}
+	})
+
+	t.Run("deletes a file that did not exist before apply", func(t *testing.T) {
+		var cmd string
+		host := fwTemplateExecHostStub{runRoot: func(c string) error {
+			cmd = c
+			return nil
+		}}
+		err := restoreMainConfig(host, pluginapi.FileSnapshot{Path: MainConfigRHEL, Existed: false})
+		if err != nil {
+			t.Fatalf("restore failed: %v", err)
+		}
+		if !strings.Contains(cmd, "rm -f '/etc/sysconfig/nftables.conf'") {
+			t.Fatalf("got %q", cmd)
+		}
+	})
+
+	t.Run("refuses a path that is not a main config", func(t *testing.T) {
+		err := restoreMainConfig(fwTemplateExecHostStub{}, pluginapi.FileSnapshot{Path: "/etc/passwd", Existed: true})
+		if err == nil || !strings.Contains(err.Error(), "unexpected main config path") {
+			t.Fatalf("a tampered journal must not name another path, got %v", err)
+		}
+	})
+
+	t.Run("host is required", func(t *testing.T) {
+		if err := restoreMainConfig(nil, pluginapi.FileSnapshot{Path: MainConfigDebian}); err == nil {
+			t.Fatal("expected a host-required error")
+		}
+	})
+
+	t.Run("undecodable content surfaces", func(t *testing.T) {
+		snap := pluginapi.FileSnapshot{Path: MainConfigDebian, Existed: true, ContentB64: "!!!not base64!!!"}
+		if err := restoreMainConfig(fwTemplateExecHostStub{}, snap); err == nil {
+			t.Fatal("expected a decode error")
+		}
+	})
+
+	t.Run("the plugin routes the main config to this restore", func(t *testing.T) {
+		var wrotePath string
+		host := fwTemplateExecHostStub{
+			writeRootFile: func(path string, _ []byte, _ os.FileMode) error {
+				wrotePath = path
+				return nil
+			},
+		}
+		snap := pluginapi.FileSnapshot{Path: MainConfigDebian, Existed: true, Mode: "644"}
+		err := Plugin().Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &snap})
+		if err != nil {
+			t.Fatalf("rollback failed: %v", err)
+		}
+		if wrotePath != MainConfigDebian {
+			t.Fatalf("main config was not restored, wrote %q", wrotePath)
+		}
+	})
 }
 
 func TestDestinationHelpersAndPlugin(t *testing.T) {

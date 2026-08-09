@@ -49,6 +49,9 @@ func Plugin() pluginapi.Plugin {
 				if obj.File == nil {
 					return fmt.Errorf("firewall_template rollback: missing file snapshot")
 				}
+				if validMainConfig(obj.File.Path) {
+					return restoreMainConfig(host, *obj.File)
+				}
 				return pluginapi.RestoreFileSnapshot(host, *obj.File)
 			case pluginapi.ObjectValidate:
 				return nil
@@ -82,6 +85,12 @@ func validateFirewallTemplateSpec(spec *Spec) error {
 	}
 	if spec.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", spec.Backend)
+	}
+	if strings.TrimSpace(spec.MainConfig) == "" {
+		return fmt.Errorf("firewall_template main_config is required")
+	}
+	if !validMainConfig(spec.MainConfig) {
+		return fmt.Errorf("unsupported firewall_template main_config %q (use %s or %s)", spec.MainConfig, MainConfigDebian, MainConfigRHEL)
 	}
 	if strings.TrimSpace(spec.Policy) == "" {
 		return fmt.Errorf("firewall_template policy is required")

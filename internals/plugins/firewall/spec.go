@@ -19,7 +19,11 @@ type Rule struct {
 }
 
 type Spec struct {
-	Backend     string   `json:"backend" jsonschema:"enum=nftables"`
+	Backend string `json:"backend" jsonschema:"enum=nftables"`
+	// MainConfig is the file the host's nftables service actually loads. It
+	// differs per distribution family, so the profile states it rather than the
+	// engine assuming Debian's location.
+	MainConfig  string   `json:"main_config" jsonschema:"enum=/etc/nftables.conf,enum=/etc/sysconfig/nftables.conf"`
 	Family      string   `json:"family" jsonschema:"enum=inet,enum=ip,enum=ip6"`
 	Table       string   `json:"table"`
 	ManagedDest string   `json:"managed_dest"`

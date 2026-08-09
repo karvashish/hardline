@@ -14,11 +14,38 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
+// The nftables service reads a different main config per distribution family:
+// Debian-family ships /etc/nftables.conf, RHEL-family /etc/sysconfig/nftables.conf.
+// The profile picks one of the two; anything else is rejected, because this path
+// is appended to as root and restored from the journal on rollback.
 const (
-	IncludeCheckCmd        = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf 2>/dev/null`
-	NftablesMainConfigPath = "/etc/nftables.conf"
-	NftablesIncludeLine    = `include "/etc/nftables.d/*.nft"`
+	MainConfigDebian = "/etc/nftables.conf"
+	MainConfigRHEL   = "/etc/sysconfig/nftables.conf"
 )
+
+func ValidMainConfig(p string) bool {
+	switch strings.TrimSpace(p) {
+	case MainConfigDebian, MainConfigRHEL:
+		return true
+	default:
+		return false
+	}
+}
+
+// IncludeLine is the line apply appends to the main config. The glob follows
+// the managed destination's own directory, so a profile that moves the managed
+// file moves the include with it.
+func IncludeLine(dest string) string {
+	return fmt.Sprintf(`include "%s/*.nft"`, path.Dir(dest))
+}
+
+// includeCheckCmd matches the include with or without quotes, so a hand-written
+// include already present on the host is not duplicated.
+func includeCheckCmd(mainConfig, dest string) string {
+	glob := strings.ReplaceAll(path.Dir(dest)+"/*.nft", ".", `\.`)
+	glob = strings.ReplaceAll(glob, "*", `\*`)
+	return fmt.Sprintf(`grep -E -q 'include[[:space:]]+"?%s"?' %s 2>/dev/null`, glob, pluginapi.ShellArg(mainConfig))
+}
 
 type NormalizedSpec struct {
 	Family   string
@@ -80,7 +107,7 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
-	if err := EnsureNftablesInclude(ctx.Host); err != nil {
+	if err := EnsureNftablesInclude(ctx.Host, fw.MainConfig, destPath); err != nil {
 		return err
 	}
 
@@ -258,13 +285,14 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 		}
 	}
 
-	if !firewallIncludePresent(ctx.Host) {
-		diff = append(diff, fmt.Sprintf("file %q: add include %q (apply will patch)", NftablesMainConfigPath, NftablesIncludeLine))
+	planDest := ManagedDestination(fw)
+	if !firewallIncludePresent(ctx.Host, fw.MainConfig, planDest) {
+		diff = append(diff, fmt.Sprintf("file %q: add include %q (apply will patch)", fw.MainConfig, IncludeLine(planDest)))
 		details = append(details,
-			logger.ColorBlue+fmt.Sprintf("%q: include %q absent; apply will add it", NftablesMainConfigPath, NftablesIncludeLine)+logger.ColorReset,
+			logger.ColorBlue+fmt.Sprintf("%q: include %q absent; apply will add it", fw.MainConfig, IncludeLine(planDest))+logger.ColorReset,
 		)
 	} else {
-		validateRes, err := ValidatePlan(ctx.Host)
+		validateRes, err := ValidatePlan(ctx.Host, fw.MainConfig, planDest)
 		if err != nil {
 			return pluginapi.PlanResult{}, err
 		}
@@ -329,41 +357,42 @@ func renderFirewallStateDiff(current NormalizedSpec, desired NormalizedSpec) []s
 	return lines
 }
 
-func ValidateApply(host pluginapi.Host) error {
+func ValidateApply(host pluginapi.Host, mainConfig, dest string) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
 	}
-	if err := host.RunRoot(IncludeCheckCmd); err != nil {
-		return fmt.Errorf("nftables.conf missing include for /etc/nftables.d/*.nft: %w", err)
+	if err := host.RunRoot(includeCheckCmd(mainConfig, dest)); err != nil {
+		return fmt.Errorf("%s missing %s: %w", mainConfig, IncludeLine(dest), err)
 	}
 
-	if err := host.RunRoot("nft -c -f /etc/nftables.conf"); err != nil {
+	if err := host.RunRoot("nft -c -f " + pluginapi.ShellArg(mainConfig)); err != nil {
 		return fmt.Errorf("nftables config check failed: %w", err)
 	}
 	return nil
 }
 
-func ValidatePlan(host pluginapi.Host) (pluginapi.PlanResult, error) {
-	logger.Debugf("planValidate: kind=firewall\n")
+func ValidatePlan(host pluginapi.Host, mainConfig, dest string) (pluginapi.PlanResult, error) {
+	logger.Debugf("planValidate: kind=firewall main_config=%q\n", mainConfig)
 
 	var details []string
 	var highlights []string
 
-	if firewallIncludePresent(host) {
+	include := IncludeLine(dest)
+	if firewallIncludePresent(host, mainConfig, dest) {
 		details = append(details,
-			logger.ColorGreen+`nftables.conf: include "/etc/nftables.d/*.nft" is present`+logger.ColorReset,
+			logger.ColorGreen+fmt.Sprintf("%s: %s is present", mainConfig, include)+logger.ColorReset,
 		)
 	} else {
-		highlights = append(highlights, `nftables.conf include "/etc/nftables.d/*.nft" is missing (validate would fail)`)
+		highlights = append(highlights, fmt.Sprintf("%s %s is missing (validate would fail)", mainConfig, include))
 		details = append(details,
-			logger.ColorRed+`nftables.conf: include "/etc/nftables.d/*.nft" is missing (validate would fail)`+logger.ColorReset,
+			logger.ColorRed+fmt.Sprintf("%s: %s is missing (validate would fail)", mainConfig, include)+logger.ColorReset,
 		)
 	}
 
-	testErr := firewallConfigTest(host)
+	testErr := firewallConfigTest(host, mainConfig)
 	if testErr == nil {
 		details = append(details,
-			logger.ColorGreen+"current nftables configuration: passes nft -c -f /etc/nftables.conf"+logger.ColorReset,
+			logger.ColorGreen+fmt.Sprintf("current nftables configuration: passes nft -c -f %s", mainConfig)+logger.ColorReset,
 		)
 	} else {
 		highlights = append(highlights, fmt.Sprintf("current nftables configuration: nft -c reports errors (%v)", testErr))
@@ -373,7 +402,7 @@ func ValidatePlan(host pluginapi.Host) (pluginapi.PlanResult, error) {
 	}
 
 	return pluginapi.PlanResult{
-		Summary:         "validate firewall: check include for /etc/nftables.d/*.nft and nft -c on /etc/nftables.conf",
+		Summary:         fmt.Sprintf("validate firewall: check %s and nft -c on %s", include, mainConfig),
 		Details:         details,
 		WillChange:      true,
 		OperatorSummary: "Validate nftables include wiring and current nftables syntax",
@@ -400,15 +429,19 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
-	// Apply also appends the include line to /etc/nftables.conf, so that file
-	// has to be journalled too or rollback silently leaves the mutation behind.
-	mainSnap, err := pluginapi.SnapshotRemoteFile(ctx.Host, NftablesMainConfigPath)
+	// Apply also appends the include line to the main config, so that file has
+	// to be journalled too or rollback silently leaves the mutation behind.
+	mainConfig := strings.TrimSpace(spec.MainConfig)
+	if !ValidMainConfig(mainConfig) {
+		return record, fmt.Errorf("step %q (type=firewall): unsupported main_config %q", stepID, spec.MainConfig)
+	}
+	mainSnap, err := pluginapi.SnapshotRemoteFile(ctx.Host, mainConfig)
 	if err != nil {
-		return record, fmt.Errorf("capture firewall snapshot for %q: %w", NftablesMainConfigPath, err)
+		return record, fmt.Errorf("capture firewall snapshot for %q: %w", mainConfig, err)
 	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
-	// Rollback walks Before in reverse, so listing nftables.conf first restores
+	// Rollback walks Before in reverse, so listing the main config first restores
 	// the managed file before the include that points at its directory.
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &mainSnap},
@@ -417,14 +450,16 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// restoreNftablesMainConfig reverts /etc/nftables.conf to its pre-apply bytes,
-// which is what removes the include line apply appended. It deliberately skips
-// EnforceManagedPath: this path is a package constant, never profile input.
+// restoreNftablesMainConfig reverts the nftables main config to its pre-apply
+// bytes, which is what removes the include line apply appended. It skips
+// EnforceManagedPath, whose 99-hardline naming rule this file cannot satisfy,
+// and checks the two-entry whitelist instead: a tampered journal must not be
+// able to name any other path here.
 func restoreNftablesMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
 	}
-	if snap.Path != NftablesMainConfigPath {
+	if !ValidMainConfig(snap.Path) {
 		return fmt.Errorf("firewall rollback: unexpected main config path %q", snap.Path)
 	}
 
@@ -459,38 +494,43 @@ func ManagedDestination(fw *Spec) string {
 	return ""
 }
 
-func EnsureNftablesInclude(host pluginapi.Host) error {
+func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
 	}
-	if err := host.RunRoot(IncludeCheckCmd); err == nil {
+	check := includeCheckCmd(mainConfig, dest)
+	if err := host.RunRoot(check); err == nil {
 		return nil
 	}
 
-	appendCmd := `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`
+	include := IncludeLine(dest)
+	appendCmd := fmt.Sprintf("printf '\\n%%s\\n' %s >> %s", pluginapi.ShellArg(include), pluginapi.ShellArg(mainConfig))
 	if err := host.RunRoot(appendCmd); err != nil {
-		return fmt.Errorf("ensure %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
+		return fmt.Errorf("ensure %q in %s: %w", include, mainConfig, err)
 	}
 
-	if err := host.RunRoot(IncludeCheckCmd); err != nil {
-		return fmt.Errorf("verify %q in %s: %w", NftablesIncludeLine, NftablesMainConfigPath, err)
+	if err := host.RunRoot(check); err != nil {
+		return fmt.Errorf("verify %q in %s: %w", include, mainConfig, err)
 	}
 
 	return nil
 }
 
-func firewallIncludePresent(host pluginapi.Host) bool {
+func firewallIncludePresent(host pluginapi.Host, mainConfig, dest string) bool {
 	if host == nil {
 		return false
 	}
-	return host.RunRoot(IncludeCheckCmd) == nil
+	return host.RunRoot(includeCheckCmd(mainConfig, dest)) == nil
 }
 
-func firewallConfigTest(host pluginapi.Host) error {
+func firewallConfigTest(host pluginapi.Host, mainConfig string) error {
 	if host == nil {
 		return fmt.Errorf("host is required")
 	}
-	return host.RunRoot("nft -c -f /etc/nftables.conf >/dev/null 2>&1")
+	if !ValidMainConfig(mainConfig) {
+		return fmt.Errorf("unsupported firewall main_config %q", mainConfig)
+	}
+	return host.RunRoot("nft -c -f " + pluginapi.ShellArg(mainConfig) + " >/dev/null 2>&1")
 }
 
 func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {

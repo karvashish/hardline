@@ -26,7 +26,7 @@ func Plugin() pluginapi.Plugin {
 			if err := Apply(ctx, spec); err != nil {
 				return err
 			}
-			return ValidateApply(ctx.Host)
+			return ValidateApply(ctx.Host, spec.MainConfig, spec.ManagedDest)
 		},
 		Plan: func(ctx pluginapi.Context, step profile.Step) (pluginapi.PlanResult, error) {
 			spec, err := decodeFirewallSpec(step)
@@ -61,7 +61,7 @@ func Plugin() pluginapi.Plugin {
 				if obj.File == nil {
 					return fmt.Errorf("firewall rollback: missing file snapshot")
 				}
-				if obj.File.Path == NftablesMainConfigPath {
+				if ValidMainConfig(obj.File.Path) {
 					return restoreNftablesMainConfig(host, *obj.File)
 				}
 				return pluginapi.RestoreFileSnapshot(host, *obj.File)
@@ -97,6 +97,12 @@ func validateFirewallSpec(spec *Spec) error {
 	}
 	if spec.Backend != "nftables" {
 		return fmt.Errorf("unsupported firewall backend %q", spec.Backend)
+	}
+	if strings.TrimSpace(spec.MainConfig) == "" {
+		return fmt.Errorf("firewall main_config is required")
+	}
+	if !ValidMainConfig(spec.MainConfig) {
+		return fmt.Errorf("unsupported firewall main_config %q (use %s or %s)", spec.MainConfig, MainConfigDebian, MainConfigRHEL)
 	}
 	if strings.TrimSpace(spec.ManagedDest) == "" {
 		return fmt.Errorf("firewall managed_dest is required")

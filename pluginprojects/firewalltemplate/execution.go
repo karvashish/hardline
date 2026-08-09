@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path"
@@ -15,11 +16,31 @@ import (
 
 const DefaultManagedDestination = "/etc/nftables.d/99-hardline-firewall.nft"
 
+// The nftables service reads a different main config per distribution family,
+// so the profile states which one this host uses.
 const (
-	firewallTemplateIncludeCheckCmd = `grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf 2>/dev/null`
-	firewallTemplateMainConfigPath  = "/etc/nftables.conf"
-	firewallTemplateIncludeLine     = `include "/etc/nftables.d/*.nft"`
+	MainConfigDebian = "/etc/nftables.conf"
+	MainConfigRHEL   = "/etc/sysconfig/nftables.conf"
 )
+
+func validMainConfig(p string) bool {
+	switch strings.TrimSpace(p) {
+	case MainConfigDebian, MainConfigRHEL:
+		return true
+	default:
+		return false
+	}
+}
+
+func includeLine(dest string) string {
+	return fmt.Sprintf(`include "%s/*.nft"`, path.Dir(dest))
+}
+
+func includeCheckCmd(mainConfig, dest string) string {
+	glob := strings.ReplaceAll(path.Dir(dest)+"/*.nft", ".", `\.`)
+	glob = strings.ReplaceAll(glob, "*", `\*`)
+	return fmt.Sprintf(`grep -E -q 'include[[:space:]]+"?%s"?' %s 2>/dev/null`, glob, pluginapi.ShellArg(mainConfig))
+}
 
 type firewallTemplateStatRuntime interface {
 	RunRoot(cmd string) error
@@ -92,7 +113,7 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 		}
 	}
 
-	if err := ensureNftablesInclude(ctx.Host); err != nil {
+	if err := ensureNftablesInclude(ctx.Host, fw.MainConfig, destPath); err != nil {
 		return err
 	}
 
@@ -240,28 +261,80 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
+	// Apply also appends the include line to the main config, so that file has
+	// to be journalled too. Without it rollback leaves the include behind, and
+	// an include-only apply produces equal before/after captures, which lets an
+	// on_change service dependency skip the restart the include requires.
+	mainConfig := strings.TrimSpace(spec.MainConfig)
+	if !validMainConfig(mainConfig) {
+		return record, fmt.Errorf("step %q (type=firewall_template): unsupported main_config %q", stepID, spec.MainConfig)
+	}
+	mainSnap, err := pluginapi.SnapshotRemoteFile(ctx.Host, mainConfig)
+	if err != nil {
+		return record, fmt.Errorf("capture firewall snapshot for %q: %w", mainConfig, err)
+	}
+
 	record.RollbackMode = pluginapi.ModeDeterministic
+	// Rollback walks Before in reverse, so listing the main config first
+	// restores the managed file before the include that points at its directory.
 	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectFile, File: &mainSnap},
 		{Kind: pluginapi.ObjectFile, File: &snap},
 	}
 	return record, nil
 }
 
-func ensureNftablesInclude(host pluginapi.Host) error {
+// restoreMainConfig reverts the nftables main config to its pre-apply bytes,
+// which is what removes the include line apply appended. It skips
+// EnforceManagedPath, whose 99-hardline naming rule this file cannot satisfy,
+// and checks the two-entry whitelist instead: a tampered journal must not be
+// able to name any other path here.
+func restoreMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
+	if host == nil {
+		return fmt.Errorf("firewall_template rollback: host is required")
+	}
+	if !validMainConfig(snap.Path) {
+		return fmt.Errorf("firewall_template rollback: unexpected main config path %q", snap.Path)
+	}
+
+	if !snap.Existed {
+		return host.RunRoot("rm -f " + pluginapi.ShellArg(snap.Path))
+	}
+
+	mode := os.FileMode(0o600)
+	if trimmed := strings.TrimSpace(snap.Mode); trimmed != "" {
+		if parsed, err := strconv.ParseUint(trimmed, 8, 32); err == nil {
+			mode = os.FileMode(parsed)
+		}
+	}
+
+	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
+	if err != nil {
+		return fmt.Errorf("decode snapshot content for %q: %w", snap.Path, err)
+	}
+	if err := host.WriteRootFile(snap.Path, content, mode); err != nil {
+		return fmt.Errorf("restore file %q: %w", snap.Path, err)
+	}
+	return nil
+}
+
+func ensureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	if host == nil {
 		return fmt.Errorf("firewall_template step: host context is required")
 	}
-	if err := host.RunRoot(firewallTemplateIncludeCheckCmd); err == nil {
+	check := includeCheckCmd(mainConfig, dest)
+	if err := host.RunRoot(check); err == nil {
 		return nil
 	}
 
-	appendCmd := `printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf`
+	include := includeLine(dest)
+	appendCmd := fmt.Sprintf("printf '\\n%%s\\n' %s >> %s", pluginapi.ShellArg(include), pluginapi.ShellArg(mainConfig))
 	if err := host.RunRoot(appendCmd); err != nil {
-		return fmt.Errorf("ensure %q in %s: %w", firewallTemplateIncludeLine, firewallTemplateMainConfigPath, err)
+		return fmt.Errorf("ensure %q in %s: %w", include, mainConfig, err)
 	}
 
-	if err := host.RunRoot(firewallTemplateIncludeCheckCmd); err != nil {
-		return fmt.Errorf("verify %q in %s: %w", firewallTemplateIncludeLine, firewallTemplateMainConfigPath, err)
+	if err := host.RunRoot(check); err != nil {
+		return fmt.Errorf("verify %q in %s: %w", include, mainConfig, err)
 	}
 
 	return nil

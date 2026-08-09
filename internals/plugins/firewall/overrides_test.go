@@ -10,7 +10,7 @@ import (
 )
 
 func TestApplyFirewallOverrides_AppendsTCPAndUDPRules(t *testing.T) {
-	spec := &Spec{Backend: "nftables", Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"}
+	spec := &Spec{Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter", ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft"}
 	ctx := pluginapi.Context{
 		Overrides: map[string]json.RawMessage{
 			OverrideKeyAllowTCPPorts: json.RawMessage(`[8080, 9090]`),
@@ -107,6 +107,7 @@ func TestPlugin_AppliesAllowTCPPortsOverride(t *testing.T) {
 		Plugin: "firewall",
 		Config: map[string]any{
 			"backend":      "nftables",
+			"main_config":  MainConfigDebian,
 			"family":       "inet",
 			"table":        "filter",
 			"managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",

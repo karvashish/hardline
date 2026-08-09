@@ -47,8 +47,29 @@ func TestGenerateSchemas(t *testing.T) {
 	}
 
 	profileSchema := readSchemaObject(t, profilePath)
-	if _, ok := profileSchema["$defs"]; !ok {
+	profileDefs, ok := profileSchema["$defs"].(map[string]any)
+	if !ok {
 		t.Fatalf("expected profile schema definitions, got %#v", profileSchema)
+	}
+	osInfo, ok := profileDefs["OSInfo"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected OSInfo schema, got %#v", profileDefs["OSInfo"])
+	}
+	osProperties, ok := osInfo["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected OSInfo properties, got %#v", osInfo["properties"])
+	}
+	for field, want := range map[string]string{
+		"family":  `^[a-z][a-z0-9._-]*$`,
+		"version": `^[0-9]+(\.[0-9]+)*$`,
+	} {
+		property, ok := osProperties[field].(map[string]any)
+		if !ok {
+			t.Fatalf("expected OSInfo.%s schema, got %#v", field, osProperties[field])
+		}
+		if got := property["pattern"]; got != want {
+			t.Fatalf("OSInfo.%s pattern = %#v, want %q", field, got, want)
+		}
 	}
 }
 
@@ -143,6 +164,41 @@ func TestApplyPluginConfigConstraints(t *testing.T) {
 		if names[i] < names[i-1] {
 			t.Fatalf("branches must be sorted so regeneration is byte-stable, got %v", names)
 		}
+	}
+}
+
+func TestPluginConfigRequiredKeys(t *testing.T) {
+	schema := map[string]any{"$defs": map[string]any{"Step": map[string]any{}}}
+	applyPluginConfigConstraints(schema)
+
+	branches := schema["$defs"].(map[string]any)["Step"].(map[string]any)["allOf"].([]any)
+	seen := map[string][]any{}
+	for _, b := range branches {
+		branch := b.(map[string]any)
+		name := branch["if"].(map[string]any)["properties"].(map[string]any)["plugin"].(map[string]any)["const"].(string)
+		config := branch["then"].(map[string]any)["properties"].(map[string]any)["config"].(map[string]any)
+		if required, ok := config["required"].([]any); ok {
+			seen[name] = required
+		}
+	}
+
+	for plugin, want := range pluginConfigRequired {
+		got, ok := seen[plugin]
+		if !ok {
+			t.Fatalf("plugin %q: expected required keys in the generated schema", plugin)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("plugin %q: got required %v, want %v", plugin, got, want)
+		}
+		for i, key := range want {
+			if got[i] != key {
+				t.Fatalf("plugin %q: got required %v, want %v", plugin, got, want)
+			}
+		}
+	}
+
+	if _, ok := seen["service"]; ok {
+		t.Fatal("service has no required config key; it must not gain one by accident")
 	}
 }
 

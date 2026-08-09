@@ -47,7 +47,10 @@
                   }
                 }
               }
-            }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
@@ -65,13 +68,26 @@
             "properties": {
               "config": {
                 "properties": {
+                  "main_config": {
+                    "enum": [
+                      "/etc/nftables.conf",
+                      "/etc/sysconfig/nftables.conf"
+                    ],
+                    "type": "string"
+                  },
                   "managed_dest": {
                     "pattern": "^[A-Za-z0-9._/-]+$",
                     "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "main_config"
+                ]
               }
-            }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
@@ -89,20 +105,33 @@
             "properties": {
               "config": {
                 "properties": {
+                  "main_config": {
+                    "enum": [
+                      "/etc/nftables.conf",
+                      "/etc/sysconfig/nftables.conf"
+                    ],
+                    "type": "string"
+                  },
                   "managed_dest": {
                     "pattern": "^[A-Za-z0-9._/-]+$",
                     "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "main_config"
+                ]
               }
-            }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
           "if": {
             "properties": {
               "plugin": {
-                "const": "packages"
+                "const": "packages_apt"
               }
             },
             "required": [
@@ -112,24 +141,140 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
+                  "autoremove": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  },
                   "install": {
                     "items": {
-                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9.+-]*$",
+                      "pattern": "^[a-z0-9][a-z0-9+.-]{0,127}$",
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "purge": {
                     "items": {
-                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9.+-]*$",
+                      "pattern": "^[a-z0-9][a-z0-9+.-]{0,127}$",
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "update": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  },
+                  "upgrade": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
                   }
                 }
               }
-            }
+            },
+            "required": [
+              "config"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "packages_dnf4"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "additionalProperties": false,
+                "properties": {
+                  "autoremove": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  },
+                  "install": {
+                    "items": {
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "purge": {
+                    "items": {
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "update": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  },
+                  "upgrade": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "required": [
+              "config"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
+                "const": "packages_dnf5"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "additionalProperties": false,
+                "properties": {
+                  "autoremove": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  },
+                  "install": {
+                    "items": {
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "purge": {
+                    "items": {
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "update": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  },
+                  "upgrade": {
+                    "pattern": "^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
@@ -153,7 +298,10 @@
                   }
                 }
               }
-            }
+            },
+            "required": [
+              "config"
+            ]
           }
         },
         {
@@ -181,7 +329,10 @@
                   }
                 }
               }
-            }
+            },
+            "required": [
+              "config"
+            ]
           }
         }
       ],

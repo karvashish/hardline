@@ -2,7 +2,7 @@
   "steps": [
     {
       "id": "itest-package-install",
-      "plugin": "packages",
+      "plugin": "packages_apt",
       "config": {
         "install": [
           "tree"

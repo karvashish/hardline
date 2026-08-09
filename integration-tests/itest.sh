@@ -31,7 +31,7 @@ ARTIFACT_ROOT="${ROOT_DIR}/tmp/itest-artifacts"
 DYNAMIC_PROFILES_DIR=""
 
 # ─── Static profile paths (used by runners.sh) ───────────────────────────────
-BASE_PROFILE="${ROOT_DIR}/starter-secure-ubuntu-24.04-lts"
+# BASE_PROFILE is target-dependent and set by itest_os_init below.
 MULTI_SUCCESS_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-success"
 PACKAGE_ROLLBACK_PROFILE="${ROOT_DIR}/integration-tests/profiles/package-rollback"
 LAYER_BASE_PROFILE="${ROOT_DIR}/integration-tests/profiles/layer-base"
@@ -57,6 +57,7 @@ BOOTSTRAP_MARKER="/var/lib/hardline/itest-base-profile.sha256"
 
 # ─── Source libraries ────────────────────────────────────────────────────────
 source "${LIB_DIR}/harness.sh"
+source "${LIB_DIR}/os.sh"
 source "${LIB_DIR}/fixtures.sh"
 source "${LIB_DIR}/runners.sh"
 source "${LIB_DIR}/suite/00-cli.sh"
@@ -78,7 +79,11 @@ require_cmd ssh-keyscan
 
 test -f "${OUTPUTS_JSON}" || fail "missing terraform outputs json: ${OUTPUTS_JSON}"
 test -x "${BINARY_PATH}" || fail "hardline binary missing: ${BINARY_PATH} (run: make build)"
-test -f "${BASE_PROFILE}/manifest.json" || fail "missing base profile manifest: ${BASE_PROFILE}/manifest.json"
+
+itest_os_init
+if [ -n "${BASE_PROFILE}" ]; then
+  test -f "${BASE_PROFILE}/manifest.json" || fail "missing base profile manifest: ${BASE_PROFILE}/manifest.json"
+fi
 
 # ─── SSH connection info ──────────────────────────────────────────────────────
 host="$(jq -er '.external_ip.value' "${OUTPUTS_JSON}")" || fail "failed to read external_ip from ${OUTPUTS_JSON}"
@@ -102,7 +107,10 @@ ssh-keyscan -H "${host}" > "${KNOWN_HOSTS_PATH}" 2>/dev/null || fail "ssh-keysca
 export HARDLINE_KNOWN_HOSTS="${KNOWN_HOSTS_PATH}"
 export HARDLINE_STATE_DIR="${STATE_DIR}"
 
-base_manifest_sha="$(sha256sum "${BASE_PROFILE}/manifest.json" | awk '{print $1}')"
+base_manifest_sha=""
+if [ -n "${BASE_PROFILE}" ]; then
+  base_manifest_sha="$(sha256sum "${BASE_PROFILE}/manifest.json" | awk '{print $1}')"
+fi
 remote_args=(--host "${host}" --user "${user}" --keypath "${key_path}")
 short_remote_args=(-H "${host}" -u "${user}" -k "${key_path}")
 
@@ -161,8 +169,16 @@ if [[ "${SCENARIO}" == "all" ]]; then
     run_scenario "${s}"
   done
 else
+  # No starter profile ships for every target. Bootstrapping without one
+  # compares an empty marker and then fetches base files that do not exist, so
+  # the bootstrap is skipped here and each scenario's own guard decides whether
+  # it can still run.
   if needs_bootstrap "${SCENARIO}" && [[ "${SCENARIO}" != "base-profile" ]]; then
-    ensure_base_bootstrap
+    if [[ -n "${BASE_PROFILE}" ]]; then
+      ensure_base_bootstrap
+    else
+      echo "== itest bootstrap: skipped, no starter profile ships for ITEST_OS=${ITEST_OS} =="
+    fi
   fi
   run_scenario "${SCENARIO}"
 fi

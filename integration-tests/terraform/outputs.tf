@@ -37,3 +37,8 @@ output "ssh_command" {
   description = "Convenience SSH command."
   value       = format("ssh -i %s %s@%s", var.ssh_private_key_path_hint, var.ssh_user, google_compute_instance.itest_vm.network_interface[0].access_config[0].nat_ip)
 }
+
+output "os" {
+  description = "Target OS family the VM was provisioned with."
+  value       = var.os
+}

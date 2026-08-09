@@ -26,74 +26,39 @@ ensure_base_bootstrap() {
       --debug
 
     ensure_file "${dir}/apply.log"
-    jq -er '.kind == "hardline_plan" and .profile.id == "starter-secure-ubuntu-24.04-lts"' \
+    jq -er --arg id "${BASE_PROFILE_ID}" '.kind == "hardline_plan" and .profile.id == $id' \
       "${dir}/apply-plan.json" >/dev/null || fail "unexpected base bootstrap report contents"
     ssh_cmd "sudo mkdir -p /var/lib/hardline && printf '%s\n' '${base_manifest_sha}' | sudo tee ${quoted_marker} >/dev/null"
   fi
 
   echo "== itest verify: base server state =="
   check_dir="$(mktemp -d "${ROOT_DIR}/tmp/itest-base.XXXXXX")"
-  ssh_cmd "sudo tar -C / -cf - \
-    etc/ssh/sshd_config.d/99-hardline-ssh.conf \
-    etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf \
-    etc/sysctl.d/99-hardline-hardening.conf \
-    etc/fail2ban/jail.d/99-hardline-ssh.conf \
-    etc/audit/rules.d/99-hardline.rules \
-    etc/systemd/journald.conf.d/99-hardline.conf \
-    etc/nftables.d/99-hardline-firewall.nft" | tar -C "${check_dir}" -xf - || {
+
+  # Fetch every managed file this target's starter profile writes, plus the
+  # firewall drop-in, in one tar stream.
+  local fetch_paths=("etc/nftables.d/99-hardline-firewall.nft")
+  local entry remote_rel template mode
+  for entry in "${BASE_FILE_CHECKS[@]}"; do
+    fetch_paths+=("${entry%%|*}")
+  done
+  ssh_cmd "sudo tar -C / -cf - ${fetch_paths[*]}" | tar -C "${check_dir}" -xf - || {
     rm -rf "${check_dir}"
     fail "failed to fetch base profile files"
   }
 
-  # SSH config: mode 0600, content match
-  remote_file="${check_dir}/etc/ssh/sshd_config.d/99-hardline-ssh.conf"
-  test "$(stat -c %a "${remote_file}")" = "600" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${BASE_PROFILE}/templates/10-ssh-sshd-config.tmpl" "${remote_file}" || {
-    diff -u "${BASE_PROFILE}/templates/10-ssh-sshd-config.tmpl" "${remote_file}" || true
-    rm -rf "${check_dir}"; fail "remote ssh config mismatch"
-  }
+  for entry in "${BASE_FILE_CHECKS[@]}"; do
+    remote_rel="${entry%%|*}"
+    template="${entry#*|}"; template="${template%%|*}"
+    mode="${entry##*|}"
+    remote_file="${check_dir}/${remote_rel}"
+    test "$(stat -c %a "${remote_file}")" = "${mode}" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
+    cmp -s "${BASE_PROFILE}/${template}" "${remote_file}" || {
+      diff -u "${BASE_PROFILE}/${template}" "${remote_file}" || true
+      rm -rf "${check_dir}"; fail "remote ${remote_rel} mismatch"
+    }
+  done
 
-  # Unattended upgrades: mode 0644
-  remote_file="${check_dir}/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf"
-  test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${BASE_PROFILE}/templates/15-unattended-upgrades.tmpl" "${remote_file}" || {
-    diff -u "${BASE_PROFILE}/templates/15-unattended-upgrades.tmpl" "${remote_file}" || true
-    rm -rf "${check_dir}"; fail "remote unattended-upgrades config mismatch"
-  }
-
-  # Sysctl hardening: mode 0644
-  remote_file="${check_dir}/etc/sysctl.d/99-hardline-hardening.conf"
-  test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${BASE_PROFILE}/templates/20-sysctl-hardening.conf.tmpl" "${remote_file}" || {
-    diff -u "${BASE_PROFILE}/templates/20-sysctl-hardening.conf.tmpl" "${remote_file}" || true
-    rm -rf "${check_dir}"; fail "remote sysctl config mismatch"
-  }
-
-  # Fail2ban: mode 0644
-  remote_file="${check_dir}/etc/fail2ban/jail.d/99-hardline-ssh.conf"
-  test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${BASE_PROFILE}/templates/35-fail2ban-ssh-protection.tmpl" "${remote_file}" || {
-    diff -u "${BASE_PROFILE}/templates/35-fail2ban-ssh-protection.tmpl" "${remote_file}" || true
-    rm -rf "${check_dir}"; fail "remote fail2ban config mismatch"
-  }
-
-  # Audit rules: mode 0640
-  remote_file="${check_dir}/etc/audit/rules.d/99-hardline.rules"
-  test "$(stat -c %a "${remote_file}")" = "640" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${BASE_PROFILE}/templates/40-audit-hardening-rules.tmpl" "${remote_file}" || {
-    diff -u "${BASE_PROFILE}/templates/40-audit-hardening-rules.tmpl" "${remote_file}" || true
-    rm -rf "${check_dir}"; fail "remote audit config mismatch"
-  }
-
-  # Journald: mode 0644
-  remote_file="${check_dir}/etc/systemd/journald.conf.d/99-hardline.conf"
-  test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${BASE_PROFILE}/templates/50-journald-hardening.conf.tmpl" "${remote_file}" || {
-    diff -u "${BASE_PROFILE}/templates/50-journald-hardening.conf.tmpl" "${remote_file}" || true
-    rm -rf "${check_dir}"; fail "remote journald config mismatch"
-  }
-
-  # Firewall rules: mode 0644, content checks
+  # Firewall rules: mode 0644, content checks (identical across targets)
   remote_file="${check_dir}/etc/nftables.d/99-hardline-firewall.nft"
   test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
   grep -F -q 'table inet filter {' "${remote_file}" || { rm -rf "${check_dir}"; fail "missing nftables table header"; }
@@ -106,35 +71,24 @@ ensure_base_bootstrap() {
   grep -F -q 'ip6 nexthdr icmpv6 accept' "${remote_file}" || { rm -rf "${check_dir}"; fail "missing nftables icmpv6 rule"; }
   rm -rf "${check_dir}"
 
-  # Package and service checks
-  ssh_cmd "sudo bash -se" <<'EOF'
-set -euo pipefail
-dpkg -s nftables >/dev/null 2>&1
-dpkg -s auditd >/dev/null 2>&1
-dpkg -s fail2ban >/dev/null 2>&1
-dpkg -s unattended-upgrades >/dev/null 2>&1
-! dpkg -s telnet >/dev/null 2>&1
-! dpkg -s rsh-client >/dev/null 2>&1
-! dpkg -s ftp >/dev/null 2>&1
-! dpkg -s tftp >/dev/null 2>&1
-! dpkg -s cups >/dev/null 2>&1
-! dpkg -s rpcbind >/dev/null 2>&1
-! dpkg -s nfs-common >/dev/null 2>&1
-! dpkg -s snapd >/dev/null 2>&1
-! dpkg -s whoopsie >/dev/null 2>&1
-! dpkg -s apport >/dev/null 2>&1
-! dpkg -s landscape-client >/dev/null 2>&1
+  # Package and service checks. The package query and unit names come from
+  # os.sh; the sysctl and nftables assertions are target-independent.
+  {
+    echo 'set -euo pipefail'
+    for entry in "${BASE_PKGS_PRESENT[@]}"; do pkg_installed_test "${entry}"; echo; done
+    for entry in "${BASE_PKGS_ABSENT[@]}"; do pkg_absent_test "${entry}"; echo; done
+    for entry in "${BASE_UNITS_RUNNING[@]}"; do
+      echo "systemctl is-enabled '${entry}' >/dev/null 2>&1"
+      echo "systemctl is-active '${entry}' >/dev/null 2>&1"
+    done
+    # An automatic-update timer that is installed but not scheduled applies no
+    # updates, so the timer itself is asserted rather than only its package.
+    for entry in "${BASE_TIMERS_ENABLED[@]}"; do
+      echo "systemctl is-enabled '${entry}' >/dev/null 2>&1"
+      echo "systemctl is-active '${entry}' >/dev/null 2>&1"
+    done
+    cat <<'INNER'
 /usr/sbin/sshd -t
-systemctl is-enabled ssh >/dev/null 2>&1
-systemctl is-active ssh >/dev/null 2>&1
-systemctl is-enabled chrony >/dev/null 2>&1
-systemctl is-active chrony >/dev/null 2>&1
-systemctl is-enabled nftables >/dev/null 2>&1
-systemctl is-active nftables >/dev/null 2>&1
-systemctl is-enabled fail2ban >/dev/null 2>&1
-systemctl is-active fail2ban >/dev/null 2>&1
-systemctl is-enabled auditd >/dev/null 2>&1
-systemctl is-active auditd >/dev/null 2>&1
 systemctl is-active systemd-journald >/dev/null 2>&1
 test "$(sysctl -n net.ipv4.ip_forward)" = "0"
 test "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "1"
@@ -148,9 +102,11 @@ test "$(sysctl -n kernel.kptr_restrict)" = "2"
 test "$(sysctl -n kernel.dmesg_restrict)" = "1"
 test "$(sysctl -n fs.protected_hardlinks)" = "1"
 test "$(sysctl -n fs.protected_symlinks)" = "1"
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
-EOF
+INNER
+    nft_include_test
+    echo
+    echo "nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1"
+  } | ssh_cmd "sudo bash -se"
 }
 
 # ─── Shared apply runners ───────────────────────────────────────────────────
@@ -172,8 +128,8 @@ test ! -e "${MULTI_SUCCESS_FIREWALL_DEST}"
 ! nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
+$(nft_include_test)
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
 
   "${BINARY_PATH}" apply "${MULTI_SUCCESS_PROFILE}" "${remote_args[@]}" \
@@ -213,8 +169,8 @@ set -euo pipefail
 nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
+$(nft_include_test)
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
   then fail "success apply did not load firewall/nftables state"; fi
 
@@ -260,8 +216,8 @@ systemctl is-enabled ssh >/dev/null 2>&1
 systemctl is-active ssh >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
+$(nft_include_test)
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
 
   set +e
@@ -303,8 +259,8 @@ systemctl is-enabled ssh >/dev/null 2>&1
 systemctl is-active ssh >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
+$(nft_include_test)
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
   then fail "forced rollback did not restore clean remote state"; fi
 }
@@ -317,6 +273,8 @@ run_package_rollback_apply() {
   rm -rf "${STATE_DIR}"
   mkdir -p "${STATE_DIR}"
 
+  # The static package-rollback profile declares backend=apt, so this runner is
+  # Ubuntu-only and its assertions stay apt-specific on purpose.
   ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
 if dpkg -s "${PACKAGE_ROLLBACK_PACKAGE}" >/dev/null 2>&1; then
@@ -392,8 +350,8 @@ test ! -e "${LAYER_BASE_FIREWALL_DEST}"
 ! nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
+$(nft_include_test)
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
 
   "${BINARY_PATH}" apply "${LAYER_BASE_PROFILE}" "${remote_args[@]}" \
@@ -433,8 +391,8 @@ set -euo pipefail
 nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
-nft -c -f /etc/nftables.conf >/dev/null 2>&1
+$(nft_include_test)
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
   then fail "layer-base apply did not load firewall/nftables state"; fi
 

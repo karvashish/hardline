@@ -101,3 +101,14 @@ variable "ssh_private_key_path_hint" {
   type        = string
   default     = "/home/REPLACE_ME/.ssh/id_ed25519"
 }
+
+variable "os" {
+  description = "Target OS for the integration VM: ubuntu (apt), rocky (dnf4), or fedora (dnf5)."
+  type        = string
+  default     = "ubuntu"
+
+  validation {
+    condition     = contains(["ubuntu", "rocky", "fedora"], var.os)
+    error_message = "os must be one of: ubuntu, rocky, fedora."
+  }
+}

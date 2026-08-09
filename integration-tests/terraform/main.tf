@@ -13,9 +13,27 @@ locals {
   ssh_pub_key = trimspace(file(var.ssh_public_key_path))
 }
 
-data "google_compute_image" "ubuntu_2404" {
-  family  = "ubuntu-2404-lts-amd64"
-  project = "ubuntu-os-cloud"
+locals {
+  os_images = {
+    ubuntu = { family = "ubuntu-2404-lts-amd64", project = "ubuntu-os-cloud" }
+    rocky  = { family = "rocky-linux-9", project = "rocky-linux-cloud" }
+    # The published Fedora families carry an arch suffix, so the name is not
+    # just the release number.
+    fedora = { family = "fedora-cloud-44-x86-64", project = "fedora-cloud" }
+  }
+
+  # dnf needs more memory than apt to resolve a transaction; e2-micro OOMs.
+  os_machine_type = var.os == "ubuntu" ? var.machine_type : "e2-medium"
+
+  os_bootstrap = var.os == "ubuntu" ? "export DEBIAN_FRONTEND=noninteractive; apt-get update -y; apt-get install -y openssh-server sudo nftables" : "dnf -y install openssh-server sudo nftables"
+
+  # Debian-family puts the admin group at "sudo", RHEL-family at "wheel".
+  os_admin_group = var.os == "ubuntu" ? "sudo" : "wheel"
+}
+
+data "google_compute_image" "target" {
+  family  = local.os_images[var.os].family
+  project = local.os_images[var.os].project
 }
 
 resource "google_compute_firewall" "ssh" {
@@ -39,7 +57,7 @@ resource "google_compute_firewall" "ssh" {
 resource "google_compute_instance" "itest_vm" {
   name         = local.instance_id
   zone         = var.zone
-  machine_type = var.machine_type
+  machine_type = local.os_machine_type
   tags         = [local.network_tag]
   labels       = local.labels
 
@@ -50,7 +68,7 @@ resource "google_compute_instance" "itest_vm" {
   boot_disk {
     auto_delete = true
     initialize_params {
-      image = data.google_compute_image.ubuntu_2404.self_link
+      image = data.google_compute_image.target.self_link
       size  = var.boot_disk_size_gb
       type  = var.boot_disk_type
     }
@@ -70,11 +88,9 @@ resource "google_compute_instance" "itest_vm" {
   metadata_startup_script = <<-EOT
     #!/usr/bin/env bash
     set -euo pipefail
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -y
-    apt-get install -y openssh-server sudo nftables
+    ${local.os_bootstrap}
     id -u ${var.ssh_user} >/dev/null 2>&1 || useradd -m -s /bin/bash ${var.ssh_user}
-    usermod -aG sudo ${var.ssh_user}
+    usermod -aG ${local.os_admin_group} ${var.ssh_user}
     install -d -m 700 -o ${var.ssh_user} -g ${var.ssh_user} /home/${var.ssh_user}/.ssh
     touch /home/${var.ssh_user}/.ssh/authorized_keys
     grep -qxF '${local.ssh_pub_key}' /home/${var.ssh_user}/.ssh/authorized_keys || echo '${local.ssh_pub_key}' >> /home/${var.ssh_user}/.ssh/authorized_keys

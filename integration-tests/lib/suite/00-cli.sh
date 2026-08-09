@@ -98,6 +98,7 @@ scenario_plan_reports() {
   local dir="${ARTIFACT_ROOT}/plan-reports"
   reset_dir "${dir}"
   scenario_start "plan-reports: JSON/YAML/MD (long+short flags) and plan does not mutate the host"
+  guard_static_profiles || return
   guard_can_sign || return
 
   must_hl "${dir}/plan-long.log" "plan json (long flags)" -- \

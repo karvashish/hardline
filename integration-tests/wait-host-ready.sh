@@ -6,15 +6,17 @@
 #
 # `terraform apply` returns as soon as the VM resource exists, but the GCP
 # startup script is still installing packages (openssh-server, sudo, nftables)
-# and cloud-init / unattended-upgrades may hold the apt/dpkg lock for another
-# minute or more. Running scenarios into that window fails with errors like
-# "apt/dpkg lock is held by another process". This script polls over SSH until
-# the host is settled, so `itest-gcp-up` only returns on a ready host.
+# and cloud-init or the distribution's own auto-update job may hold the package
+# manager lock for another minute or more. Running scenarios into that window
+# fails with errors like "package manager lock is held by another process".
+# This script polls over SSH until the host is settled, so `itest-gcp-up` only
+# returns on a ready host.
 #
 # Readiness predicate (tuned to integration-tests/terraform, whose startup
 # script installs nftables): the nftables userspace tool is present (boot
-# install finished) AND no apt/dpkg lock is held. The predicate must hold for
-# several consecutive checks to ride out gaps between background apt steps.
+# install finished) AND no package manager lock is held. The lock files differ
+# per family, so the predicate checks whichever set exists. The predicate must
+# hold for several consecutive checks to ride out gaps between background steps.
 #
 # Env knobs:
 #   ITEST_READY_TIMEOUT  total seconds to wait        (default 720)
@@ -37,10 +39,18 @@ key="$(jq -er '.ssh_private_key_path_hint.value' "${OUTPUTS_JSON}")" || { echo "
 ssh_opts=( -i "${key}" -o BatchMode=yes -o StrictHostKeyChecking=no
            -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 -o LogLevel=ERROR )
 
-# nft present (startup install done) AND no apt/dpkg lock held.
-remote_check='command -v nft >/dev/null 2>&1 && ! sudo fuser \
-  /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
-  /var/cache/apt/archives/lock /var/lib/apt/lists/lock >/dev/null 2>&1'
+# nft present (startup install done) AND no package manager lock held. Only the
+# lock files that exist on this host are passed to fuser, so the same predicate
+# covers apt and rpm/dnf hosts without knowing which one it is talking to.
+remote_check='command -v nft >/dev/null 2>&1 && {
+  locks=""
+  for f in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
+           /var/cache/apt/archives/lock /var/lib/apt/lists/lock \
+           /var/lib/rpm/.rpm.lock /var/cache/dnf/metadata_lock.pid; do
+    [ -e "$f" ] && locks="$locks $f"
+  done
+  [ -z "$locks" ] || ! sudo fuser $locks >/dev/null 2>&1
+}'
 
 echo "wait-host-ready: polling ${user}@${host} (timeout ${MAX_WAIT}s, need ${STABLE_CHECKS} stable checks ${INTERVAL}s apart)"
 ok=0

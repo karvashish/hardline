@@ -2,7 +2,7 @@
 # =============================================================================
 # 90-trust-boundary.sh — the boundaries a signed profile must not cross:
 #   root command injection, unsigned content behind a signed reference, an
-#   edited profile reaching apply, and the /etc/nftables.conf mutation apply
+#   edited profile reaching apply, and the ${NFT_MAIN_CONFIG} mutation apply
 #   makes outside its managed destination.
 # =============================================================================
 # Sourced by itest.sh. Do not run directly.
@@ -112,11 +112,11 @@ EOF
   scenario_end
 }
 
-# ── firewall-include-rollback: /etc/nftables.conf restored byte-for-byte ─────
+# ── firewall-include-rollback: ${NFT_MAIN_CONFIG} restored byte-for-byte ─────
 scenario_firewall_include_rollback() {
   local dir="${ARTIFACT_ROOT}/firewall-include-rollback"
   reset_dir "${dir}"
-  scenario_start "firewall-include-rollback: rollback removes the include apply appended to /etc/nftables.conf"
+  scenario_start "firewall-include-rollback: rollback removes the include apply appended to ${NFT_MAIN_CONFIG}"
   guard_can_sign || return
 
   local table="hardline_fw_include"
@@ -126,16 +126,16 @@ scenario_firewall_include_rollback() {
   ssh_cmd "sudo bash -seo pipefail" <<EOF
 nft delete table inet ${table} 2>/dev/null || true
 rm -f ${dest}
-sed -i '/nftables\\.d/d' /etc/nftables.conf
+sed -i '/nftables\\.d/d' ${NFT_MAIN_CONFIG}
 EOF
 
-  must_remote "include line absent before apply (control: proves apply has to add it)" <<'EOF'
-if grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf; then exit 1; fi
+  must_remote "include line absent before apply (control: proves apply has to add it)" <<EOF
+if $(nft_include_test); then exit 1; fi
 EOF
 
-  local before; before="$(remote_value "sha256sum /etc/nftables.conf | cut -d' ' -f1")"
+  local before; before="$(remote_value "sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1")"
   if [ -z "${before}" ]; then
-    note_fail "could not read /etc/nftables.conf before apply"
+    note_fail "could not read ${NFT_MAIN_CONFIG} before apply"
     scenario_end
     return
   fi
@@ -145,23 +145,23 @@ EOF
 
   # Prove apply really mutated the file, otherwise the post-rollback hash match
   # below would hold trivially.
-  must_remote "apply added the include line" <<'EOF'
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf
+  must_remote "apply added the include line" <<EOF
+$(nft_include_test)
 EOF
-  local after; after="$(remote_value "sha256sum /etc/nftables.conf | cut -d' ' -f1")"
-  [ "${after}" != "${before}" ] || note_fail "/etc/nftables.conf hash unchanged by apply (${before})"
+  local after; after="$(remote_value "sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1")"
+  [ "${after}" != "${before}" ] || note_fail "${NFT_MAIN_CONFIG} hash unchanged by apply (${before})"
 
   must_hl "${dir}/rollback.log" "rollback firewall" -- rollback "${pdir}" "${remote_args[@]}"
-  must_remote "/etc/nftables.conf byte-identical to its pre-apply content and still parses" <<EOF
-test "\$(sha256sum /etc/nftables.conf | cut -d' ' -f1)" = "${before}"
-nft -c -f /etc/nftables.conf
+  must_remote "${NFT_MAIN_CONFIG} byte-identical to its pre-apply content and still parses" <<EOF
+test "\$(sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1)" = "${before}"
+nft -c -f ${NFT_MAIN_CONFIG}
 EOF
 
   # Leave the host as the rest of the suite expects it: include line present.
-  ssh_cmd "sudo bash -seo pipefail" <<'EOF' >/dev/null 2>&1 || true
+  ssh_cmd "sudo bash -seo pipefail" <<EOF >/dev/null 2>&1 || true
 nft delete table inet hardline_fw_include 2>/dev/null || true
-grep -E -q 'include[[:space:]]+"?/etc/nftables\.d/\*\.nft"?' /etc/nftables.conf ||
-  printf '\ninclude "/etc/nftables.d/*.nft"\n' >> /etc/nftables.conf
+$(nft_include_test) ||
+  printf '\n%s\n' 'include "/etc/nftables.d/*.nft"' >> ${NFT_MAIN_CONFIG}
 EOF
   scenario_end
 }

@@ -17,11 +17,14 @@ ITEST_TF_OUTPUTS := $(abspath $(OUTDIR)/itest-gcp.outputs.json)
 ITEST_TFVARS ?= $(ITEST_TF_DIR)/terraform.tfvars
 ITEST_PROFILE ?= integration-tests/profiles/multi-plugin-success
 ITEST_SCENARIO ?= smoke
+# Target OS for the integration VM: ubuntu (apt), rocky (dnf4), fedora (dnf5).
+ITEST_OS ?= ubuntu
 PROFILE_DIR ?= starter-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
 SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
 PROFILE_DIRS := \
 	starter-secure-ubuntu-24.04-lts \
+	starter-secure-rocky-9 \
 	demo-profile \
 	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
 
@@ -208,12 +211,14 @@ itest-gcp-plan: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
 	TFVARS_ARG=""; \
 	if [ -f "$(abspath $(ITEST_TFVARS))" ]; then TFVARS_ARG="-var-file=$(abspath $(ITEST_TFVARS))"; fi; \
+	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS)"; \
 	$(TERRAFORM) plan $$TFVARS_ARG
 
 itest-gcp-up: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
 	TFVARS_ARG=""; \
 	if [ -f "$(abspath $(ITEST_TFVARS))" ]; then TFVARS_ARG="-var-file=$(abspath $(ITEST_TFVARS))"; fi; \
+	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS)"; \
 	$(TERRAFORM) apply -auto-approve $$TFVARS_ARG && \
 	$(TERRAFORM) output -json > "$(ITEST_TF_OUTPUTS)"
 	@echo "wrote outputs to $(ITEST_TF_OUTPUTS)"
@@ -223,21 +228,22 @@ itest-gcp-down: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
 	TFVARS_ARG=""; \
 	if [ -f "$(abspath $(ITEST_TFVARS))" ]; then TFVARS_ARG="-var-file=$(abspath $(ITEST_TFVARS))"; fi; \
+	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS)"; \
 	$(TERRAFORM) destroy -auto-approve $$TFVARS_ARG
 
 itest-gcp-clean: itest-gcp-down
 
 itest:
 	@$(MAKE) itest-gcp-up
-	@integration-tests/itest.sh smoke "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
+	@ITEST_OS=$(ITEST_OS) integration-tests/itest.sh smoke "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
 
 itest-scenario:
 	@$(MAKE) itest-gcp-up
-	@integration-tests/itest.sh "$(ITEST_SCENARIO)" "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
+	@ITEST_OS=$(ITEST_OS) integration-tests/itest.sh "$(ITEST_SCENARIO)" "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
 
 itest-scenarios:
 	@$(MAKE) itest-gcp-up
-	@integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
+	@ITEST_OS=$(ITEST_OS) integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))"
 
 # One-shot full run: build a fresh binary, provision (itest-gcp-up now blocks
 # until the host is ready), run every scenario, then ALWAYS tear the host down.
@@ -246,7 +252,7 @@ itest-scenarios:
 itest-all: build
 	@scen=0; down=0; \
 	if $(MAKE) itest-gcp-up; then \
-		integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))" || scen=$$?; \
+		ITEST_OS=$(ITEST_OS) integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))" || scen=$$?; \
 	else \
 		scen=1; \
 	fi; \

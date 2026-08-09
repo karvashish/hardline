@@ -43,13 +43,13 @@ make_profile_packages_install() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-packages.json"], "templates": []
 }
 EOJSON
   cat > "${dir}/actions/00-packages.json" <<EOJSON
-{ "steps": [{ "id": "install-${pkg}", "plugin": "packages",
+{ "steps": [{ "id": "install-${pkg}", "plugin": "${PKG_PLUGIN}",
   "config": { "update": "once", "install": ["${pkg}"] } }] }
 EOJSON
   sign_profile "${dir}"
@@ -63,13 +63,13 @@ make_profile_packages_purge() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-packages.json"], "templates": []
 }
 EOJSON
   cat > "${dir}/actions/00-packages.json" <<EOJSON
-{ "steps": [{ "id": "purge-${pkg}", "plugin": "packages",
+{ "steps": [{ "id": "purge-${pkg}", "plugin": "${PKG_PLUGIN}",
   "config": { "purge": ["${pkg}"] } }] }
 EOJSON
   sign_profile "${dir}"
@@ -83,13 +83,13 @@ make_profile_packages_update_always() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-packages.json"], "templates": []
 }
 EOJSON
   cat > "${dir}/actions/00-packages.json" <<EOJSON
-{ "steps": [{ "id": "install-${pkg}", "plugin": "packages",
+{ "steps": [{ "id": "install-${pkg}", "plugin": "${PKG_PLUGIN}",
   "config": { "update": "always", "install": ["${pkg}"] } }] }
 EOJSON
   sign_profile "${dir}"
@@ -105,7 +105,7 @@ make_profile_template() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-template.json"], "templates": ["templates/config.tmpl"]
 }
@@ -126,7 +126,7 @@ make_profile_firewall() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-firewall.json"], "templates": []
 }
@@ -135,7 +135,7 @@ EOJSON
 {
   "steps": [
     { "id": "configure-fw", "plugin": "firewall", "config": {
-        "backend": "nftables", "family": "inet", "table": "${table}",
+        "backend": "nftables", "main_config": "${NFT_MAIN_CONFIG}", "family": "inet", "table": "${table}",
         "managed_dest": "${dest}",
         "policies": [{ "chain": "input", "policy": "drop" }],
         "rules": [
@@ -161,7 +161,7 @@ make_profile_firewall_advanced() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-firewall.json"], "templates": []
 }
@@ -170,7 +170,7 @@ EOJSON
 {
   "steps": [
     { "id": "configure-fw-advanced", "plugin": "firewall", "config": {
-        "backend": "nftables", "family": "inet", "table": "${table}",
+        "backend": "nftables", "main_config": "${NFT_MAIN_CONFIG}", "family": "inet", "table": "${table}",
         "managed_dest": "${dest}",
         "policies": [
           { "chain": "input", "policy": "drop" },
@@ -204,7 +204,7 @@ make_profile_firewall_overridable() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-firewall.json"], "templates": [],
   "allowed_overrides": ["allow_tcp_ports", "allow_udp_ports"]
@@ -214,7 +214,7 @@ EOJSON
 {
   "steps": [
     { "id": "configure-fw", "plugin": "firewall", "config": {
-        "backend": "nftables", "family": "inet", "table": "${table}",
+        "backend": "nftables", "main_config": "${NFT_MAIN_CONFIG}", "family": "inet", "table": "${table}",
         "managed_dest": "${dest}",
         "policies": [{ "chain": "input", "policy": "drop" }],
         "rules": [
@@ -245,7 +245,7 @@ make_profile_template_service() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-config.json"], "templates": ["templates/config.tmpl"]
 }
@@ -273,7 +273,7 @@ make_profile_service() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-service.json"], "templates": []
 }
@@ -296,7 +296,7 @@ make_profile_package_service() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-pkg-svc.json"], "templates": []
 }
@@ -304,7 +304,7 @@ EOJSON
   cat > "${dir}/actions/00-pkg-svc.json" <<EOJSON
 {
   "steps": [
-    { "id": "install-${pkg}", "plugin": "packages",
+    { "id": "install-${pkg}", "plugin": "${PKG_PLUGIN}",
       "config": { "update": "once", "install": ["${pkg}"] } },
     { "id": "restart-${unit}", "plugin": "service",
       "config": { "name": "${unit}", "enabled": true, "state": "restarted" } }
@@ -324,7 +324,7 @@ make_profile_with_failing_step() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-steps.json"], "templates": ["templates/config.tmpl"]
 }
@@ -362,7 +362,7 @@ make_profile_with_allowed_overrides() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-template.json"], "templates": ["templates/config.tmpl"],
   "allowed_overrides": ${allowed_json}
@@ -384,13 +384,13 @@ make_profile_min_version() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "${min_ver}",
   "actions": ["actions/00-pkg.json"], "templates": []
 }
 EOJSON
   cat > "${dir}/actions/00-pkg.json" <<EOJSON
-{ "steps": [{ "id": "s1", "plugin": "packages", "config": { "install": ["tree"] } }] }
+{ "steps": [{ "id": "s1", "plugin": "${PKG_PLUGIN}", "config": { "install": ["tree"] } }] }
 EOJSON
   sign_profile "${dir}"
   echo "${dir}"
@@ -414,7 +414,7 @@ make_profile_file_meta() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-file-meta.json"], "templates": []
 }
@@ -435,7 +435,7 @@ make_profile_file_meta_badpath() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-file-meta.json"], "templates": []
 }
@@ -451,19 +451,19 @@ EOJSON
 # Unsigned/static raw-profile helpers for verify-rejection cases.
 # Writes a profile.json + a single packages action; does NOT sign.
 make_raw_profile() {
-  local name="$1" os_family="${2:-ubuntu}" os_version="${3:-24.04}" min_hl="${4:-0.0.1}"
+  local name="$1" os_family="${2:-${OS_FAMILY}}" os_version="${3:-${OS_VERSION}}" min_hl="${4:-0.0.1}"
   local dir="${DYNAMIC_PROFILES_DIR}/${name}"
   mkdir -p "${dir}/actions"
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "${os_family}", "version": "${os_version}", "variant": "lts" },
+  "os": { "family": "${os_family}", "version": "${os_version}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "${min_hl}",
   "actions": ["actions/00-pkg.json"], "templates": []
 }
 EOJSON
   cat > "${dir}/actions/00-pkg.json" <<EOJSON
-{ "steps": [{ "id": "s1", "plugin": "packages", "config": { "install": ["tree"] } }] }
+{ "steps": [{ "id": "s1", "plugin": "${PKG_PLUGIN}", "config": { "install": ["tree"] } }] }
 EOJSON
   echo "${dir}"
 }
@@ -482,7 +482,7 @@ make_profile_service_raw_name() {
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["actions/00-service.json"], "templates": []
 }
@@ -502,14 +502,14 @@ make_profile_action_ref() {
   local name="$1" ref="$2"
   local dir="${DYNAMIC_PROFILES_DIR}/${name}"
   mkdir -p "${dir}/actions" "${DYNAMIC_PROFILES_DIR}/shared"
-  cat > "${DYNAMIC_PROFILES_DIR}/shared/x.json" <<'EOJSON'
-{ "steps": [{ "id": "s1", "plugin": "packages", "config": { "install": ["tree"] } }] }
+  cat > "${DYNAMIC_PROFILES_DIR}/shared/x.json" <<EOJSON
+{ "steps": [{ "id": "s1", "plugin": "${PKG_PLUGIN}", "config": { "install": ["tree"] } }] }
 EOJSON
   cp "${DYNAMIC_PROFILES_DIR}/shared/x.json" "${dir}/actions/00-pkg.json"
   cat > "${dir}/profile.json" <<EOJSON
 {
   "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
-  "os": { "family": "ubuntu", "version": "24.04", "variant": "lts" },
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": ["${ref}"], "templates": []
 }

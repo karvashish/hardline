@@ -26,7 +26,7 @@ echo "\${out}" | grep -q 'tcp dport 22 accept'
 echo "\${out}" | grep -q 'iif "lo" accept'
 echo "\${out}" | grep -q 'ct state established,related accept'
 echo "\${out}" | grep -qi 'icmp'
-nft -c -f /etc/nftables.conf
+nft -c -f ${NFT_MAIN_CONFIG}
 EOF
 
   must_hl "${dir}/rollback.log" "rollback firewall" -- rollback "${pdir}" "${remote_args[@]}"
@@ -65,7 +65,7 @@ echo "\${out}" | grep -q 'chain forward'
 echo "\${out}" | grep -qE 'dport \{ 80, 443 \}|dport 80|dport 443'
 echo "\${out}" | grep -q '10.0.0.0/8'
 echo "\${out}" | grep -q 'iif "${iface}"'
-nft -c -f /etc/nftables.conf
+nft -c -f ${NFT_MAIN_CONFIG}
 EOF
 
   ssh_cmd "sudo nft delete table inet ${table} 2>/dev/null; sudo rm -f ${dest}; sudo systemctl restart nftables" 2>/dev/null || true
@@ -77,6 +77,7 @@ EOF
 #    (runners.sh) verifies template + firewall_template content + journals.
 scenario_firewall_external_plugin() {
   scenario_start "firewall-external-plugin: external firewall_template .so deploys (multi-plugin-success)"
+  guard_static_profiles || return
   if ( run_success_apply "${ARTIFACT_ROOT}/firewall-external-plugin" ); then
     scenario_pass
   else

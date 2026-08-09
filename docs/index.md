@@ -6,7 +6,7 @@ Hardline is a signed-profile runner for applying opinionated system configuratio
 
 A real run of the demo profile against a throwaway Ubuntu 24.04 host, with plain `ssh` reading the host's own state before apply, after apply, and after rollback. Output is verbatim; timing and paths are not.
 
-A signed profile can only ask the runtime to do things the runtime already knows how to do. The vocabulary is five typed plugin configs: `packages`, `template`, `service`, `firewall`, and `file_meta`. There is no `exec`, no `command`, no `script`. Signing the manifest signs the full set of instructions, not a wrapper around them.
+A signed profile can only ask the runtime to do things the runtime already knows how to do. The vocabulary is a fixed set of typed plugin configs: `packages_apt`, `packages_dnf4`, `packages_dnf5`, `template`, `service`, `firewall`, and `file_meta`. There is no `exec`, no `command`, no `script`. Signing the manifest signs the full set of instructions, not a wrapper around them.
 
 ## Documentation
 

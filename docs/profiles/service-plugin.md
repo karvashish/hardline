@@ -22,7 +22,7 @@ Example:
 
 Config fields:
 
-- `name`: required service name, matching `^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$`. The name `sshd` is normalized to `ssh`
+- `name`: required service name, matching `^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$`. The name reaches `systemctl` verbatim: hardline does not alias unit names, so a profile targeting Debian says `ssh` and one targeting RHEL says `sshd`
 - `enabled`: optional boolean. Omitted means "leave enablement as-is"; it is not defaulted to `true`
 - `state`: optional. `started`, `stopped`, `restarted`, `reloaded`, or `reload-or-restart`. The bare verbs `start`, `stop`, `restart`, and `reload` are accepted as equivalents. Omitted means no state change
 - `restart_policy`: optional. `type` is `always` or `on_change`; `steps` lists upstream step IDs

@@ -37,11 +37,13 @@ Two guard targets are worth knowing:
 
 Integration tests:
 
-- shell harness in `integration-tests/` (orchestrator `itest.sh`; helpers in `lib/`: `harness.sh`, `fixtures.sh`, `runners.sh`)
+- shell harness in `integration-tests/` (orchestrator `itest.sh`; helpers in `lib/`: `harness.sh`, `os.sh`, `fixtures.sh`, `runners.sh`)
 - Terraform definitions in `integration-tests/terraform/`
 - scenarios in `integration-tests/lib/suite/`
 
-Those flows bring up a real Ubuntu 24.04 target on GCP, extract SSH connection details from Terraform outputs, and exercise plan/apply/rollback plus plugin behavior against a live host.
+Those flows bring up a real target on GCP, extract SSH connection details from Terraform outputs, and exercise plan/apply/rollback plus plugin behavior against a live host.
+
+**Target OS.** `ITEST_OS` selects the target and flows through to both Terraform and the suite: `ubuntu` (default, apt, the Ubuntu starter profile), `rocky` (dnf4, the Rocky starter profile), and `fedora` (dnf5 verification only, no starter profile). `integration-tests/lib/os.sh` holds every per-target fact the suite needs: the package query and install commands, the nftables main config, the sshd unit name, the starter profile and the state it should end up in. dnf targets are pinned to `e2-medium`; dnf needs more memory than apt to resolve a transaction. Scenarios built on the committed profiles under `integration-tests/profiles/` declare an Ubuntu host and skip on other targets; every plugin they cover is also covered by the dynamic fixtures, which take their backend and main config from `os.sh`.
 
 They assume GCP, `gcloud`, and Terraform are available. The Makefile wraps the lifecycle:
 
@@ -51,7 +53,7 @@ They assume GCP, `gcloud`, and Terraform are available. The Makefile wraps the l
 
 > Never invoke these with `make -n`. GNU make executes any recipe line containing `$(MAKE)` even in dry-run mode, so `make -n itest-all` would really provision and destroy the VM. Use `make --print-data-base -n` only on terraform-free targets.
 
-**Readiness wait.** `terraform apply` returns as soon as the VM resource exists, but its startup script is still installing packages and cloud-init / unattended-upgrades may hold the apt/dpkg lock for another minute or more — running scenarios into that window fails with `apt/dpkg lock is held by another process`. `itest-gcp-up` therefore calls `integration-tests/wait-host-ready.sh`, which polls over SSH until `nft` is installed (startup finished) and no apt/dpkg lock is held, for several consecutive checks. Tunable via `ITEST_READY_TIMEOUT` (default 720s), `ITEST_READY_STABLE` (3), and `ITEST_READY_INTERVAL` (10s).
+**Readiness wait.** `terraform apply` returns as soon as the VM resource exists, but its startup script is still installing packages and the distribution's own auto-update job may hold the package manager lock for another minute or more; running scenarios into that window fails with a lock-contention error. `itest-gcp-up` therefore calls `integration-tests/wait-host-ready.sh`, which polls over SSH until `nft` is installed (startup finished) and no package manager lock is held, for several consecutive checks. It passes only the lock files that exist on the host to `fuser`, so the same predicate covers apt and rpm/dnf targets. Tunable via `ITEST_READY_TIMEOUT` (default 720s), `ITEST_READY_STABLE` (3), and `ITEST_READY_INTERVAL` (10s).
 
 What the integration harness covers:
 
@@ -66,11 +68,11 @@ What the integration harness covers:
 - runtime override behavior including auto-discovery, explicit override-file precedence, signature invariants, invalid override rejection, and remote apply/plan cases with overrides
 - trust-boundary cases: command-injection guards on root-executed values, signed-bundle coverage, refusal of a profile edited after verification, and firewall include rollback
 
-The source of truth for the current scenario set is the `SCENARIOS` list in `integration-tests/itest.sh`, which groups the suite into CLI/verification, base-profile, template, packages, firewall, service, file-meta, rollback, overrides, and trust-boundary sections. A subset listed in `BOOTSTRAP_SET` needs the base profile applied first for the nftables include and base table; the `all` run bootstraps that by ordering `base-profile` first. Each scenario runs the real command and then verifies the resulting host state independently over SSH — file content/mode, `dpkg`, `nft list`, service MainPID/state-change and journal entries — rather than asserting on hardline's own log output.
+The source of truth for the current scenario set is the `SCENARIOS` list in `integration-tests/itest.sh`, which groups the suite into CLI/verification, base-profile, template, packages, firewall, service, file-meta, rollback, overrides, and trust-boundary sections. A subset listed in `BOOTSTRAP_SET` needs the base profile applied first for the nftables include and base table; the `all` run bootstraps that by ordering `base-profile` first. Each scenario runs the real command and then verifies the resulting host state independently over SSH — file content/mode, `dpkg`/`rpm`, `nft list`, service MainPID/state-change and journal entries — rather than asserting on hardline's own log output.
 
 ## Demo Profile
 
-`demo-profile/` is a five-step profile covering `file_meta`, `template`, `service`, and `firewall`. It deliberately omits `packages`, whose apt work would dominate the runtime, so a full verify/plan/apply/rollback cycle against a host provisioned by `make itest-gcp-up` finishes in about a minute. It is signed with the same key as the starter profile and is included in `make sign-profiles`.
+`demo-profile/` is a five-step profile covering `file_meta`, `template`, `service`, and `firewall`. It deliberately omits `packages`, whose package manager work would dominate the runtime, so a full verify/plan/apply/rollback cycle against a host provisioned by `make itest-gcp-up` finishes in about a minute. It is signed with the same key as the starter profile and is included in `make sign-profiles`.
 
 It backs the demo recording in the README and on the docs home page. The recording tooling lives outside this repo; the GIF it produces is committed at `docs/assets/demo.gif`.
 

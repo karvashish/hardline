@@ -10,6 +10,7 @@ Example:
   "plugin": "firewall",
   "config": {
     "backend": "nftables",
+    "main_config": "/etc/nftables.conf",
     "family": "inet",
     "table": "filter",
     "managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
@@ -31,6 +32,7 @@ Example:
 Config fields, all required:
 
 - `backend`: must be `nftables`. No other backend is accepted
+- `main_config`: the file this host's nftables service loads. `/etc/nftables.conf` on Debian-family hosts, `/etc/sysconfig/nftables.conf` on RHEL-family hosts. Those two are the whole accepted set; anything else is rejected at verify
 - `family`: `inet`, `ip`, or `ip6`
 - `table`: nftables table name
 - `managed_dest`: path for the rendered include file. Subject to the same managed-destination rules as the [template plugin](template-plugin.md) — under `/etc/`, normalized, `99-hardline*` basename, `.conf`/`.nft`/`.rules` extension
@@ -71,10 +73,10 @@ Rule constraints:
 Behavior:
 
 - Hardline normalizes, deduplicates, and sorts the desired ruleset into a deterministic file, so the same config always renders byte-identically
-- Hardline ensures `/etc/nftables.conf` contains `include "/etc/nftables.d/*.nft"`, appending the line when absent
-- validation runs `nft -c -f /etc/nftables.conf` on the target
+- Hardline ensures `main_config` contains an include for the managed file's own directory (`include "<dir of managed_dest>/*.nft"`), appending the line when absent. The glob follows `managed_dest`, so moving the managed file moves the include with it
+- validation runs `nft -c -f <main_config>` on the target
 - plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`
-- rollback restores `/etc/nftables.conf` before the managed file, so the include is reverted in the right order
+- rollback restores `main_config` before the managed file, so the include is reverted in the right order
 
 ## Runtime overrides
 

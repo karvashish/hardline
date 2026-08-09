@@ -115,12 +115,12 @@ Also note: `profile.overrides.json` is deliberately excluded from the signed man
 
 ## Packages Plugin
 
-### `apt/dpkg lock is held by another process (PIDs: ...)`
+### `package manager lock is held by another process (PIDs: ...)`
 
-Some other `apt-get`, `dpkg`, `unattended-upgrades`, or the kernel's auto-updater is already running on the target. Hardline checks `/var/lib/dpkg/lock`, `/var/lib/apt/lists/lock`, and `/var/lib/dpkg/lock-frontend` with `fuser` and does not wait — it fails fast with the holding PIDs so you can investigate. Wait a minute and retry, or inspect:
+Another package operation is already running on the target: `apt-get`/`dpkg`/`unattended-upgrades` on Debian-family hosts, `dnf`/`dnf-automatic` on RHEL-family ones. Hardline checks the selected backend's locks with `fuser` (`/var/lib/dpkg/lock`, `/var/lib/apt/lists/lock`, `/var/lib/dpkg/lock-frontend` for `apt`; the rpm and dnf metadata locks for `dnf4`/`dnf5`) and does not wait: it fails fast with the holding PIDs so you can investigate. Wait a minute and retry, or inspect:
 
 ```bash
-sudo lsof /var/lib/dpkg/lock
+sudo lsof /var/lib/dpkg/lock   # or /var/lib/rpm/.rpm.lock on RHEL-family hosts
 ```
 
 If `unattended-upgrades` runs frequently on your target, consider scheduling Hardline runs outside the upgrade window.
@@ -133,7 +133,7 @@ The packages plugin validates every name against `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`.
 
 ### `nftables config check failed` / errors from `nft`
 
-The firewall plugin shells out to `nft` on the target and has no separate presence check, so a missing `nftables` package surfaces as the underlying command failing — most visibly from `nft -c -f /etc/nftables.conf` during validation. Install the userspace tools in an earlier step via the `packages` plugin, or choose a profile that doesn't use the firewall plugin.
+The firewall plugin shells out to `nft` on the target and has no separate presence check, so a missing `nftables` package surfaces as the underlying command failing — most visibly from `nft -c -f /etc/nftables.conf` during validation. Install the userspace tools in an earlier step via the package plugin for the target, or choose a profile that doesn't use the firewall plugin.
 
 ### `nftables.conf missing include for /etc/nftables.d/*.nft`
 

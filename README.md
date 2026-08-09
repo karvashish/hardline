@@ -36,9 +36,9 @@ The repo ships with:
 - the `hardline` CLI in [`cmd/hardline/main.go`](cmd/hardline/main.go)
 - the `profiletool` helper in [`cmd/profiletool/main.go`](cmd/profiletool/main.go)
 - repo-wide Go unit tests plus GitHub Actions badges for `main`
-- a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) for real Ubuntu 24.04 validation across plan/apply/rollback, plugins, overrides, and failure paths
+- a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) that provisions a real Ubuntu 24.04, Rocky 9, or Fedora host (`ITEST_OS`) and validates plan/apply/rollback, plugins, overrides, and failure paths against it
 - built-in plugins for packages, templates, services, nftables, and file metadata
-- an example Ubuntu 24.04 hardening profile in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json)
+- example hardening profiles in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json) and [`starter-secure-rocky-9/profile.json`](starter-secure-rocky-9/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 
 ## Install
@@ -77,9 +77,24 @@ To see what Hardline produces without running it, [`docs/examples/`](docs/exampl
 
 ## Supported Targets
 
-Hardline targets Linux hosts. Current support covers Debian-family systems with systemd and nftables: the `packages` plugin uses `apt-get`, the `service` plugin uses `systemctl`, and the `firewall` plugin renders an `nftables` include under `/etc/nftables.d/`. Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, and Debian 12 or later are supported, with the integration tests and the shipped starter profile currently targeting Ubuntu 24.04 LTS; coverage of the other releases is pending additional testing.
+Hardline targets Linux hosts running systemd and nftables. The engine itself carries no distribution knowledge: the profile picks its package manager by naming the plugin (`packages_apt`, `packages_dnf4` or `packages_dnf5`) and declares the nftables main config the host's service loads (`firewall.main_config`: `/etc/nftables.conf` or `/etc/sysconfig/nftables.conf`). Anything outside those sets is rejected at `verify-profile`, before a connection is made. Service units are named verbatim, so a profile says `ssh` or `sshd` depending on its target.
 
-Support for RHEL-family distributions (Rocky, Alma, RHEL 9 or later) is planned. The `packages` plugin is the only distribution-specific component; the remaining functionality is distribution-independent. See issue [#20](https://github.com/karvashish/hardline/issues/20).
+| Package plugin | nftables main config | Typical hosts |
+| --- | --- | --- |
+| `packages_apt` | `/etc/nftables.conf` | Debian, Ubuntu |
+| `packages_dnf4` | `/etc/sysconfig/nftables.conf` | RHEL 9, Rocky 9, Alma 9 |
+| `packages_dnf5` | `/etc/sysconfig/nftables.conf` | Fedora 41 or later, RHEL 10 |
+
+A profile is not portable across those rows: it pins one target and the runner enforces it. `os.family` is matched case-insensitively against `/etc/os-release` `ID` **exactly**, and `os.version` against `VERSION_ID` component by component, so a profile declaring `rocky` is refused on a host reporting `almalinux` or `rhel`, however similar the two are.
+
+The two shipped starter profiles therefore apply to exactly these hosts:
+
+| Starter profile | Accepted host |
+| --- | --- |
+| `starter-secure-ubuntu-24.04-lts` | `ID=ubuntu`, `VERSION_ID` 24.04 or 24.04.x |
+| `starter-secure-rocky-9` | `ID=rocky`, `VERSION_ID` 9 or 9.x |
+
+To harden a host the starters do not cover, copy the nearest one, change `os.family`/`os.version` and the package plugin to match, and sign it with your own key. Ubuntu 24.04 LTS and Rocky 9 are the targets the integration suite runs against; Fedora is exercised as the `packages_dnf5` verification target and ships no starter profile.
 
 ## For Users
 
@@ -102,7 +117,7 @@ If you are writing or editing profiles, start here:
 - [Action Files](docs/profiles/action-files.md) for step structure and execution ordering
 - [Built-In Plugins](docs/profiles/builtin-plugins.md) for plugin config reference
 - [Overrides And Signing](docs/profiles/overrides-and-signing.md) for runtime inputs and profile signing
-- [Example Profile](starter-secure-ubuntu-24.04-lts/profile.json) for a concrete Ubuntu 24.04 hardening profile
+- [Example Profiles](starter-secure-ubuntu-24.04-lts/profile.json) for a concrete Ubuntu 24.04 hardening profile, and [`starter-secure-rocky-9`](starter-secure-rocky-9/profile.json) for its RHEL-family counterpart
 
 ## Internals
 

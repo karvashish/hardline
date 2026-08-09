@@ -16,16 +16,23 @@ Remote machine:
 - non-interactive `sudo` through `sudo -n`, unless you connect as root
 - an OS that matches the profile declaration
 
-For the included sample profile:
+For `starter-secure-ubuntu-24.04-lts`:
 
 - the target should report `ID=ubuntu`
 - the target should report `VERSION_ID=24.04`
 - package management is expected to work through `apt-get`
 - service management is expected to work through `systemctl`
 
+For `starter-secure-rocky-9`:
+
+- the target should report `ID=rocky`
+- the target should report `VERSION_ID=9` or a `9.x` point release
+- package management is expected to work through `dnf` (dnf4)
+- service management is expected to work through `systemctl`
+
 ## Get The Example Profile
 
-The example `starter-secure-ubuntu-24.04-lts` profile is published as its own tarball on every release, or you can `git clone` the repo and use the directory in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
+The example `starter-secure-ubuntu-24.04-lts` profile is published as its own tarball on every release, and `starter-secure-rocky-9` is its RHEL-family counterpart in the repo, or you can `git clone` the repo and use the directory in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
 
 ## First Command
 

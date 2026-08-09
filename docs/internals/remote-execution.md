@@ -62,4 +62,4 @@ The temp file is only ever `0600` and the final mode is applied by `install`, so
 - `ID` against the profile's `os.family`
 - `VERSION_ID` against the profile's `os.version`
 
-If the profile leaves `os.family` blank, the OS check is skipped. If it sets `family` but leaves `version` blank, only the family check runs.
+Signed profiles must provide a non-empty `os.family` and a numeric, dot-separated `os.version`; schema validation rejects a profile before connection otherwise. Version matching uses the components the profile declares: `9` accepts `9` and any `9.x` value, while `24.04` accepts `24.04` and any `24.04.x` value but rejects `24.10`. The empty-value guards in `CheckRemoteOS` remain only for callers that construct profile data directly in Go.

@@ -19,7 +19,7 @@ The main CLI commands are:
 - `rollback`
 - `version`
 
-The sample profile in this repo targets Ubuntu 24.04 LTS and includes base hardening for:
+The sample profiles in this repo target Ubuntu 24.04 LTS and Rocky Linux 9, and include base hardening for:
 
 - packages
 - SSH

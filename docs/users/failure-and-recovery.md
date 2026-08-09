@@ -78,14 +78,15 @@ To clear a stale lock:
 
 Do not clear the lock from a script. Treat it as a manual decision — the lock exists specifically because concurrent applies would corrupt the journal.
 
-## Apt / Dpkg Lock Contention
+## Package Manager Lock Contention
 
-The packages plugin checks for `apt-get` and `dpkg` locks before running. If `unattended-upgrades`, another admin session, or a manual `apt-get` is holding the lock, Hardline fails fast with a lock-contention error instead of waiting.
+The packages plugin checks the selected backend's locks before running: the dpkg locks for `apt`, the rpm and dnf metadata locks for `dnf4` and `dnf5`. If an auto-update job, another admin session, or a manual package command is holding the lock, Hardline fails fast with a lock-contention error instead of waiting.
 
 Recovery is just waiting:
 
 - On Ubuntu, `unattended-upgrades` runs on a systemd timer. Check with `systemctl status unattended-upgrades.service`. Wait for it to finish, then retry.
-- If the lock is held by a stale process (rare), investigate with `sudo fuser /var/lib/dpkg/lock-frontend` before removing anything.
+- On RHEL-family hosts the equivalent is `dnf-automatic.timer`. Check with `systemctl status dnf-automatic.service`.
+- If the lock is held by a stale process (rare), investigate with `sudo fuser /var/lib/dpkg/lock-frontend` (apt) or `sudo fuser /var/lib/rpm/.rpm.lock` (rpm) before removing anything.
 
 If your target runs `unattended-upgrades` frequently enough that it keeps racing Hardline, either:
 

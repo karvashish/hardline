@@ -1,13 +1,15 @@
-# Packages Plugin
+# Packages Plugins
 
-Used for `apt-get` operations.
+Installs, upgrades, and removes packages. There is one plugin per package
+manager, and a step picks its package manager by naming the plugin:
+`packages_apt`, `packages_dnf4`, or `packages_dnf5`.
 
 Example:
 
 ```json
 {
   "id": "packages-base",
-  "plugin": "packages",
+  "plugin": "packages_apt",
   "config": {
     "update": "always",
     "upgrade": "once",
@@ -24,6 +26,30 @@ Config fields:
 - `install`: package names to install
 - `purge`: package names to purge
 
+## Choosing the plugin
+
+Hardline does not detect the package manager, and there is no `backend` config
+key: the plugin name is the choice. A step naming a plugin that is not
+registered is rejected at `verify-profile`, before hardline connects to a host.
+
+That is not a limitation in practice, because a profile already pins one
+`os.family` and `os.version`, so it was never free to change package manager at
+runtime.
+
+`packages_dnf4` and `packages_dnf5` are separate plugins because the two print
+different transaction tables and dnf5 renamed `check-update` to `check-upgrade`.
+
+| Plugin | Targets | Query | Install | Remove |
+| --- | --- | --- | --- | --- |
+| `packages_apt` | Debian, Ubuntu | `dpkg -s` | `apt-get install -y` | `apt-get purge -y` |
+| `packages_dnf4` | RHEL 9, Rocky 9, Alma 9 | `rpm -q` | `dnf -y install` | `dnf -y remove` |
+| `packages_dnf5` | Fedora 41+, RHEL 10 | `rpm -q` | `dnf -y install` | `dnf -y remove` |
+
+`purge` is not identical across them. On apt it is `apt-get purge`, which
+removes configuration files too. On rpm there is no purge: `dnf remove` leaves
+modified config files behind as `.rpmsave`. Hardline does not emulate the
+difference.
+
 ## Operation Cadence
 
 | Value | When the operation runs |
@@ -37,12 +63,44 @@ Config fields:
 
 Rules:
 
-- package names must match `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`
+- each plugin enforces its own package-name rule, rather than every target
+  inheriting the union of all of them: `packages_apt` takes Debian policy names
+  (`^[a-z0-9][a-z0-9+.-]{0,127}$`), the dnf plugins take rpm names, which are
+  case-sensitive, may use underscores, and may be arch-qualified as `glibc.i686`
+  (`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 - entries must not be empty, and a name cannot repeat within `install` or within `purge`
 - the same package cannot appear in both `install` and `purge`
-- package operations are guarded by apt/dpkg lock checks, which fail fast rather than wait
-- `apt-get` commands run under a 30-minute per-command `timeout` on the target
+- package operations are guarded by a lock check for that package manager (dpkg locks for apt, the rpm and dnf metadata locks otherwise), which fails fast rather than waiting
+- every package command runs under a 30-minute per-command `timeout` on the target
+
+## Plan previews
+
+Plan reports what the transaction would do, reading it from the package manager
+itself: `apt-get -s` for apt, `dnf check-update` / `check-upgrade` plus a
+declined `--assumeno` transaction for the dnf plugins. `check-update` exits 100
+when upgrades exist and `--assumeno` exits non-zero after declining; hardline
+translates only those exit codes, so a genuine failure is reported as a failed
+preview rather than as "nothing to do".
+
+Every parsed command runs under `LC_ALL=C`. Both apt and dnf render their
+banners and section headings through gettext, and a preview parsed from
+translated output would silently find nothing to do while apply still ran the
+transaction.
+
+`dnf check-update` prints obsoletes in a trailing `Obsoleting Packages` section,
+listing each replacement at column 0 with the package it replaces indented
+beneath it. `dnf upgrade` installs those replacements, so plan counts them.
 
 ## Rollback
 
-Rollback of a purge reinstalls the package, preferring the exact version captured before the purge (`apt-get install -y <name>=<version>`) and falling back to an unpinned install if that fails. `update`, `upgrade`, and `autoremove` are not reversible; the journal records them with a best-effort note rather than undoing them.
+Rollback runs from the journal alone, with no profile in hand. The journalled
+step type names the plugin that captured each record, which is what tells
+rollback how to undo it.
+
+Rollback of a purge reinstalls the package, preferring the exact version
+captured before the purge and falling back to an unpinned install if that
+fails. That pin is recorded in the capturing plugin's own syntax: `name=version`
+for apt, and a full NEVRA (`name-[epoch:]version-release.arch`) for rpm, which
+is the only ordering rpm resolves. `update`, `upgrade`, and `autoremove` are not
+reversible; the journal records them with a best-effort note rather than undoing
+them.

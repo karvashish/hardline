@@ -77,7 +77,7 @@ sudo ln -sf /etc/hardline/profiletool /usr/local/bin/profiletool
 hardline version
 ```
 
-If you copy the binary somewhere without its sibling `plugins/`, the external `firewall_template.so` plugin stops loading. Built-in plugins (`packages`, `template`, `service`, `firewall`, `file_meta`) still work, but any profile step that lists `firewall_template` as its plugin will fail.
+If you copy the binary somewhere without its sibling `plugins/`, the external `firewall_template.so` plugin stops loading. Built-in plugins (`packages_apt`, `packages_dnf4`, `packages_dnf5`, `template`, `service`, `firewall`, `file_meta`) still work, but any profile step that lists `firewall_template` as its plugin will fail.
 
 ### Profile Signing Key (Optional)
 
@@ -166,7 +166,7 @@ cd "hardline-$Version-windows-$Arch"
 
 Add the extracted directory to `PATH` via **System Properties → Environment Variables**, or use `$env:PATH` for the current shell session.
 
-**External plugins are not supported on Windows** - the Windows builds are statically linked with CGO disabled, and Go's plugin system only works on Linux, FreeBSD, and macOS. Built-in plugins (`packages`, `template`, `service`, `firewall`, `file_meta`) are compiled into the binary and work normally. Hardline on Windows is intended as a workstation CLI for managing remote Linux hosts over SSH - not for applying profiles to a Windows host. See the [Platform Support](#platform-support) table below for the full matrix.
+**External plugins are not supported on Windows** - the Windows builds are statically linked with CGO disabled, and Go's plugin system only works on Linux, FreeBSD, and macOS. Built-in plugins (`packages_apt`, `packages_dnf4`, `packages_dnf5`, `template`, `service`, `firewall`, `file_meta`) are compiled into the binary and work normally. Hardline on Windows is intended as a workstation CLI for managing remote Linux hosts over SSH - not for applying profiles to a Windows host. See the [Platform Support](#platform-support) table below for the full matrix.
 
 ## Platform Support
 
@@ -181,7 +181,7 @@ Add the extracted directory to `PATH` via **System Properties → Environment Va
 
 Hardline applies configuration to remote Linux hosts over SSH. The Windows builds exist so you can run the CLI from a Windows workstation to manage Linux targets - they are not intended for applying profiles *to* a Windows host.
 
-External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages`, `template`, `service`, `firewall`, `file_meta`) are compiled into the binary and remain available on every platform.
+External plugins are unsupported on Windows by design. Go's plugin system (`-buildmode=plugin`) is only available on Linux, FreeBSD, and macOS, and the Windows builds are compiled with `CGO_ENABLED=0` for a fully static binary. Any profile step that tries to load an external plugin (for example `firewall_template.so`) will fail at runtime with a `plugin: not implemented` error. Built-in plugins (`packages_apt`, `packages_dnf4`, `packages_dnf5`, `template`, `service`, `firewall`, `file_meta`) are compiled into the binary and remain available on every platform.
 
 ## Verify The Install
 

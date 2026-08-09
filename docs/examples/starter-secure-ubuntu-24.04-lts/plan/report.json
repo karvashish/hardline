@@ -43,7 +43,7 @@
   "steps": [
     {
       "id": "packages-starter-secure",
-      "type": "packages",
+      "type": "packages_apt",
       "status": "change_planned",
       "summary": "packages step: update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)",
       "operator_summary": "Update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)",
@@ -66,33 +66,33 @@
         "autoremove: no packages would be removed (current state; may change after upgrade) (once: packages need to change)"
       ],
       "diff": [
-        "package index metadata: current -\u003e refreshed from configured repositories",
-        "package \"rsync\": installed -\u003e upgraded",
-        "package \"libgcrypt20\": installed -\u003e upgraded",
-        "package \"liblzma5\": installed -\u003e upgraded",
-        "package \"libgnutls30t64\": installed -\u003e upgraded",
-        "package \"libapparmor1\": installed -\u003e upgraded",
-        "package \"vim\": installed -\u003e upgraded",
-        "package \"vim-common\": installed -\u003e upgraded",
-        "package \"vim-tiny\": installed -\u003e upgraded",
-        "package \"vim-runtime\": installed -\u003e upgraded",
-        "package \"xxd\": installed -\u003e upgraded",
-        "package \"apparmor\": installed -\u003e upgraded",
-        "package \"bind9-dnsutils\": installed -\u003e upgraded",
-        "package \"bind9-host\": installed -\u003e upgraded",
-        "package \"bind9-libs\": installed -\u003e upgraded",
-        "package \"xz-utils\": installed -\u003e upgraded",
-        "package \"linux-tools-common\": installed -\u003e upgraded",
-        "package \"snapd\": installed -\u003e upgraded",
-        "package \"cloud-init\": installed -\u003e upgraded",
-        "package \"auditd\": absent -\u003e installed",
-        "package \"fail2ban\": absent -\u003e installed",
-        "package \"libauparse0t64\": absent -\u003e installed (dependency)",
-        "package \"python3-pyasyncore\": absent -\u003e installed (dependency)",
-        "package \"python3-pyinotify\": absent -\u003e installed (dependency)",
-        "package \"whois\": absent -\u003e installed (dependency)",
-        "package \"telnet\": installed -\u003e purged",
-        "package \"ftp\": installed -\u003e purged"
+        "package index metadata: current -> refreshed from configured repositories",
+        "package \"rsync\": installed -> upgraded",
+        "package \"libgcrypt20\": installed -> upgraded",
+        "package \"liblzma5\": installed -> upgraded",
+        "package \"libgnutls30t64\": installed -> upgraded",
+        "package \"libapparmor1\": installed -> upgraded",
+        "package \"vim\": installed -> upgraded",
+        "package \"vim-common\": installed -> upgraded",
+        "package \"vim-tiny\": installed -> upgraded",
+        "package \"vim-runtime\": installed -> upgraded",
+        "package \"xxd\": installed -> upgraded",
+        "package \"apparmor\": installed -> upgraded",
+        "package \"bind9-dnsutils\": installed -> upgraded",
+        "package \"bind9-host\": installed -> upgraded",
+        "package \"bind9-libs\": installed -> upgraded",
+        "package \"xz-utils\": installed -> upgraded",
+        "package \"linux-tools-common\": installed -> upgraded",
+        "package \"snapd\": installed -> upgraded",
+        "package \"cloud-init\": installed -> upgraded",
+        "package \"auditd\": absent -> installed",
+        "package \"fail2ban\": absent -> installed",
+        "package \"libauparse0t64\": absent -> installed (dependency)",
+        "package \"python3-pyasyncore\": absent -> installed (dependency)",
+        "package \"python3-pyinotify\": absent -> installed (dependency)",
+        "package \"whois\": absent -> installed (dependency)",
+        "package \"telnet\": installed -> purged",
+        "package \"ftp\": installed -> purged"
       ],
       "will_change": true
     },
@@ -107,7 +107,7 @@
         "desired: mode=600 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/ssh/sshd_config\": 644 -\u003e 600"
+        "mode \"/etc/ssh/sshd_config\": 644 -> 600"
       ],
       "will_change": true
     },
@@ -122,7 +122,7 @@
         "desired: template \"templates/10-ssh-sshd-config.tmpl\" rendered to \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\" with mode 0600"
       ],
       "diff": [
-        "file \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\": absent -\u003e present (mode 0600)",
+        "file \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\": absent -> present (mode 0600)",
         "--- current /etc/ssh/sshd_config.d/99-hardline-ssh.conf (absent)",
         "+++ desired /etc/ssh/sshd_config.d/99-hardline-ssh.conf",
         "+Protocol 2",
@@ -165,7 +165,7 @@
         "desired: template \"templates/15-unattended-upgrades.tmpl\" rendered to \"/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf\" with mode 0644"
       ],
       "diff": [
-        "file \"/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf\": absent -\u003e present (mode 0644)",
+        "file \"/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf\": absent -> present (mode 0644)",
         "--- current /etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf (absent)",
         "+++ desired /etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
         "+APT::Periodic::Update-Package-Lists \"1\";",
@@ -186,7 +186,7 @@
         "desired: template \"templates/20-sysctl-hardening.conf.tmpl\" rendered to \"/etc/sysctl.d/99-hardline-hardening.conf\" with mode 0644"
       ],
       "diff": [
-        "file \"/etc/sysctl.d/99-hardline-hardening.conf\": absent -\u003e present (mode 0644)",
+        "file \"/etc/sysctl.d/99-hardline-hardening.conf\": absent -> present (mode 0644)",
         "--- current /etc/sysctl.d/99-hardline-hardening.conf (absent)",
         "+++ desired /etc/sysctl.d/99-hardline-hardening.conf",
         "+net.ipv4.ip_forward = 0",
@@ -246,7 +246,7 @@
         "\"/etc/nftables.conf\": include \"include \\\"/etc/nftables.d/*.nft\\\"\" absent; apply will add it"
       ],
       "diff": [
-        "file \"/etc/nftables.d/99-hardline-firewall.nft\": absent -\u003e present (mode 0644)",
+        "file \"/etc/nftables.d/99-hardline-firewall.nft\": absent -> present (mode 0644)",
         "--- current /etc/nftables.d/99-hardline-firewall.nft (absent)",
         "+++ desired /etc/nftables.d/99-hardline-firewall.nft",
         "+table inet filter {",
@@ -262,7 +262,7 @@
         "+ ct state invalid drop",
         "+ }",
         "+}",
-        "chain input policy: accept -\u003e drop",
+        "chain input policy: accept -> drop",
         "file \"/etc/nftables.conf\": add include \"include \\\"/etc/nftables.d/*.nft\\\"\" (apply will patch)"
       ],
       "will_change": true
@@ -278,7 +278,7 @@
         "desired: enabled=enabled, state=restarted (active)"
       ],
       "diff": [
-        "service enablement: disabled or not-found -\u003e enabled",
+        "service enablement: disabled or not-found -> enabled",
         "service: restart nftables (currently inactive or not-found)"
       ],
       "will_change": true
@@ -294,7 +294,7 @@
         "desired: template \"templates/35-fail2ban-ssh-protection.tmpl\" rendered to \"/etc/fail2ban/jail.d/99-hardline-ssh.conf\" with mode 0644"
       ],
       "diff": [
-        "file \"/etc/fail2ban/jail.d/99-hardline-ssh.conf\": absent -\u003e present (mode 0644)",
+        "file \"/etc/fail2ban/jail.d/99-hardline-ssh.conf\": absent -> present (mode 0644)",
         "--- current /etc/fail2ban/jail.d/99-hardline-ssh.conf (absent)",
         "+++ desired /etc/fail2ban/jail.d/99-hardline-ssh.conf",
         "+[sshd]",
@@ -316,8 +316,8 @@
         "desired: enabled=enabled, state=active"
       ],
       "diff": [
-        "service enablement: disabled or not-found -\u003e enabled",
-        "service activity: inactive or not-found -\u003e active"
+        "service enablement: disabled or not-found -> enabled",
+        "service activity: inactive or not-found -> active"
       ],
       "will_change": true
     },
@@ -332,7 +332,7 @@
         "desired: template \"templates/40-audit-hardening-rules.tmpl\" rendered to \"/etc/audit/rules.d/99-hardline.rules\" with mode 0640"
       ],
       "diff": [
-        "file \"/etc/audit/rules.d/99-hardline.rules\": absent -\u003e present (mode 0640)",
+        "file \"/etc/audit/rules.d/99-hardline.rules\": absent -> present (mode 0640)",
         "--- current /etc/audit/rules.d/99-hardline.rules (absent)",
         "+++ desired /etc/audit/rules.d/99-hardline.rules",
         "+## Clear any existing rules",
@@ -357,10 +357,10 @@
         "+-w /etc/sudoers -p wa -k privileged",
         "+-w /etc/sudoers.d/ -p wa -k privileged",
         "+# Time changes",
-        "+-a always,exit -F arch=b64 -S adjtimex -S settimeofday -S clock_settime -F auid\u003e=1000 -F auid!=4294967295 -k time_change",
+        "+-a always,exit -F arch=b64 -S adjtimex -S settimeofday -S clock_settime -F auid>=1000 -F auid!=4294967295 -k time_change",
         "+-w /etc/localtime -p wa -k time_change",
         "+# Kernel module changes",
-        "+-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -F auid\u003e=1000 -F auid!=4294967295 -k kernel_modules",
+        "+-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -F auid>=1000 -F auid!=4294967295 -k kernel_modules",
         "... 16 more content diff line(s) omitted"
       ],
       "will_change": true
@@ -376,7 +376,7 @@
         "desired: enabled=enabled, state=restarted (active)"
       ],
       "diff": [
-        "service enablement: disabled or not-found -\u003e enabled",
+        "service enablement: disabled or not-found -> enabled",
         "service: restart auditd (currently inactive or not-found)"
       ],
       "will_change": true
@@ -392,7 +392,7 @@
         "desired: template \"templates/50-journald-hardening.conf.tmpl\" rendered to \"/etc/systemd/journald.conf.d/99-hardline.conf\" with mode 0644"
       ],
       "diff": [
-        "file \"/etc/systemd/journald.conf.d/99-hardline.conf\": absent -\u003e present (mode 0644)",
+        "file \"/etc/systemd/journald.conf.d/99-hardline.conf\": absent -> present (mode 0644)",
         "--- current /etc/systemd/journald.conf.d/99-hardline.conf (absent)",
         "+++ desired /etc/systemd/journald.conf.d/99-hardline.conf",
         "+[Journal]",
@@ -433,7 +433,7 @@
         "desired: mode=600 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/crontab\": 644 -\u003e 600"
+        "mode \"/etc/crontab\": 644 -> 600"
       ],
       "will_change": true
     },
@@ -448,7 +448,7 @@
         "desired: mode=700 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/cron.d\": 755 -\u003e 700"
+        "mode \"/etc/cron.d\": 755 -> 700"
       ],
       "will_change": true
     },
@@ -463,7 +463,7 @@
         "desired: mode=700 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/cron.hourly\": 755 -\u003e 700"
+        "mode \"/etc/cron.hourly\": 755 -> 700"
       ],
       "will_change": true
     },
@@ -478,7 +478,7 @@
         "desired: mode=700 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/cron.daily\": 755 -\u003e 700"
+        "mode \"/etc/cron.daily\": 755 -> 700"
       ],
       "will_change": true
     },
@@ -493,7 +493,7 @@
         "desired: mode=700 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/cron.weekly\": 755 -\u003e 700"
+        "mode \"/etc/cron.weekly\": 755 -> 700"
       ],
       "will_change": true
     },
@@ -508,7 +508,7 @@
         "desired: mode=700 owner=root group=root attrs=\"\""
       ],
       "diff": [
-        "mode \"/etc/cron.monthly\": 755 -\u003e 700"
+        "mode \"/etc/cron.monthly\": 755 -> 700"
       ],
       "will_change": true
     },

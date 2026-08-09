@@ -80,7 +80,7 @@ func validateServiceSpec(spec *Spec) error {
 	if strings.TrimSpace(spec.Name) == "" {
 		return fmt.Errorf("service name is required")
 	}
-	if err := validateServiceUnit(normalizeServiceUnit(spec.Name)); err != nil {
+	if err := validateServiceUnit(strings.TrimSpace(spec.Name)); err != nil {
 		return err
 	}
 

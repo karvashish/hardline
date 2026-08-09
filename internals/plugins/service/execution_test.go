@@ -17,16 +17,15 @@ func TestApply(t *testing.T) {
 		}
 	})
 
+	// The unit name reaches systemctl verbatim: "sshd" is the real unit on
+	// RHEL-family hosts, so the plugin must not rewrite it to Debian's "ssh".
 	t.Run("enable and restart when dirty", func(t *testing.T) {
 		var cmds []string
 		err := Apply(pluginapi.Context{Host: serviceRuntimeStub{
 			runRoot: func(cmd string) error {
 				cmds = append(cmds, cmd)
-				if cmd == `systemctl is-enabled 'ssh' >/dev/null 2>&1` {
+				if cmd == `systemctl is-enabled 'sshd' >/dev/null 2>&1` {
 					return errors.New("disabled")
-				}
-				if cmd == `systemctl is-active 'ssh' >/dev/null 2>&1` {
-					return nil
 				}
 				return nil
 			},
@@ -35,10 +34,13 @@ func TestApply(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 		joined := strings.Join(cmds, "\n")
-		for _, want := range []string{`systemctl enable 'ssh'`, `systemctl restart 'ssh'`} {
+		for _, want := range []string{`systemctl enable 'sshd'`, `systemctl restart 'sshd'`} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("expected command %q, got %v", want, cmds)
 			}
+		}
+		if strings.Contains(joined, `'ssh'`) {
+			t.Fatalf("unit name must not be rewritten, got %v", cmds)
 		}
 	})
 
@@ -230,14 +232,14 @@ func TestPlan(t *testing.T) {
 		t.Fatalf("expected missing name error, got %v", err)
 	}
 
-	res, err := Plan(pluginapi.Context{Host: serviceRuntimeStub{enabled: map[string]bool{"ssh": true}, active: map[string]bool{"ssh": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
+	res, err := Plan(pluginapi.Context{Host: serviceRuntimeStub{enabled: map[string]bool{"sshd": true}, active: map[string]bool{"sshd": true}}}, &Spec{Name: "sshd", Enabled: boolPtr(true), State: "restart"})
 	if err != nil {
 		t.Fatalf("Plan failed: %v", err)
 	}
 	if !res.WillChange {
 		t.Fatalf("expected restart plan to require change, got WillChange=false")
 	}
-	if !strings.Contains(res.Summary, "restart ssh") {
+	if !strings.Contains(res.Summary, "restart sshd") {
 		t.Fatalf("unexpected plan summary: %q", res.Summary)
 	}
 	if len(res.Details) == 0 {
@@ -352,8 +354,8 @@ func TestCapture(t *testing.T) {
 		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 1 || rec.Objects[0].Service == nil {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
-		if rec.Objects[0].Service.Unit != "ssh" {
-			t.Fatalf("expected ssh unit normalization, got %+v", rec.Objects[0].Service)
+		if rec.Objects[0].Service.Unit != "sshd" {
+			t.Fatalf("expected the profile's unit name verbatim, got %+v", rec.Objects[0].Service)
 		}
 		if rec.Reload != nil {
 			t.Fatalf("expected nil reload for enable-only step, got %+v", rec.Reload)
@@ -391,13 +393,6 @@ func TestCapture(t *testing.T) {
 }
 
 func TestUnitAndStateHelpers(t *testing.T) {
-	if got := normalizeServiceUnit("sshd"); got != "ssh" {
-		t.Fatalf("expected sshd -> ssh, got %q", got)
-	}
-	if got := normalizeServiceUnit(" cron "); got != "cron" {
-		t.Fatalf("expected trim, got %q", got)
-	}
-
 	if serviceIsEnabled(nil, "x") {
 		t.Fatal("expected nil host to report disabled")
 	}

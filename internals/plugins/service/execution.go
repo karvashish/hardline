@@ -17,7 +17,7 @@ func Apply(ctx pluginapi.Context, s *Spec) error {
 		return fmt.Errorf("service step: host context is required")
 	}
 
-	unit := normalizeServiceUnit(s.Name)
+	unit := strings.TrimSpace(s.Name)
 	if err := validateServiceUnit(unit); err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func Plan(ctx pluginapi.Context, s *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{}, fmt.Errorf("service step: host context is required")
 	}
 
-	unit := normalizeServiceUnit(s.Name)
+	unit := strings.TrimSpace(s.Name)
 	if err := validateServiceUnit(unit); err != nil {
 		return pluginapi.PlanResult{}, err
 	}
@@ -245,7 +245,7 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("service step: host context is required")
 	}
 
-	unit := normalizeServiceUnit(spec.Name)
+	unit := strings.TrimSpace(spec.Name)
 	if err := validateServiceUnit(unit); err != nil {
 		return record, err
 	}
@@ -309,14 +309,6 @@ func validateServiceUnit(unit string) error {
 		return fmt.Errorf("invalid service unit %q: must match %s", unit, serviceUnitPattern.String())
 	}
 	return nil
-}
-
-func normalizeServiceUnit(unit string) string {
-	name := strings.TrimSpace(unit)
-	if name == "sshd" {
-		return "ssh"
-	}
-	return name
 }
 
 func serviceIsEnabled(host pluginapi.Host, unit string) bool {

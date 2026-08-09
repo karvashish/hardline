@@ -4,11 +4,11 @@
   "files": [
     {
       "path": "actions/00-packages.json",
-      "sha256": "045df4bb7dc470afe132e8d7ac87dcef6f57b42b388ae5e70a59876d09ab3179"
+      "sha256": "9c1f1108b675a35056b7a80ba2130d82f1f90c3f5471f160162e9f3f3eaaa564"
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "1bb51baef4f1e6efa959ede379ed867e490b714ae94f2922a3478630246d85d5"
+      "sha256": "8e270a648e73b7dd2d52e5c318be1029bc645fc48cb78a69b217daeb86211690"
     },
     {
       "path": "actions/15-unattended-upgrades.json",
@@ -32,7 +32,7 @@
     },
     {
       "path": "actions/40-audit.json",
-      "sha256": "5652b39f15dff880d0b240e81aa443261e5bdeed647324af36d537121adba4aa"
+      "sha256": "e67d2f5bd744fe3984c6fc2635fc259f764f77f5573ccd72ac30504a74a7510b"
     },
     {
       "path": "actions/50-journald.json",

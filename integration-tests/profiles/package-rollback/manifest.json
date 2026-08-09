@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "actions/10-package-rollback.json",
-      "sha256": "5a0f14527c968dd2c455cccf20f2f90e9b2f79cea1524e1d469ca98dce8130c8"
+      "sha256": "ad377d73c2d09269a272f2b1e42ef7ec08f6b5fe0e5e16bfb5ce0cd8280d83d4"
     },
     {
       "path": "profile.json",

@@ -4,15 +4,15 @@
   "files": [
     {
       "path": "actions/00-packages.json",
-      "sha256": "5237217e25fc0dcf97ee5a6b396af692f05b8a581e6492973f9575f6c55ef96d"
+      "sha256": "1acc5d0bf04d6679afc004b89a781430c6eb5d588d1a0f15f7abbe1c5dd2286e"
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "0af3413295d98a192f997bf44a5c00ce16360c33cf2d56cba37ec527d1a96d14"
+      "sha256": "2685ffdb46a78ed5d0897f37c0a495a33edcc61376bc27d10f1c24585943de64"
     },
     {
       "path": "actions/15-dnf-automatic.json",
-      "sha256": "e81693e68872b6a8c48c36cb4a7f8e3022f4016402893e6d9df8ff11815687e7"
+      "sha256": "9becb9f8058e0c9ad1dd0e479397f6649aeaecb8edeef8cf51b43ee613d5d80f"
     },
     {
       "path": "actions/20-sysctl.json",
@@ -28,7 +28,7 @@
     },
     {
       "path": "actions/40-audit.json",
-      "sha256": "924a8ec8bad119ba288858be74baa79b73075b84232ae75425143cc6ffeed6ff"
+      "sha256": "e67d2f5bd744fe3984c6fc2635fc259f764f77f5573ccd72ac30504a74a7510b"
     },
     {
       "path": "actions/50-journald.json",

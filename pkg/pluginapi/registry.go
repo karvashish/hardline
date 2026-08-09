@@ -55,9 +55,16 @@ type ServiceReload struct {
 }
 
 type PackageState struct {
-	Name             string `json:"name"`
-	WasInstalled     bool   `json:"was_installed"`
-	Version          string `json:"version,omitempty"`
+	Name         string `json:"name"`
+	WasInstalled bool   `json:"was_installed"`
+	// Version is the human-readable version, used for display and for detecting
+	// a change since apply. PinSpec is the same state in the capturing
+	// backend's own exact-install syntax, which is the only form that restores
+	// a specific version: apt wants name=version, rpm a full NEVRA. The plugin
+	// that wrote the record is identified by the journalled step type, so
+	// neither field has to name a backend.
+	Version          string `json:"version"`
+	PinSpec          string `json:"pin_spec"`
 	RequestedInstall bool   `json:"requested_install,omitempty"`
 	RequestedPurge   bool   `json:"requested_purge,omitempty"`
 }

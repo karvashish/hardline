@@ -60,8 +60,8 @@ func TestHandleStepDispatch(t *testing.T) {
 func TestHandleStepWrapperAndReset(t *testing.T) {
 	err := handleStepWithRegistry(registry.Shared(), nil, nil, profile.Step{
 		ID:     "pkg",
-		Plugin: "packages",
-		Config: map[string]any{},
+		Plugin: "packages_apt",
+		Config: map[string]any{"install": []any{"curl"}},
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "host context is required") {
 		t.Fatalf("expected shared-registry handleStep error, got %v", err)
@@ -104,7 +104,7 @@ func TestHandleStepValidationPolicy(t *testing.T) {
 
 func TestNewDefaultRegistries(t *testing.T) {
 	reg := registry.NewDefaultRegistry()
-	for _, name := range []string{"packages", "template", "service", "firewall"} {
+	for _, name := range []string{"packages_apt", "packages_dnf4", "packages_dnf5", "template", "service", "firewall"} {
 		plugin, ok := reg.Lookup(name)
 		if !ok {
 			t.Fatalf("missing builtin plugin %q", name)

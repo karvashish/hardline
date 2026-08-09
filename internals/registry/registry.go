@@ -5,7 +5,9 @@ import (
 
 	"github.com/karvashish/hardline/internals/plugins/filemeta"
 	"github.com/karvashish/hardline/internals/plugins/firewall"
-	"github.com/karvashish/hardline/internals/plugins/packages"
+	"github.com/karvashish/hardline/internals/plugins/packages/apt"
+	"github.com/karvashish/hardline/internals/plugins/packages/dnf4"
+	"github.com/karvashish/hardline/internals/plugins/packages/dnf5"
 	"github.com/karvashish/hardline/internals/plugins/service"
 	"github.com/karvashish/hardline/internals/plugins/template"
 	"github.com/karvashish/hardline/pkg/pluginapi"
@@ -22,7 +24,9 @@ func Shared() *pluginapi.Registry {
 
 func builtinPlugins() []pluginapi.Plugin {
 	return []pluginapi.Plugin{
-		packages.Plugin(),
+		apt.Plugin(),
+		dnf4.Plugin(),
+		dnf5.Plugin(),
 		template.Plugin(),
 		service.Plugin(),
 		firewall.Plugin(),

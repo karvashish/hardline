@@ -113,7 +113,7 @@ func TestCollectPlannedChanges(t *testing.T) {
 		return StepPlan{
 			PlanResult: pluginapi.PlanResult{WillChange: true, OperatorSummary: summary},
 			StepID:     id,
-			StepType:   "packages",
+			StepType:   "packages_apt",
 		}
 	}
 	aligned := StepPlan{

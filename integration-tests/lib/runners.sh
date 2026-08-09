@@ -95,6 +95,10 @@ test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="passwordauthentication"{print tol
 test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="permitrootlogin"{print tolower($2)}')" = "no"
 test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="x11forwarding"{print tolower($2)}')" = "no"
 test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="maxauthtries"{print $2}')" = "4"
+# Audit rules on disk prove nothing; the kernel policy is what enforces them.
+auditctl -l | grep -q -- '-k identity'
+auditctl -l | grep -q -- '-k time_change'
+auditctl -l | grep -q -- '-k audit_config'
 systemctl is-active systemd-journald >/dev/null 2>&1
 test "$(sysctl -n net.ipv4.ip_forward)" = "0"
 test "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "1"

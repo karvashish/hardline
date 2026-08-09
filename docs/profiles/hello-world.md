@@ -164,7 +164,7 @@ The packages plugin captured that `htop` was not installed before the apply, so 
 
 ## Next Steps
 
-- Add a template step ([Template Plugin](template-plugin.md)) — note the managed destination rules: under `/etc/`, basename starts with `99-hardline`, extension `.conf` / `.nft` / `.rules`.
+- Add a template step ([Template Plugin](template-plugin.md)) — note the managed destination rules: under `/etc/`, basename starts with `99-hardline` (or `00-hardline` where the first match wins, as in `sshd_config.d`), extension `.conf` / `.nft` / `.rules`.
 - Add a service step with a restart policy ([Service Plugin](service-plugin.md)).
 - Expose a runtime knob via `allowed_overrides` ([Overrides](../users/overrides.md)).
 - Bolt down the firewall ([Firewall Plugin](firewall-plugin.md)).

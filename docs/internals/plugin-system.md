@@ -113,4 +113,4 @@ The example external plugin in `pluginprojects/firewalltemplate` shows the expec
 
 ## Build And Platform Constraints
 
-External plugins are native Go shared objects (`-buildmode=plugin`). They must be rebuilt against every `hardline` release - the Go toolchain and dependency versions have to match the host binary byte-for-byte, or `plugin.Open` rejects the `.so`. They are unsupported on Windows: the Windows builds are statically linked with `CGO_ENABLED=0`, and Go's plugin system is only available on Linux, FreeBSD, and macOS. The five built-in plugins are compiled into the binary and ship on every platform.
+External plugins are native Go shared objects (`-buildmode=plugin`). They must be rebuilt against every `hardline` release - the Go toolchain and dependency versions have to match the host binary byte-for-byte, or `plugin.Open` rejects the `.so`. They are unsupported on Windows: the Windows builds are statically linked with `CGO_ENABLED=0`, and Go's plugin system is only available on Linux, FreeBSD, and macOS. The built-in plugins are compiled into the binary and ship on every platform.

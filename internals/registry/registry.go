@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 
+	"github.com/karvashish/hardline/internals/plugins/audit"
 	"github.com/karvashish/hardline/internals/plugins/filemeta"
 	"github.com/karvashish/hardline/internals/plugins/firewall"
 	"github.com/karvashish/hardline/internals/plugins/packages/apt"
@@ -31,6 +32,7 @@ func builtinPlugins() []pluginapi.Plugin {
 		service.Plugin(),
 		firewall.Plugin(),
 		filemeta.Plugin(),
+		audit.Plugin(),
 	}
 }
 

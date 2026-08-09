@@ -22,6 +22,41 @@
           "if": {
             "properties": {
               "plugin": {
+                "const": "audit"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "dest": {
+                    "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "src": {
+                    "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "src",
+                  "dest"
+                ]
+              }
+            },
+            "required": [
+              "config"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
                 "const": "file_meta"
               }
             },

@@ -13,13 +13,14 @@ A real run of [`demo-profile/`](demo-profile/) against a throwaway Ubuntu 24.04 
 
 ## What's In The Trusted Execution Surface
 
-A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is five typed plugin configs:
+A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is a fixed set of typed plugin configs:
 
-- `packages` - install / purge named packages
+- `packages_apt` / `packages_dnf4` / `packages_dnf5` - install / purge named packages, one plugin per package manager
 - `template` - render a file to a managed destination path with a fixed mode
 - `service` - enable / disable / restart named systemd units
 - `firewall` - declarative nftables rules
 - `file_meta` - re-stamp mode / owner / group / immutable / append-only flags on existing paths
+- `audit` - write the audit rule policy and load it into the running kernel
 
 That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects - signing the manifest is signing the full set of instructions, not a wrapper around them.
 
@@ -37,7 +38,7 @@ The repo ships with:
 - the `profiletool` helper in [`cmd/profiletool/main.go`](cmd/profiletool/main.go)
 - repo-wide Go unit tests plus GitHub Actions badges for `main`
 - a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) that provisions a real Ubuntu 24.04, Rocky 9, or Fedora host (`ITEST_OS`) and validates plan/apply/rollback, plugins, overrides, and failure paths against it
-- built-in plugins for packages, templates, services, nftables, and file metadata
+- built-in plugins for packages, templates, services, nftables, file metadata, and audit rules
 - example hardening profiles in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json) and [`starter-secure-rocky-9/profile.json`](starter-secure-rocky-9/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 

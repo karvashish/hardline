@@ -35,7 +35,7 @@ Config fields, all required:
 - `main_config`: the file this host's nftables service loads. `/etc/nftables.conf` on Debian-family hosts, `/etc/sysconfig/nftables.conf` on RHEL-family hosts. Those two are the whole accepted set; anything else is rejected at verify
 - `family`: `inet`, `ip`, or `ip6`
 - `table`: nftables table name
-- `managed_dest`: path for the rendered include file. Subject to the same managed-destination rules as the [template plugin](template-plugin.md) — under `/etc/`, normalized, `99-hardline*` basename, `.conf`/`.nft`/`.rules` extension
+- `managed_dest`: path for the rendered include file. Subject to the same managed-destination rules as the [template plugin](template-plugin.md) — under `/etc/`, normalized, a `99-hardline*` or `00-hardline*` basename, `.conf`/`.nft`/`.rules` extension
 - `policies`: at least one chain policy. An empty list is rejected
 - `rules`: declarative rule entries
 

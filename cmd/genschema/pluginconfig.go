@@ -66,6 +66,10 @@ var pluginConfigConstraints = map[string]map[string]any{
 		"src":  stringPattern(profileRelPattern),
 		"dest": stringPattern(managedPathPattern),
 	},
+	"audit": {
+		"src":  stringPattern(profileRelPattern),
+		"dest": stringPattern(managedPathPattern),
+	},
 	"firewall": {
 		"managed_dest": stringPattern(managedPathPattern),
 		"main_config":  stringEnum(nftablesMainConfigs...),
@@ -116,6 +120,7 @@ var nftablesMainConfigs = []string{"/etc/nftables.conf", "/etc/sysconfig/nftable
 var pluginConfigRequired = map[string][]string{
 	"firewall":          {"main_config"},
 	"firewall_template": {"main_config"},
+	"audit":             {"src", "dest"},
 }
 
 func configSchema(plugin string) map[string]any {

@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {
+      "id": "packages-starter-secure",
+      "plugin": "packages_dnf4",
+      "config": {
+        "update": "always",
+        "upgrade": "once",
+        "autoremove": "once",
+        "install": [
+          "nftables",
+          "audit",
+          "dnf-automatic"
+        ],
+        "purge": [
+          "telnet",
+          "rsh",
+          "ftp",
+          "tftp",
+          "cups",
+          "rpcbind",
+          "nfs-utils"
+        ]
+      }
+    }
+  ]
+}

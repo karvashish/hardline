@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "id": "chronyd-enable",
+      "plugin": "service",
+      "config": {
+        "name": "chronyd",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

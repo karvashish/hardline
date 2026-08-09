@@ -1,0 +1,124 @@
+{
+  "steps": [
+    {
+      "id": "firewalld-disable",
+      "plugin": "service",
+      "config": {
+        "name": "firewalld",
+        "enabled": false,
+        "state": "stopped"
+      }
+    },
+    {
+      "id": "firewall-default-deny",
+      "plugin": "firewall",
+      "config": {
+        "backend": "nftables",
+        "main_config": "/etc/sysconfig/nftables.conf",
+        "family": "inet",
+        "table": "filter",
+        "managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",
+        "policies": [
+          {
+            "chain": "input",
+            "policy": "drop"
+          }
+        ],
+        "rules": [
+          {
+            "chain": "input",
+            "proto": "",
+            "port": 0,
+            "ports": [],
+            "source": "",
+            "destination": "",
+            "in_interface": "lo",
+            "out_interface": "",
+            "ct_states": [],
+            "action": "accept"
+          },
+          {
+            "chain": "input",
+            "proto": "",
+            "port": 0,
+            "ports": [],
+            "source": "",
+            "destination": "",
+            "in_interface": "",
+            "out_interface": "",
+            "ct_states": [
+              "invalid"
+            ],
+            "action": "drop"
+          },
+          {
+            "chain": "input",
+            "proto": "",
+            "port": 0,
+            "ports": [],
+            "source": "",
+            "destination": "",
+            "in_interface": "",
+            "out_interface": "",
+            "ct_states": [
+              "established",
+              "related"
+            ],
+            "action": "accept"
+          },
+          {
+            "chain": "input",
+            "proto": "tcp",
+            "port": 22,
+            "ports": [],
+            "source": "",
+            "destination": "",
+            "in_interface": "",
+            "out_interface": "",
+            "ct_states": [],
+            "action": "accept"
+          },
+          {
+            "chain": "input",
+            "proto": "icmp",
+            "port": 0,
+            "ports": [],
+            "source": "",
+            "destination": "",
+            "in_interface": "",
+            "out_interface": "",
+            "ct_states": [],
+            "action": "accept"
+          },
+          {
+            "chain": "input",
+            "proto": "icmpv6",
+            "port": 0,
+            "ports": [],
+            "source": "",
+            "destination": "",
+            "in_interface": "",
+            "out_interface": "",
+            "ct_states": [],
+            "action": "accept"
+          }
+        ]
+      }
+    },
+    {
+      "id": "firewall-service-restart",
+      "plugin": "service",
+      "config": {
+        "name": "nftables",
+        "enabled": true,
+        "state": "restarted",
+        "restart_policy": {
+          "type": "on_change",
+          "steps": [
+            "firewall-default-deny"
+          ]
+        }
+      }
+    }
+  ]
+}

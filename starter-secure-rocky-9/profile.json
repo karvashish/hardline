@@ -1,0 +1,37 @@
+{
+  "id": "starter-secure-rocky-9",
+  "display_name": "Starter Secure Rocky Linux 9",
+  "version": "1.0.0",
+
+  "os": {
+    "family": "rocky",
+    "version": "9",
+    "variant": "server"
+  },
+
+  "profile_schema": 1,
+  "min_hardline": "0.0.1",
+
+  "actions": [
+    "actions/00-packages.json",
+    "actions/10-ssh.json",
+    "actions/15-dnf-automatic.json",
+    "actions/20-sysctl.json",
+    "actions/25-timesync.json",
+    "actions/30-firewall.json",
+    "actions/40-audit.json",
+    "actions/50-journald.json",
+    "actions/55-cron.json",
+    "actions/60-grub.json"
+  ],
+  "templates": [
+    "templates/10-ssh-sshd-config.tmpl",
+    "templates/20-sysctl-hardening.conf.tmpl",
+    "templates/40-audit-hardening-rules.tmpl",
+    "templates/50-journald-hardening.conf.tmpl"
+  ],
+  "allowed_overrides": [
+    "allow_tcp_ports",
+    "allow_udp_ports"
+  ]
+}

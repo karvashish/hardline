@@ -1,0 +1,38 @@
+{
+  "steps": [
+    {
+      "id": "sshd-config-perms",
+      "plugin": "file_meta",
+      "config": {
+        "path": "/etc/ssh/sshd_config",
+        "mode": "0600",
+        "owner": "root",
+        "group": "root"
+      }
+    },
+    {
+      "id": "ssh-template-apply",
+      "plugin": "template",
+      "config": {
+        "src": "templates/10-ssh-sshd-config.tmpl",
+        "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+        "mode": "0600"
+      }
+    },
+    {
+      "id": "ssh-service-reload",
+      "plugin": "service",
+      "config": {
+        "name": "sshd",
+        "enabled": true,
+        "state": "reloaded",
+        "restart_policy": {
+          "type": "on_change",
+          "steps": [
+            "ssh-template-apply"
+          ]
+        }
+      }
+    }
+  ]
+}

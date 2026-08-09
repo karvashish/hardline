@@ -1,0 +1,13 @@
+{
+  "steps": [
+    {
+      "id": "dnf-automatic-timer",
+      "plugin": "service",
+      "config": {
+        "name": "dnf-automatic-install.timer",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

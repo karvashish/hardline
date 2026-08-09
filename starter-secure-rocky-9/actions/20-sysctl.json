@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {
+      "id": "sysctl-hardening-template",
+      "plugin": "template",
+      "config": {
+        "src": "templates/20-sysctl-hardening.conf.tmpl",
+        "dest": "/etc/sysctl.d/99-hardline-hardening.conf",
+        "mode": "0644"
+      }
+    },
+    {
+      "id": "sysctl-apply",
+      "plugin": "service",
+      "config": {
+        "name": "systemd-sysctl",
+        "state": "restarted",
+        "restart_policy": {
+          "type": "on_change",
+          "steps": [
+            "sysctl-hardening-template"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "id": "auditd-rules-template",
+      "plugin": "template",
+      "config": {
+        "src": "templates/40-audit-hardening-rules.tmpl",
+        "dest": "/etc/audit/rules.d/99-hardline.rules",
+        "mode": "0640"
+      }
+    },
+    {
+      "id": "auditd-service-enable",
+      "plugin": "service",
+      "config": {
+        "name": "auditd",
+        "enabled": true,
+        "state": "started"
+      }
+    }
+  ]
+}

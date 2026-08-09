@@ -144,7 +144,7 @@ func TestStepDecode(t *testing.T) {
 
 		step := Step{
 			ID:     "pkg",
-			Plugin: "packages",
+			Plugin: "packages_apt",
 			Config: map[string]any{
 				"update":  true,
 				"install": []any{"curl", "git"},
@@ -212,7 +212,7 @@ func TestLoad_MultipleActionFiles(t *testing.T) {
 	writeProfileJSON(t, dir, []string{"actions/a.json", "actions/b.json"}, []string{})
 	writeFile(t, filepath.Join(dir, "actions", "a.json"), `{
   "steps": [
-    {"id": "pkg", "plugin": "packages", "config": {"install": ["curl"]}}
+    {"id": "pkg", "plugin": "packages_apt", "config": {"install": ["curl"]}}
   ]
 }`)
 	writeFile(t, filepath.Join(dir, "actions", "b.json"), `{
@@ -234,7 +234,7 @@ func TestLoad_MultipleActionFiles(t *testing.T) {
 	if got := p.ActionFiles[1].Path; got != filepath.Join(dir, "actions", "b.json") {
 		t.Fatalf("unexpected second action path %q", got)
 	}
-	if got := p.ActionFiles[0].Steps[0].PluginName(); got != "packages" {
+	if got := p.ActionFiles[0].Steps[0].PluginName(); got != "packages_apt" {
 		t.Fatalf("unexpected first action plugin %q", got)
 	}
 	if got := p.ActionFiles[1].Steps[0].PluginName(); got != "service" {

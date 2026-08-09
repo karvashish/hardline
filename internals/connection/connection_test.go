@@ -451,6 +451,65 @@ func TestCheckRemoteOS(t *testing.T) {
 			t.Fatalf("expected case-insensitive match, got %v", err)
 		}
 	})
+
+	t.Run("major-only declaration matches any point release", func(t *testing.T) {
+		prev := runWithOutput
+		runWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "ID=rocky\nVERSION_ID=\"9.6\"\n", nil
+		}
+		t.Cleanup(func() { runWithOutput = prev })
+
+		if err := CheckRemoteOS(c, "rocky", "9"); err != nil {
+			t.Fatalf("expected 9 to match 9.6, got %v", err)
+		}
+	})
+
+	t.Run("major-only declaration does not match another major", func(t *testing.T) {
+		prev := runWithOutput
+		runWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "ID=rocky\nVERSION_ID=\"10.0\"\n", nil
+		}
+		t.Cleanup(func() { runWithOutput = prev })
+
+		if err := CheckRemoteOS(c, "rocky", "9"); err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
+			t.Fatalf("expected version mismatch, got %v", err)
+		}
+	})
+
+	t.Run("precise declaration is not widened", func(t *testing.T) {
+		prev := runWithOutput
+		runWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "ID=ubuntu\nVERSION_ID=\"24.10\"\n", nil
+		}
+		t.Cleanup(func() { runWithOutput = prev })
+
+		if err := CheckRemoteOS(c, "ubuntu", "24.04"); err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
+			t.Fatalf("expected 24.04 to reject 24.10, got %v", err)
+		}
+	})
+}
+
+func TestVersionMatches(t *testing.T) {
+	cases := []struct {
+		declared string
+		remote   string
+		want     bool
+	}{
+		{"9", "9.6", true},
+		{"9", "9", true},
+		{"9", "10.0", false},
+		{"9", "19.1", false},
+		{"24.04", "24.04", true},
+		{"24.04", "24.04.1", true},
+		{"24.04", "24.10", false},
+		{"24.04", "24", false},
+		{"42", "42", true},
+	}
+	for _, tc := range cases {
+		if got := versionMatches(tc.declared, tc.remote); got != tc.want {
+			t.Errorf("versionMatches(%q, %q) = %v, want %v", tc.declared, tc.remote, got, tc.want)
+		}
+	}
 }
 
 func writeEd25519PrivateKeyPEM(t *testing.T, path string) {

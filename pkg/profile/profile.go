@@ -15,9 +15,12 @@ import (
 	"github.com/karvashish/hardline/pkg/logger"
 )
 
+// OSInfo is the target declaration the runner checks /etc/os-release against.
+// Family and Version are pattern-bound so a missing or malformed value cannot
+// silently disable either half of the check in a signed profile.
 type OSInfo struct {
-	Family  string `json:"family"`
-	Version string `json:"version"`
+	Family  string `json:"family" jsonschema:"pattern=^[a-z][a-z0-9._-]*$"`
+	Version string `json:"version" jsonschema:"pattern=^[0-9]+(\\.[0-9]+)*$"`
 	Variant string `json:"variant"`
 }
 

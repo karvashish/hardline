@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -60,7 +61,7 @@ func TestAffirm_SucceedsForValidLoadedProfile(t *testing.T) {
   "steps": [
     {
       "id": "pkg",
-      "plugin": "packages",
+      "plugin": "packages_apt",
       "config": {"install": ["curl"]}
     }
   ]
@@ -72,6 +73,54 @@ func TestAffirm_SucceedsForValidLoadedProfile(t *testing.T) {
 	}
 	if err := p.Affirm(); err != nil {
 		t.Fatalf("expected Affirm success, got %v", err)
+	}
+}
+
+func TestAffirm_ValidatesOSDeclaration(t *testing.T) {
+	cases := []struct {
+		name    string
+		family  string
+		version string
+		wantErr bool
+	}{
+		{name: "major-only version", family: "rocky", version: "9"},
+		{name: "point version", family: "ubuntu", version: "24.04"},
+		{name: "empty family", family: "", version: "9", wantErr: true},
+		{name: "malformed family", family: "rocky linux", version: "9", wantErr: true},
+		{name: "empty version", family: "rocky", version: "", wantErr: true},
+		{name: "malformed version", family: "rocky", version: "9.x", wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			profileDir := t.TempDir()
+			writeFile(t, filepath.Join(profileDir, "profile.json"), fmt.Sprintf(`{
+  "id": "os-validation",
+  "display_name": "OS Validation",
+  "version": "1.0.0",
+  "os": {"family": %q, "version": %q, "variant": "server"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": [],
+  "templates": [],
+  "allowed_overrides": []
+}`, tc.family, tc.version))
+
+			p, err := Load(profileDir)
+			if err != nil {
+				t.Fatalf("Load failed: %v", err)
+			}
+			err = p.Affirm()
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "profile validation failed") {
+					t.Fatalf("expected OS schema validation error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected valid OS declaration, got %v", err)
+			}
+		})
 	}
 }
 
@@ -261,7 +310,8 @@ func TestAffirm_RejectsPluginConfigInjection(t *testing.T) {
 			"config":{"src":"../shared/c.tmpl","dest":"/etc/99-hardline.conf"}}`,
 		"firewall dest": `{"id":"s","plugin":"firewall",
 			"config":{"managed_dest":"/etc/nftables.d/99-hardline$(id).nft"}}`,
-		"packages install": `{"id":"s","plugin":"packages","config":{"install":["curl;id"]}}`,
+		"packages_apt install": `{"id":"s","plugin":"packages_apt","config":{"install":["curl;id"]}}`,
+		"packages_dnf4 install": `{"id":"s","plugin":"packages_dnf4","config":{"install":["curl;id"]}}`,
 	}
 
 	for name, step := range cases {
@@ -308,8 +358,8 @@ func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
   {"id":"svc","plugin":"service","config":{"name":"getty@tty1.service","state":"started"}},
   {"id":"fm","plugin":"file_meta","config":{"path":"/etc/shadow","owner":"root","group":"shadow","mode":"0640"}},
   {"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/ssh/sshd_config.d/99-hardline.conf"}},
-  {"id":"fw","plugin":"firewall","config":{"managed_dest":"/etc/nftables.d/99-hardline.nft"}},
-  {"id":"pkg","plugin":"packages","config":{"install":["curl","libssl3"],"purge":["telnet"]}}
+  {"id":"fw","plugin":"firewall","config":{"main_config":"/etc/nftables.conf","managed_dest":"/etc/nftables.d/99-hardline.nft"}},
+  {"id":"pkg","plugin":"packages_dnf4","config":{"install":["curl","libssl3"],"purge":["telnet"]}}
 ]}`)
 
 	p, err := Load(dir)

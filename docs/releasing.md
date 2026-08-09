@@ -14,6 +14,30 @@ Releases are cut via a pull request to `main`. There is no manual `git tag` step
 
 That's it — the rest is automatic.
 
+## Shipped profile minimums
+
+`min_hardline` in a shipped profile states the oldest release that can run it.
+When a release adds a capability a shipped profile then depends on (a new plugin
+name, a newly required config key), that profile's `min_hardline` has to move
+with it. Otherwise the profile claims to work on releases that will reject it.
+
+This cannot be done inside the release PR. The validator's allow-list is
+`internals/cli/version.json`, `CHANGELOG.md` and `changelog/*.md`, so a release
+PR that also edits a `profile.json`, or the `manifest.json` / `manifest.sig`
+that re-signing regenerates, fails its shape check.
+
+Do it in a separate PR immediately after the release lands: set `min_hardline`
+to the version just released, re-sign the affected profiles, and merge. In the
+window before that PR, a shipped profile understates its requirement. The
+failure an operator hits on an older binary is still an early and clear one,
+because `verify-profile` rejects an unregistered plugin offline, before any
+connection is made.
+
+**Outstanding:** the starter profiles still carry `min_hardline: "0.0.1"`, which
+predates the per-package-manager plugins, the profile-declared nftables main
+config, the verbatim service unit names, and the audit plugin. Set both starters
+to the first release that contains them.
+
 ## What CI enforces
 
 The [`Validate release PR shape`](https://github.com/karvashish/hardline/blob/main/.github/workflows/validate-release-pr.yml) check is a required status check on `main`. It applies two rule sets depending on the PR title.

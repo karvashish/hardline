@@ -16,6 +16,12 @@ func TestEnforceManagedPath(t *testing.T) {
 	if err := EnforceManagedPath("/etc/nftables.d/99-hardline-firewall.nft"); err != nil {
 		t.Fatalf("expected managed path to pass: %v", err)
 	}
+	// sshd keeps the first value obtained from its lexically expanded includes,
+	// so a managed drop-in there has to sort before any vendor or cloud-init
+	// file rather than after it.
+	if err := EnforceManagedPath("/etc/ssh/sshd_config.d/00-hardline-ssh.conf"); err != nil {
+		t.Fatalf("expected an early-ordering managed path to pass: %v", err)
+	}
 
 	cases := []struct {
 		path    string
@@ -24,8 +30,13 @@ func TestEnforceManagedPath(t *testing.T) {
 		{path: "", wantErr: "empty"},
 		{path: "/tmp/99-hardline-test.conf", wantErr: "outside /etc"},
 		{path: "/etc/ssh/../sshd_config.d/99-hardline-ssh.conf", wantErr: "normalized"},
-		{path: "/etc/ssh/sshd_config.d/10-ssh.conf", wantErr: "99-hardline"},
+		{path: "/etc/ssh/sshd_config.d/10-ssh.conf", wantErr: "hardline prefix"},
+		{path: "/etc/ssh/sshd_config.d/50-cloud-init.conf", wantErr: "hardline prefix"},
+		// Only the two hardline prefixes are accepted; a plausible-looking
+		// middle number is not a managed file.
+		{path: "/etc/ssh/sshd_config.d/01-hardline-ssh.conf", wantErr: "hardline prefix"},
 		{path: "/etc/ssh/sshd_config.d/99-hardline-ssh.txt", wantErr: "unsupported extension"},
+		{path: "/etc/ssh/sshd_config.d/00-hardline-ssh.txt", wantErr: "unsupported extension"},
 	}
 
 	for _, tc := range cases {

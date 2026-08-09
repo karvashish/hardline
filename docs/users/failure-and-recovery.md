@@ -118,11 +118,11 @@ Each step's journal entry holds `Before` (pre-apply content) and `After` (post-a
 
 On the default (non-forced) path the conflict check keeps the host consistent — it just makes rollback unusable for the earlier profile until you resolve the overlap. `--force-rollback` is where the data loss happens; both profiles' `Before` snapshots are now unreliable, and walking them in any order will leave the file in a state that matches neither profile's intent.
 
-The rule: **one managed file, one profile.** If two profiles both want to render `/etc/ssh/sshd_config.d/99-hardline-ssh.conf`, merge them or split the destinations.
+The rule: **one managed file, one profile.** If two profiles both want to render `/etc/ssh/sshd_config.d/00-hardline-ssh.conf`, merge them or split the destinations.
 
 How to stay out of this trap:
 
-- The template plugin's managed-destination rules (`/etc/...` + `99-hardline` basename + `.conf`/`.nft`/`.rules` extension) make collisions visible at authoring time — if two profiles both want `99-hardline-ssh.conf`, the diff shows it before you sign.
+- The template plugin's managed-destination rules (`/etc/...` + a `99-hardline` or `00-hardline` basename + `.conf`/`.nft`/`.rules` extension) make collisions visible at authoring time — if two profiles both want `00-hardline-ssh.conf`, the diff shows it before you sign.
 - Reserve a basename prefix per profile if you author several for the same fleet (`99-hardline-<profile-id>-*.conf`).
 - If you inherit two overlapping profiles, do **not** reach for `--force-rollback` to untangle them. Reapply the profile whose state you want to keep; that rewrites the current journal's `After` to match reality and gives you a clean rollback path for at least one of the two profiles.
 

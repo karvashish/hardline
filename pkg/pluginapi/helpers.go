@@ -85,9 +85,17 @@ func EnforceManagedPath(dest string) error {
 		return fmt.Errorf("destination %q is not a normalized absolute path", p)
 	}
 
+	// Drop-in directories resolve a conflict in one of two opposite ways, and a
+	// managed file has to sort on the winning side of whichever one it is in.
+	// sysctl.d, journald.conf.d and the rest take the last value, so 99-hardline
+	// sorts last and wins. sshd reads its includes lexically and, unless a
+	// keyword says otherwise, keeps the first value obtained, so there a
+	// 99-hardline file loses to any earlier vendor or cloud-init drop-in and
+	// 00-hardline is what wins. Both prefixes are hardline's own; nothing else
+	// is accepted, so a managed file stays recognizable either way.
 	base := path.Base(p)
-	if !strings.HasPrefix(base, "99-hardline") {
-		return fmt.Errorf("destination %q must use high-priority hardline prefix 99-hardline*", p)
+	if !strings.HasPrefix(base, "99-hardline") && !strings.HasPrefix(base, "00-hardline") {
+		return fmt.Errorf("destination %q must use a hardline prefix: 00-hardline* where the first match wins (sshd_config.d), 99-hardline* otherwise", p)
 	}
 
 	ext := strings.ToLower(path.Ext(base))

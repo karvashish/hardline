@@ -31,7 +31,7 @@ itest_os_init() {
       BASE_PROFILE="${ROOT_DIR}/starter-secure-ubuntu-24.04-lts"
       BASE_PROFILE_ID="starter-secure-ubuntu-24.04-lts"
       BASE_FILE_CHECKS=(
-        "etc/ssh/sshd_config.d/99-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
+        "etc/ssh/sshd_config.d/00-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
         "etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf|templates/15-unattended-upgrades.tmpl|644"
         "etc/sysctl.d/99-hardline-hardening.conf|templates/20-sysctl-hardening.conf.tmpl|644"
         "etc/fail2ban/jail.d/99-hardline-ssh.conf|templates/35-fail2ban-ssh-protection.tmpl|644"
@@ -54,7 +54,7 @@ itest_os_init() {
       BASE_PROFILE="${ROOT_DIR}/starter-secure-rocky-9"
       BASE_PROFILE_ID="starter-secure-rocky-9"
       BASE_FILE_CHECKS=(
-        "etc/ssh/sshd_config.d/99-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
+        "etc/ssh/sshd_config.d/00-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
         "etc/sysctl.d/99-hardline-hardening.conf|templates/20-sysctl-hardening.conf.tmpl|644"
         "etc/audit/rules.d/99-hardline.rules|templates/40-audit-hardening-rules.tmpl|640"
         "etc/systemd/journald.conf.d/99-hardline.conf|templates/50-journald-hardening.conf.tmpl|644"

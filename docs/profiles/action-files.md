@@ -10,7 +10,7 @@ Each action file is a JSON object with a `steps` array:
       "plugin": "template",
       "config": {
         "src": "templates/10-ssh-sshd-config.tmpl",
-        "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+        "dest": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
         "mode": "0600"
       }
     }

@@ -20,7 +20,7 @@
   "changes_planned": [
     "packages-starter-secure: Update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)",
     "sshd-config-perms: Set metadata on \"/etc/ssh/sshd_config\" (mode=600 owner=root group=root attrs=\"\")",
-    "ssh-template-apply: Write rendered configuration from \"templates/10-ssh-sshd-config.tmpl\" to \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\" with mode 0600",
+    "ssh-template-apply: Write rendered configuration from \"templates/10-ssh-sshd-config.tmpl\" to \"/etc/ssh/sshd_config.d/00-hardline-ssh.conf\" with mode 0600",
     "ssh-service-reload: Enable ssh at boot; reload or restart ssh",
     "unattended-upgrades-auto: Write rendered configuration from \"templates/15-unattended-upgrades.tmpl\" to \"/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf\" with mode 0644",
     "sysctl-hardening-template: Write rendered configuration from \"templates/20-sysctl-hardening.conf.tmpl\" to \"/etc/sysctl.d/99-hardline-hardening.conf\" with mode 0644",
@@ -115,16 +115,16 @@
       "id": "ssh-template-apply",
       "type": "template",
       "status": "change_planned",
-      "summary": "template step: render \"templates/10-ssh-sshd-config.tmpl\" to \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\" (mode 0600)",
-      "operator_summary": "Write rendered configuration from \"templates/10-ssh-sshd-config.tmpl\" to \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\" with mode 0600",
+      "summary": "template step: render \"templates/10-ssh-sshd-config.tmpl\" to \"/etc/ssh/sshd_config.d/00-hardline-ssh.conf\" (mode 0600)",
+      "operator_summary": "Write rendered configuration from \"templates/10-ssh-sshd-config.tmpl\" to \"/etc/ssh/sshd_config.d/00-hardline-ssh.conf\" with mode 0600",
       "details": [
-        "destination \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\": does not exist (file will be created)",
-        "desired: template \"templates/10-ssh-sshd-config.tmpl\" rendered to \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\" with mode 0600"
+        "destination \"/etc/ssh/sshd_config.d/00-hardline-ssh.conf\": does not exist (file will be created)",
+        "desired: template \"templates/10-ssh-sshd-config.tmpl\" rendered to \"/etc/ssh/sshd_config.d/00-hardline-ssh.conf\" with mode 0600"
       ],
       "diff": [
-        "file \"/etc/ssh/sshd_config.d/99-hardline-ssh.conf\": absent -> present (mode 0600)",
-        "--- current /etc/ssh/sshd_config.d/99-hardline-ssh.conf (absent)",
-        "+++ desired /etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+        "file \"/etc/ssh/sshd_config.d/00-hardline-ssh.conf\": absent -> present (mode 0600)",
+        "--- current /etc/ssh/sshd_config.d/00-hardline-ssh.conf (absent)",
+        "+++ desired /etc/ssh/sshd_config.d/00-hardline-ssh.conf",
         "+Protocol 2",
         "+PasswordAuthentication no",
         "+PermitRootLogin no",

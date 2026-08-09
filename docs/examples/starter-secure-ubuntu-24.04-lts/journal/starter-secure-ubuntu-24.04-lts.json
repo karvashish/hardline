@@ -298,7 +298,7 @@
         {
           "kind": "file",
           "file": {
-            "path": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+            "path": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
             "existed": false
           }
         }
@@ -307,7 +307,7 @@
         {
           "kind": "file",
           "file": {
-            "path": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+            "path": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
             "existed": true,
             "mode": "600",
             "content_b64": "UHJvdG9jb2wgMgpQYXNzd29yZEF1dGhlbnRpY2F0aW9uIG5vClBlcm1pdFJvb3RMb2dpbiBubwpDaGFsbGVuZ2VSZXNwb25zZUF1dGhlbnRpY2F0aW9uIG5vClVzZVBBTSB5ZXMKWDExRm9yd2FyZGluZyBubwpBbGxvd1RjcEZvcndhcmRpbmcgbm8KQWxsb3dBZ2VudEZvcndhcmRpbmcgbm8KTG9nTGV2ZWwgVkVSQk9TRQpNYXhBdXRoVHJpZXMgNApQdWJrZXlBdXRoZW50aWNhdGlvbiB5ZXMK"

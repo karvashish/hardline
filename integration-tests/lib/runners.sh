@@ -89,6 +89,12 @@ ensure_base_bootstrap() {
     done
     cat <<'INNER'
 /usr/sbin/sshd -t
+# The hardening drop-in only counts if it wins sshd's include ordering, so the
+# effective policy is what gets asserted, not the file contents.
+test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="passwordauthentication"{print tolower($2)}')" = "no"
+test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="permitrootlogin"{print tolower($2)}')" = "no"
+test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="x11forwarding"{print tolower($2)}')" = "no"
+test "$(/usr/sbin/sshd -T | awk 'tolower($1)=="maxauthtries"{print $2}')" = "4"
 systemctl is-active systemd-journald >/dev/null 2>&1
 test "$(sysctl -n net.ipv4.ip_forward)" = "0"
 test "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "1"

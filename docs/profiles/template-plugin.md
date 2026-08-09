@@ -10,7 +10,7 @@ Example:
   "plugin": "template",
   "config": {
     "src": "templates/10-ssh-sshd-config.tmpl",
-    "dest": "/etc/ssh/sshd_config.d/99-hardline-ssh.conf",
+    "dest": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
     "mode": "0600"
   }
 }
@@ -32,7 +32,13 @@ Managed destination rules, enforced by `EnforceManagedPath` before any root comm
 - characters limited to `[A-Za-z0-9._/-]`, which excludes `$`, backticks, parentheses, quotes, backslashes, globs, and whitespace
 - must be under `/etc/`
 - path must already be normalized (`path.Clean` must be a no-op)
-- basename must start with `99-hardline`
+- basename must start with `99-hardline`, or with `00-hardline` where the
+  drop-in directory keeps the **first** match rather than the last.
+  `sshd_config.d` is the case that matters: sshd expands its includes
+  lexically and keeps the first value obtained for most keywords, so a
+  `99-` file there loses to any earlier vendor or cloud-init drop-in.
+  Everywhere else (`sysctl.d`, `journald.conf.d`, `jail.d`, `nftables.d`)
+  the last file wins and `99-hardline` is correct.
 - extension must be `.conf`, `.nft`, or `.rules`
 
 The plugin compares size and mode, then content, before writing: a destination that already matches is left alone and the step reports no change.

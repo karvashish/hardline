@@ -8,7 +8,7 @@
     },
     {
       "path": "actions/20-firewall.json",
-      "sha256": "f8902a2a69fb85bf6e32cedb5cf788ce14f8114556f5d7005ad05efe5d0f8aef"
+      "sha256": "782d282d1964d48a353f8581c737fa4bfd9e62639e3966f99ed4918441148592"
     },
     {
       "path": "profile.json",

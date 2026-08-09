@@ -5,6 +5,7 @@
       "plugin": "firewall",
       "config": {
         "backend": "nftables",
+        "main_config": "/etc/nftables.conf",
         "family": "inet",
         "table": "filter",
         "managed_dest": "/etc/nftables.d/99-hardline-firewall.nft",

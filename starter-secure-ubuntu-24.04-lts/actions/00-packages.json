@@ -2,7 +2,7 @@
   "steps": [
     {
       "id": "packages-starter-secure",
-      "plugin": "packages",
+      "plugin": "packages_apt",
       "config": {
         "update": "always",
         "upgrade": "once",

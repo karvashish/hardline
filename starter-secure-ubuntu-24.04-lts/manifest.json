@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "actions/00-packages.json",
-      "sha256": "a86c71d2c674dff5465e78dcd09d62d85ca0cbf36e1c01a234f4a4598085356c"
+      "sha256": "045df4bb7dc470afe132e8d7ac87dcef6f57b42b388ae5e70a59876d09ab3179"
     },
     {
       "path": "actions/10-ssh.json",
@@ -24,7 +24,7 @@
     },
     {
       "path": "actions/30-firewall.json",
-      "sha256": "b3640e4abebb931f504aac157c084f667441d5c7f8b0d72998c7f95b731cc733"
+      "sha256": "79847aa7ce1944fde30f3e11f78b4f7604bc61ee8c38344a1c5dd96bcfedf623"
     },
     {
       "path": "actions/35-fail2ban.json",

@@ -37,15 +37,24 @@ the file and runs the load itself.
 
 ## What it does
 
-Apply writes `dest` when the content differs, then runs `augenrules --load`
-when either the file changed or the running policy does not already carry the
-rules. A host that is already aligned gets no write and no load.
+Apply writes `dest` when its content or its mode differs, then runs
+`augenrules --load` when either the file changed or the running policy does not
+already carry the rules. A host that is already aligned gets no write and no
+load. Mode counts as much as content: the right rules at `0666` are an audit
+policy any unprivileged user can rewrite.
 
 The load is then **verified against the kernel, not against the file**: the
 plugin extracts every `-k` key from the rules it wrote and requires each one to
-appear in `auditctl -l`. If a key is missing, apply fails and names it. Rules
-that declare no `-k` keys are refused at apply, because a load with nothing to
-check would report success without proving anything.
+appear in `auditctl -l`. `auditctl` keeps `-k` only for watches and prints a
+syscall rule's key as the field it is, `-F key=name`, so both spellings are
+read back. If a key is missing, apply fails and names it. Rules that declare no
+`-k` keys are refused at apply, because a load with nothing to check would
+report success without proving anything.
+
+Every `-w` path in the rules must exist on the target. `auditctl` rejects a
+watch on a missing path and `augenrules --load` then fails for the whole rule
+set, so a rules file cannot carry watches for paths that only some releases
+ship.
 
 Plan reports the two states separately, so "the file matches but the policy is
 not loaded" is visible before you apply.

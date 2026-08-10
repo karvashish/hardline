@@ -25,6 +25,7 @@ type hostStub struct {
 	cmds    *[]string
 	loaded  string
 	files   map[string]string
+	mode    string
 	runRoot func(string) error
 	statErr bool
 	outErr  error
@@ -65,7 +66,10 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 		return s.loaded, nil
 	}
 	if strings.HasPrefix(cmd, "stat ") {
-		return "640 10", nil
+		if s.mode != "" {
+			return s.mode, nil
+		}
+		return "640", nil
 	}
 	return "", nil
 }
@@ -133,6 +137,13 @@ func TestRuleKeys(t *testing.T) {
 	}
 	// auditctl prints the keys back in its own -k=value form.
 	if keys := RuleKeys([]byte("-w /etc/passwd -p wa -k=identity\n")); len(keys) != 1 || keys[0] != "identity" {
+		t.Fatalf("got %v", keys)
+	}
+	// auditctl -l keeps -k only for watches; a syscall rule's key comes back as
+	// the field it is. Missing that spelling reports every syscall key as
+	// unloaded no matter how well the load went.
+	listed := "-a always,exit -F arch=b64 -S init_module -F auid>=1000 -F key=kernel_modules\n"
+	if keys := RuleKeys([]byte(listed)); len(keys) != 1 || keys[0] != "kernel_modules" {
 		t.Fatalf("got %v", keys)
 	}
 }
@@ -206,6 +217,28 @@ func TestApplyIsANoOpWhenLoaded(t *testing.T) {
 	}
 	if strings.Contains(joined, "write ") {
 		t.Fatalf("an aligned host must not be rewritten: %v", cmds)
+	}
+}
+
+func TestApplyRewritesCorrectContentAtTheWrongMode(t *testing.T) {
+	// The right bytes at 0666 are an audit policy any user can rewrite, so mode
+	// drift is drift even when the content and the loaded policy both match.
+	var cmds []string
+	host := hostStub{cmds: &cmds, files: map[string]string{dest: sampleRules}, mode: "666",
+		loaded: "-k identity\n-k time_change\n-k audit_config\n"}
+	if err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec()); err != nil {
+		t.Fatalf("apply failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(cmds, "\n"), "write "+dest) {
+		t.Fatalf("a world-writable rules file must be rewritten: %v", cmds)
+	}
+
+	res, err := Plan(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+	if !res.WillChange {
+		t.Fatalf("plan must report the mode drift: %+v", res)
 	}
 }
 

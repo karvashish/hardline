@@ -18,13 +18,14 @@ const (
 	listCmd = "auditctl -l"
 )
 
-// ruleKeyPattern pulls the -k keys out of a rules file. Those keys are what
-// auditctl prints back for every loaded rule, so they are what lets apply
-// confirm the kernel is running this policy rather than trusting that the
-// write succeeded.
-var ruleKeyPattern = regexp.MustCompile(`(?m)-k[= ]([A-Za-z0-9_.:-]+)`)
+// ruleKeyPattern pulls the keys out of a rules file or out of auditctl output.
+// Those keys are what lets apply confirm the kernel is running this policy
+// rather than trusting that the write succeeded. Both spellings have to match:
+// a rules file writes -k, and auditctl -l renders the key of a syscall rule as
+// the field it actually is, "-F key=name", keeping -k only for watches.
+var ruleKeyPattern = regexp.MustCompile(`(?m)(?:-k[= ]|-F +key=)([A-Za-z0-9_.:-]+)`)
 
-// RuleKeys is the sorted, deduplicated set of -k keys in a rules file.
+// RuleKeys is the sorted, deduplicated set of rule keys in a rules file.
 func RuleKeys(rules []byte) []string {
 	seen := map[string]struct{}{}
 	for _, m := range ruleKeyPattern.FindAllSubmatch(rules, -1) {
@@ -36,6 +37,15 @@ func RuleKeys(rules []byte) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// aligned reports whether dest already carries the rendered rules at the
+// declared mode. Mode counts as much as content: the right bytes at 0666 are
+// an audit policy any unprivileged user can rewrite.
+func aligned(current pluginapi.FileSnapshot, rules []byte, mode os.FileMode) bool {
+	return current.Existed &&
+		current.ContentB64 == base64.StdEncoding.EncodeToString(rules) &&
+		current.Mode == fmt.Sprintf("%o", mode.Perm())
 }
 
 func parseMode(raw string) (os.FileMode, error) {
@@ -122,7 +132,7 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", spec.Dest, err)
 	}
-	fileMatches := current.Existed && current.ContentB64 == base64.StdEncoding.EncodeToString(rules)
+	fileMatches := aligned(current, rules, mode)
 	if !fileMatches {
 		if err := ctx.Host.WriteRootFile(spec.Dest, rules, mode); err != nil {
 			return fmt.Errorf("write %s: %w", spec.Dest, err)
@@ -159,12 +169,16 @@ func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{}, fmt.Errorf("load audit rules %q: %w", spec.Src, err)
 	}
 	want := RuleKeys(rules)
+	mode, err := parseMode(spec.Mode)
+	if err != nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("audit step: %w", err)
+	}
 
 	current, err := pluginapi.SnapshotRemoteFile(ctx.Host, spec.Dest)
 	if err != nil {
 		return pluginapi.PlanResult{}, fmt.Errorf("read %s: %w", spec.Dest, err)
 	}
-	fileMatches := current.Existed && current.ContentB64 == base64.StdEncoding.EncodeToString(rules)
+	fileMatches := aligned(current, rules, mode)
 
 	loaded, err := loadedKeys(ctx.Host)
 	if err != nil {

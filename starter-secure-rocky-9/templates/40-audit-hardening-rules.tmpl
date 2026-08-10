@@ -7,12 +7,15 @@
 ## On failure: log but do not hard-stop the box
 -f 1
 
+## Every -w path must exist: auditctl rejects a watch on a missing path and
+## augenrules --load then fails for the whole rule set. /etc/audisp and
+## /var/log/tallylog are gone on current releases, and plugins.d lives under
+## /etc/audit, which the first watch already covers.
 ########################
 # Audit configuration
 ########################
 -w /etc/audit/ -p wa -k audit_config
 -w /etc/libaudit.conf -p wa -k audit_config
--w /etc/audisp/ -p wa -k audit_config
 
 ########################
 # Identity and access
@@ -48,7 +51,6 @@
 ########################
 -w /var/log/faillog -p wa -k logins
 -w /var/log/lastlog -p wa -k logins
--w /var/log/tallylog -p wa -k logins
 
 ########################
 # Make rules active

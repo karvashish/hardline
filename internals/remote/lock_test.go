@@ -1,0 +1,75 @@
+package remote
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"golang.org/x/crypto/ssh"
+)
+
+func TestMutationLock_NilClientIsNoop(t *testing.T) {
+	if err := AcquireMutationLock(nil); err != nil {
+		t.Fatalf("expected nil client to be a no-op, got %v", err)
+	}
+	if err := ReleaseMutationLock(nil); err != nil {
+		t.Fatalf("expected nil client to be a no-op, got %v", err)
+	}
+}
+
+func TestMutationLock_AcquireAndRelease(t *testing.T) {
+	prevNewSession := newSession
+	defer func() { newSession = prevNewSession }()
+
+	var sessions []*fakeSession
+	newSession = func(*ssh.Client) (session, error) {
+		sess := &fakeSession{}
+		sessions = append(sessions, sess)
+		return sess, nil
+	}
+
+	c := New(nil)
+	if err := AcquireMutationLock(c); err != nil {
+		t.Fatalf("AcquireMutationLock failed: %v", err)
+	}
+	if err := ReleaseMutationLock(c); err != nil {
+		t.Fatalf("ReleaseMutationLock failed: %v", err)
+	}
+
+	if len(sessions) != 2 {
+		t.Fatalf("expected two remote commands, got %d", len(sessions))
+	}
+	// mkdir without -p on the lock itself is what makes the claim atomic: with
+	// -p an existing lock directory would succeed and both runs would proceed.
+	if !strings.Contains(sessions[0].cmd, "&& mkdir ") || !strings.Contains(sessions[0].cmd, MutationLockDir) {
+		t.Fatalf("expected an atomic mkdir of the lock dir, got %q", sessions[0].cmd)
+	}
+	if strings.Contains(sessions[0].cmd, "mkdir -p "+MutationLockDir) {
+		t.Fatalf("lock dir must not be created with -p, got %q", sessions[0].cmd)
+	}
+	if !strings.Contains(sessions[1].cmd, "rmdir ") || !strings.Contains(sessions[1].cmd, MutationLockDir) {
+		t.Fatalf("expected the lock dir to be removed, got %q", sessions[1].cmd)
+	}
+}
+
+// TestMutationLock_ContentionNamesBothCommands pins that the contention message
+// covers rollback too: apply and rollback share this lock, so a message naming
+// only apply sends the operator looking for the wrong process.
+func TestMutationLock_ContentionNamesBothCommands(t *testing.T) {
+	prevNewSession := newSession
+	defer func() { newSession = prevNewSession }()
+
+	newSession = func(*ssh.Client) (session, error) {
+		return &fakeSession{runErr: errors.New("mkdir: File exists")}, nil
+	}
+
+	err := AcquireMutationLock(New(nil))
+	if err == nil {
+		t.Fatal("expected a held lock to fail acquisition")
+	}
+	for _, want := range []string{"apply or rollback", MutationLockDir} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected error to mention %q, got %v", want, err)
+		}
+	}
+}

@@ -62,6 +62,18 @@ func autoremovePreview(host pluginapi.Host) ([]string, error) {
 	return parseTransaction(out, removeSections)
 }
 
+// purgePreview is the real purge transaction. Unlike removePreview it leaves
+// dnf's dependency cleanup at its default, because that is what the purge apply
+// runs does: a preview with cleanup off would understate the removal it is
+// meant to authorise.
+func purgePreview(host pluginapi.Host, pkgs []string) ([]string, error) {
+	out, err := host.RunRootWithOutput(packages.AppendPackages(assumeNo+"remove", pkgs) + assumeNoTail)
+	if err != nil {
+		return nil, err
+	}
+	return parseTransaction(out, removeSections)
+}
+
 // removeOpts turns off the dependency cleanup dnf does by default. It belongs
 // on a rollback removal only: undoing an install must not also collect
 // dependencies this run never installed.

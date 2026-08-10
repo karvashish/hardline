@@ -33,16 +33,22 @@ func (s hostStub) RunRoot(cmd string) error {
 	if s.runRoot != nil {
 		return s.runRoot(cmd)
 	}
-	if strings.HasPrefix(cmd, "rpm -q ") {
-		// The probe asks by name and then by provide, so the name is the first
-		// quoted word rather than the whole tail.
-		name := strings.Trim(strings.Fields(strings.TrimPrefix(cmd, "rpm -q "))[0], "'\"")
-		if s.installed[name] || (strings.Contains(cmd, "--whatprovides") && s.provided[name]) {
-			return nil
-		}
-		return errors.New("not installed")
-	}
 	return nil
+}
+
+// rpmProbeName recovers the package a strict rpm probe is asking about. The
+// name is the last word before the redirection, because the query format sits
+// between the command and its argument.
+func rpmProbeName(cmd string) (string, bool) {
+	if !strings.HasPrefix(cmd, "rpm -q ") {
+		return "", false
+	}
+	head, _, ok := strings.Cut(cmd, " 2>&1")
+	if !ok {
+		return "", false
+	}
+	fields := strings.Fields(head)
+	return strings.Trim(fields[len(fields)-1], "'\""), true
 }
 
 func (s hostStub) RunRootWithTimeout(cmd string, _ time.Duration) (string, error) {
@@ -58,6 +64,18 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 		if strings.Contains(cmd, marker) {
 			return out, nil
 		}
+	}
+	if strings.Contains(cmd, "fuser ") {
+		return "HL-LOCK:\n", nil
+	}
+	if pkgs, ok := dnfRemoveArgs(cmd); ok {
+		return removeTransaction(pkgs), nil
+	}
+	if name, ok := rpmProbeName(cmd); ok {
+		if s.installed[name] || s.provided[name] {
+			return "HL:1.8.0-10.el9\t" + name + "-1.8.0-10.el9.x86_64\nHL-RC:0\nHL-RC:0\n", nil
+		}
+		return "package " + name + " is not installed\nHL-RC:1\nno package provides " + name + "\nHL-RC:1\n", nil
 	}
 	return "", nil
 }
@@ -117,6 +135,18 @@ Transaction Summary
 Operation aborted.
 `
 
+// A purge whose transaction reaches past the package the step named.
+const widerPurgeOutput = `Dependencies resolved.
+================================================================================
+Removing:
+ telnet           x86_64  1.0-1.el9            @baseos           10 k
+Removing dependent packages:
+ telnetd          x86_64  1.0-1.el9            @baseos           10 k
+
+Transaction Summary
+Operation aborted.
+`
+
 // The same undo on a host where something came to depend on the package.
 const widerRemoveOutput = `Dependencies resolved.
 ================================================================================
@@ -128,6 +158,36 @@ Removing dependent packages:
 Transaction Summary
 Operation aborted.
 `
+
+// dnfRemoveArgs recovers the packages a removal preview asks about, so the
+// default stub can answer with a transaction that removes exactly those and
+// nothing else. A test that wants collateral states its own output.
+func dnfRemoveArgs(cmd string) ([]string, bool) {
+	if !strings.Contains(cmd, "--assumeno") {
+		return nil, false
+	}
+	head, _, ok := strings.Cut(cmd, "; rc=$?")
+	if !ok {
+		return nil, false
+	}
+	_, tail, ok := strings.Cut(head, "remove ")
+	if !ok {
+		return nil, false
+	}
+	var pkgs []string
+	for _, field := range strings.Fields(tail) {
+		pkgs = append(pkgs, strings.Trim(field, "'\""))
+	}
+	return pkgs, len(pkgs) > 0
+}
+
+func removeTransaction(pkgs []string) string {
+	out := "Dependencies resolved.\nTransaction Summary\nRemoving:\n"
+	for _, pkg := range pkgs {
+		out += " " + pkg + "   x86_64  1.0-1.el9  @baseos  1 k\n"
+	}
+	return out + "\nOperation aborted.\n"
+}
 
 func step(t *testing.T, config map[string]any) profile.Step {
 	t.Helper()
@@ -412,6 +472,118 @@ func TestCaptureAndRestore(t *testing.T) {
 	if _, err := capture(pluginapi.Context{Host: bad}, "pkg", &Spec{Install: []string{"tree"}}); err == nil {
 		t.Fatal("expected the query failure to surface")
 	}
+}
+
+func TestApplyGuardsThePurgeTransaction(t *testing.T) {
+	t.Run("collateral is refused", func(t *testing.T) {
+		host := hostStub{
+			installed: map[string]bool{"telnet": true},
+			output:    map[string]string{"remove 'telnet'": widerPurgeOutput},
+		}
+		err := apply(pluginapi.Context{Host: host}, &Spec{Purge: []string{"telnet"}})
+		if err == nil || !strings.Contains(err.Error(), "telnetd") {
+			t.Fatalf("expected a refusal naming the collateral, got %v", err)
+		}
+	})
+
+	t.Run("declared collateral is allowed", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{
+			cmds:      &cmds,
+			installed: map[string]bool{"telnet": true},
+			output:    map[string]string{"remove 'telnet'": widerPurgeOutput},
+		}
+		spec := &Spec{Purge: []string{"telnet"}, PurgeAlsoRemoves: []string{"telnetd"}}
+		if err := apply(pluginapi.Context{Host: host}, spec); err != nil {
+			t.Fatalf("apply failed: %v", err)
+		}
+		if !strings.Contains(strings.Join(cmds, "\n"), "remove 'telnet'") {
+			t.Fatalf("expected the purge to run, got %v", cmds)
+		}
+	})
+
+	t.Run("the preview keeps dnf dependency cleanup on", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{cmds: &cmds, installed: map[string]bool{"telnet": true}}
+		if err := apply(pluginapi.Context{Host: host}, &Spec{Purge: []string{"telnet"}}); err != nil {
+			t.Fatalf("apply failed: %v", err)
+		}
+		for _, cmd := range cmds {
+			if strings.Contains(cmd, "--assumeno") && strings.Contains(cmd, "clean_requirements_on_remove=False") {
+				t.Fatalf("a purge preview with cleanup off understates the removal: %q", cmd)
+			}
+		}
+	})
+
+	t.Run("a failed preview stops the purge", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{
+			cmds:              &cmds,
+			runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") },
+		}
+		err := apply(pluginapi.Context{Host: host}, &Spec{Purge: []string{"telnet"}})
+		if err == nil {
+			t.Fatal("expected the preview failure to stop apply")
+		}
+		if strings.Contains(strings.Join(cmds, "\n"), "dnf -y remove") {
+			t.Fatalf("nothing may be purged on an unreadable transaction: %v", cmds)
+		}
+	})
+
+	t.Run("purge_also_removes without purge is rejected", func(t *testing.T) {
+		if err := validate(&Spec{Install: []string{"tree"}, PurgeAlsoRemoves: []string{"telnetd"}}); err == nil {
+			t.Fatal("expected the dead key to be rejected")
+		}
+		if err := validate(&Spec{Purge: []string{"telnet"}, PurgeAlsoRemoves: []string{"telnetd;id"}}); err == nil {
+			t.Fatal("expected an injected name to be rejected")
+		}
+	})
+}
+
+func TestProbeFailsClosed(t *testing.T) {
+	t.Run("a probe failure stops plan", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(cmd string) (string, error) {
+			if strings.HasPrefix(cmd, "rpm -q ") {
+				return "", errors.New("boom")
+			}
+			return "", nil
+		}}
+		if _, err := plan(pluginapi.Context{Host: host}, &Spec{Install: []string{"tree"}}); err == nil {
+			t.Fatal("a state that cannot be read must not be planned against")
+		}
+	})
+
+	t.Run("a probe failure stops capture", func(t *testing.T) {
+		host := hostStub{output: map[string]string{"--qf": "error: rpmdb open failed\nHL-RC:1\nHL-RC:1\n"}}
+		if _, err := capture(pluginapi.Context{Host: host}, "pkg", &Spec{Install: []string{"tree"}}); err == nil {
+			t.Fatal("a state that cannot be read must not be journalled")
+		}
+	})
+
+	t.Run("a probe failure stops apply before any command runs", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{cmds: &cmds, runRootWithOutput: func(cmd string) (string, error) {
+			if strings.Contains(cmd, "fuser ") {
+				return "HL-LOCK:\n", nil
+			}
+			return "", errors.New("boom")
+		}}
+		err := apply(pluginapi.Context{Host: host}, &Spec{Upgrade: "once", Install: []string{"tree"}})
+		if err == nil {
+			t.Fatal("expected the probe failure to surface")
+		}
+		if strings.Contains(strings.Join(cmds, "\n"), "dnf -y ") {
+			t.Fatalf("no package command may run on an unreadable state: %v", cmds)
+		}
+	})
+
+	t.Run("a probe failure is a conflict, not agreement", func(t *testing.T) {
+		host := hostStub{output: map[string]string{"--qf": "error: rpmdb open failed\nHL-RC:1\nHL-RC:1\n"}}
+		got := conflict(host, pluginapi.PackageState{Name: "tree", WasInstalled: true})
+		if len(got) != 1 || !strings.Contains(got[0], "cannot read current state") {
+			t.Fatalf("got %v", got)
+		}
+	})
 }
 
 func TestRestore(t *testing.T) {

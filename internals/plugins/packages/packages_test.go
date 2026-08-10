@@ -295,47 +295,84 @@ func TestRunRoot(t *testing.T) {
 	}
 }
 
-func TestInstalled(t *testing.T) {
-	if Installed(nil, "dpkg -s %s", "curl") {
-		t.Fatal("a nil host cannot report an installed package")
+func TestLockProbe(t *testing.T) {
+	probe := LockProbe("/var/lib/rpm/.rpm.lock", "/var/cache/libdnf5/*.pid")
+	for _, want := range []string{
+		"command -v fuser",
+		"HL-LOCK:",
+		"fuser /var/lib/rpm/.rpm.lock /var/cache/libdnf5/*.pid",
+	} {
+		if !strings.Contains(probe, want) {
+			t.Errorf("probe missing %q:\n%s", want, probe)
+		}
 	}
-	var got string
-	host := hostStub{runRoot: func(cmd string) error {
-		got = cmd
-		return nil
-	}}
-	if !Installed(host, "dpkg -s %s >/dev/null 2>&1", "curl") {
-		t.Fatal("expected installed")
+	if strings.Contains(probe, "'/var/cache/libdnf5/*.pid'") {
+		t.Error("a quoted glob would make fuser look for a file named *")
 	}
-	if got != "dpkg -s 'curl' >/dev/null 2>&1" {
-		t.Fatalf("probe command is wrong: %q", got)
-	}
-	missing := hostStub{runRoot: func(string) error { return errors.New("no") }}
-	if Installed(missing, "dpkg -s %s", "curl") {
-		t.Fatal("expected not installed")
+
+	for name, paths := range map[string][]string{
+		"no paths":       {},
+		"relative":       {"var/lib/rpm/.rpm.lock"},
+		"shell metachar": {"/var/lib/rpm/.rpm.lock; id"},
+	} {
+		t.Run(name+" panics", func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected a panic")
+				}
+			}()
+			LockProbe(paths...)
+		})
 	}
 }
 
 func TestCheckLock(t *testing.T) {
 	t.Run("no lock held", func(t *testing.T) {
-		host := hostStub{runRootWithOutput: func(string) (string, error) { return "", nil }}
-		if err := CheckLock(host, "fuser x", "hint"); err != nil {
+		host := hostStub{runRootWithOutput: func(string) (string, error) { return "HL-LOCK:\n", nil }}
+		if err := CheckLock(host, "probe", "hint"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 	t.Run("lock held", func(t *testing.T) {
-		host := hostStub{runRootWithOutput: func(string) (string, error) { return "12345", nil }}
-		err := CheckLock(host, "fuser x", "run lsof")
+		host := hostStub{runRootWithOutput: func(string) (string, error) { return "HL-LOCK:12345\n", nil }}
+		err := CheckLock(host, "probe", "run lsof")
 		if err == nil || !strings.Contains(err.Error(), "lock is held") || !strings.Contains(err.Error(), "run lsof") {
 			t.Fatalf("expected a lock-held error carrying the hint, got %v", err)
 		}
 	})
 	t.Run("probe failure is not an answer", func(t *testing.T) {
 		host := hostStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}
-		if err := CheckLock(host, "fuser x", "hint"); err != nil {
-			t.Fatalf("a failing probe must not report a lock, got %v", err)
+		err := CheckLock(host, "probe", "hint")
+		if err == nil || !strings.Contains(err.Error(), "lock check failed") {
+			t.Fatalf("a failing probe must fail the check, got %v", err)
 		}
 	})
+	t.Run("missing verdict is not an answer", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(string) (string, error) { return "fuser: command not found\n", nil }}
+		err := CheckLock(host, "probe", "hint")
+		if err == nil || !strings.Contains(err.Error(), "no verdict") {
+			t.Fatalf("output without the marker must fail the check, got %v", err)
+		}
+	})
+	t.Run("nil host", func(t *testing.T) {
+		if err := CheckLock(nil, "probe", "hint"); err == nil {
+			t.Fatal("expected a host-required error")
+		}
+	})
+}
+
+func TestGuardPurgeTransaction(t *testing.T) {
+	if err := GuardPurgeTransaction([]string{"telnet"}, nil, []string{"telnet"}); err != nil {
+		t.Fatalf("a transaction that removes only what was asked must pass: %v", err)
+	}
+	if err := GuardPurgeTransaction([]string{"telnet"}, []string{"telnet-common"}, []string{"telnet", "telnet-common"}); err != nil {
+		t.Fatalf("declared collateral must pass: %v", err)
+	}
+	err := GuardPurgeTransaction([]string{"telnet"}, nil, []string{"telnet", "openssh-server"})
+	if err == nil || !strings.Contains(err.Error(), "openssh-server") ||
+		!strings.Contains(err.Error(), "purge_also_removes") {
+		t.Fatalf("expected a refusal naming the collateral and the escape hatch, got %v", err)
+	}
 }
 
 func TestFirstLines(t *testing.T) {
@@ -426,7 +463,7 @@ func TestRPMQuery(t *testing.T) {
 
 	t.Run("not installed", func(t *testing.T) {
 		host := hostStub{runRootWithOutput: func(string) (string, error) {
-			return "package tree is not installed\n", nil
+			return "package tree is not installed\nHL-RC:1\nno package provides tree\nHL-RC:1\n", nil
 		}}
 		installed, version, pin, err := RPMQuery(host, "tree")
 		if err != nil || installed || version != "" || pin != "" {
@@ -438,9 +475,35 @@ func TestRPMQuery(t *testing.T) {
 		host := hostStub{runRootWithOutput: func(string) (string, error) {
 			return "HL:1.8.0-10.el9\n", nil
 		}}
-		installed, version, pin, err := RPMQuery(host, "tree")
-		if err != nil || !installed || version != "1.8.0-10.el9" || pin != "" {
-			t.Fatalf("got installed=%v version=%q pin=%q err=%v", installed, version, pin, err)
+		if _, _, _, err := RPMQuery(host, "tree"); err == nil ||
+			!strings.Contains(err.Error(), "malformed rpm answer") {
+			t.Fatalf("the query format always emits both fields, so one field is a fault: %v", err)
+		}
+	})
+
+	t.Run("an unfinished probe is not an absence", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(string) (string, error) {
+			return "package tree is not installed\nHL-RC:1\n", nil
+		}}
+		if _, _, _, err := RPMQuery(host, "tree"); err == nil ||
+			!strings.Contains(err.Error(), "did not complete") {
+			t.Fatalf("only both queries missing means absent, got %v", err)
+		}
+	})
+
+	t.Run("an rpmdb fault is not an absence", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(string) (string, error) {
+			return "error: rpmdb: BDB0113 Thread died in Berkeley DB library\nHL-RC:1\nHL-RC:1\n", nil
+		}}
+		if _, _, _, err := RPMQuery(host, "tree"); err == nil ||
+			!strings.Contains(err.Error(), "BDB0113") {
+			t.Fatalf("expected rpm's own words to surface, got %v", err)
+		}
+	})
+
+	t.Run("nil host", func(t *testing.T) {
+		if _, _, _, err := RPMQuery(nil, "tree"); err == nil {
+			t.Fatal("expected a host-required error")
 		}
 	})
 
@@ -475,13 +538,19 @@ func TestRPMQuery(t *testing.T) {
 }
 
 func TestUnexpectedRemovals(t *testing.T) {
-	if got := UnexpectedRemovals("tree", []string{"tree"}); got != nil {
+	if got := UnexpectedRemovals([]string{"tree"}, []string{"tree"}); got != nil {
 		t.Fatalf("an undo of exactly its own install is expected, got %v", got)
 	}
-	if got := UnexpectedRemovals("glibc.i686", []string{"glibc"}); got != nil {
+	if got := UnexpectedRemovals([]string{"glibc.i686"}, []string{"glibc"}); got != nil {
 		t.Fatalf("the transaction table drops the arch the request carried, got %v", got)
 	}
-	got := UnexpectedRemovals("tree", []string{"tree", "treeview", "libtree"})
+	if got := UnexpectedRemovals([]string{"tree", "", "  "}, []string{"tree"}); got != nil {
+		t.Fatalf("blank entries must not widen or narrow the set, got %v", got)
+	}
+	if got := UnexpectedRemovals([]string{"tree", "treeview"}, []string{"tree", "treeview"}); got != nil {
+		t.Fatalf("a purge of several packages removes all of them, got %v", got)
+	}
+	got := UnexpectedRemovals([]string{"tree"}, []string{"tree", "treeview", "libtree"})
 	if len(got) != 2 || got[0] != "treeview" || got[1] != "libtree" {
 		t.Fatalf("got %v", got)
 	}
@@ -693,6 +762,66 @@ func TestRenderPlan(t *testing.T) {
 		})
 		if !strings.Contains(got.Summary, "upgrade installed packages") {
 			t.Fatalf("summary=%q", got.Summary)
+		}
+	})
+
+	t.Run("the purge transaction is shown in full", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			PurgeInfos:   []PkgInfo{{Name: "telnet", Installed: true}},
+			PurgePreview: Preview{Packages: []string{"telnet", "telnetd", "inetutils"}},
+		})
+		joined := strings.Join(got.Diff, "\n")
+		for _, want := range []string{
+			`package "telnet": installed -> purged`,
+			`package "telnetd": installed -> removed (pulled in by purge)`,
+			`package "inetutils": installed -> removed (pulled in by purge)`,
+		} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("diff missing %q:\n%s", want, joined)
+			}
+		}
+		if len(got.Highlights) != 1 || !strings.Contains(got.Highlights[0], "purge_also_removes") {
+			t.Fatalf("undeclared collateral must be highlighted, got %v", got.Highlights)
+		}
+		if !strings.Contains(got.Summary, "pulled in by the purge") {
+			t.Errorf("summary=%q", got.Summary)
+		}
+	})
+
+	t.Run("declared collateral is shown but not flagged", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			PurgeInfos:       []PkgInfo{{Name: "telnet", Installed: true}},
+			PurgePreview:     Preview{Packages: []string{"telnet", "telnetd"}},
+			PurgeAlsoRemoves: []string{"telnetd"},
+		})
+		if len(got.Highlights) != 0 {
+			t.Fatalf("declared collateral must not be highlighted, got %v", got.Highlights)
+		}
+		if !strings.Contains(strings.Join(got.Diff, "\n"), `package "telnetd"`) {
+			t.Errorf("declared collateral is still a change and must appear: %v", got.Diff)
+		}
+	})
+
+	t.Run("a purge that removes only what it names is quiet", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			PurgeInfos:   []PkgInfo{{Name: "telnet", Installed: false}},
+			PurgePreview: Preview{},
+		})
+		if got.WillChange {
+			t.Fatal("nothing to purge is not a change")
+		}
+		if len(got.Highlights) != 0 {
+			t.Fatalf("got %v", got.Highlights)
+		}
+	})
+
+	t.Run("a failed purge preview becomes a highlight", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			PurgeInfos:   []PkgInfo{{Name: "telnet", Installed: true}},
+			PurgePreview: Preview{Err: errors.New("apt exploded")},
+		})
+		if len(got.Highlights) != 1 || !strings.Contains(got.Highlights[0], "cannot preview the purge transaction") {
+			t.Fatalf("got %v", got.Highlights)
 		}
 	})
 }

@@ -16,13 +16,17 @@ import (
 
 const pluginName = "packages_dnf4"
 
-// Spec is this plugin's step config.
+// Spec is this plugin's step config. PurgeAlsoRemoves is the profile's explicit
+// acknowledgement of collateral: dnf resolves a removal outwards, and every
+// extra package the transaction takes has to be named here before apply will
+// run it.
 type Spec struct {
-	Update     string   `json:"update,omitempty"`
-	Upgrade    string   `json:"upgrade,omitempty"`
-	Autoremove string   `json:"autoremove,omitempty"`
-	Install    []string `json:"install"`
-	Purge      []string `json:"purge"`
+	Update           string   `json:"update,omitempty"`
+	Upgrade          string   `json:"upgrade,omitempty"`
+	Autoremove       string   `json:"autoremove,omitempty"`
+	Install          []string `json:"install"`
+	Purge            []string `json:"purge"`
+	PurgeAlsoRemoves []string `json:"purge_also_removes,omitempty"`
 }
 
 var (
@@ -30,10 +34,11 @@ var (
 	pinRe  = packages.RPMPinRe
 )
 
-const (
-	installedFmt = packages.RPMInstalledFmt
-	lockCheck    = "fuser /var/lib/rpm/.rpm.lock /var/cache/dnf/metadata_lock.pid 2>/dev/null || true"
-	lockHint     = "investigate with: sudo lsof /var/lib/rpm/.rpm.lock"
+const lockHint = "investigate with: sudo lsof /var/lib/rpm/.rpm.lock"
+
+var lockCheck = packages.LockProbe(
+	"/var/lib/rpm/.rpm.lock",
+	"/var/cache/dnf/metadata_lock.pid",
 )
 
 var (
@@ -125,11 +130,20 @@ func validate(spec *Spec) error {
 			return err
 		}
 	}
+	if len(spec.PurgeAlsoRemoves) > 0 && len(spec.Purge) == 0 {
+		return fmt.Errorf("%s: purge_also_removes has no effect without purge", pluginName)
+	}
+	if err := packages.ValidateNames(nameRe, spec.PurgeAlsoRemoves); err != nil {
+		return err
+	}
 	return packages.ValidateLists(nameRe, spec.Install, spec.Purge)
 }
 
-func installed(host pluginapi.Host, name string) bool {
-	return packages.Installed(host, installedFmt, name)
+// installed answers from the same query capture journals, so a probe and a
+// snapshot cannot disagree about a package.
+func installed(host pluginapi.Host, name string) (bool, error) {
+	was, _, _, err := packages.RPMQuery(host, name)
+	return was, err
 }
 
 func apply(ctx pluginapi.Context, spec *Spec) error {
@@ -144,7 +158,15 @@ func apply(ctx pluginapi.Context, spec *Spec) error {
 
 	wouldChange := false
 	if packages.NeedsWouldChange(spec.Update, spec.Upgrade, spec.Autoremove) {
-		wouldChange = packages.WouldChange(infos(ctx.Host, spec.Install), infos(ctx.Host, spec.Purge))
+		installInfos, err := infos(ctx.Host, spec.Install)
+		if err != nil {
+			return fmt.Errorf("%s step: %w", pluginName, err)
+		}
+		purgeInfos, err := infos(ctx.Host, spec.Purge)
+		if err != nil {
+			return fmt.Errorf("%s step: %w", pluginName, err)
+		}
+		wouldChange = packages.WouldChange(installInfos, purgeInfos)
 	}
 
 	for _, op := range []struct {
@@ -174,6 +196,16 @@ func apply(ctx pluginapi.Context, spec *Spec) error {
 		}
 	}
 	if len(spec.Purge) > 0 {
+		// The preview runs against the host as apply leaves it, after the update
+		// and upgrade above: a transaction resolved before those would describe a
+		// dependency graph that is no longer the one being removed from.
+		preview, err := purgePreview(ctx.Host, spec.Purge)
+		if err != nil {
+			return fmt.Errorf("preview purge transaction (%s): %w", strings.Join(spec.Purge, ","), err)
+		}
+		if err := packages.GuardPurgeTransaction(spec.Purge, spec.PurgeAlsoRemoves, preview); err != nil {
+			return fmt.Errorf("%s step: %w", pluginName, err)
+		}
 		if err := packages.RunRoot(ctx.Host, packages.AppendPackages(purgeCmd, spec.Purge)); err != nil {
 			return fmt.Errorf("package purge failed (%s): %w", strings.Join(spec.Purge, ","), err)
 		}
@@ -194,12 +226,16 @@ func apply(ctx pluginapi.Context, spec *Spec) error {
 	return nil
 }
 
-func infos(host pluginapi.Host, names []string) []packages.PkgInfo {
+func infos(host pluginapi.Host, names []string) ([]packages.PkgInfo, error) {
 	out := make([]packages.PkgInfo, len(names))
 	for i, name := range names {
-		out[i] = packages.PkgInfo{Name: name, Installed: installed(host, name)}
+		was, err := installed(host, name)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = packages.PkgInfo{Name: name, Installed: was}
 	}
-	return out
+	return out, nil
 }
 
 func plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
@@ -209,16 +245,25 @@ func plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{}, fmt.Errorf("%s step: host context is required", pluginName)
 	}
 
+	installInfos, err := infos(ctx.Host, spec.Install)
+	if err != nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("%s step: %w", pluginName, err)
+	}
+	purgeInfos, err := infos(ctx.Host, spec.Purge)
+	if err != nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("%s step: %w", pluginName, err)
+	}
+
 	in := packages.PlanInputs{
-		UpdateMode:     spec.Update,
-		UpgradeMode:    spec.Upgrade,
-		AutoremoveMode: spec.Autoremove,
-		InstallInfos:   infos(ctx.Host, spec.Install),
-		PurgeInfos:     infos(ctx.Host, spec.Purge),
+		UpdateMode:       spec.Update,
+		UpgradeMode:      spec.Upgrade,
+		AutoremoveMode:   spec.Autoremove,
+		InstallInfos:     installInfos,
+		PurgeInfos:       purgeInfos,
+		PurgeAlsoRemoves: spec.PurgeAlsoRemoves,
 	}
 	wouldChange := packages.WouldChange(in.InstallInfos, in.PurgeInfos)
 
-	var err error
 	if in.Update, err = packages.PlanOpDecision(ctx.Host, spec.Update, packages.StateLastUpdate, wouldChange); err != nil {
 		return pluginapi.PlanResult{}, fmt.Errorf("%s step: invalid update mode: %w", pluginName, err)
 	}
@@ -236,6 +281,10 @@ func plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 	if len(spec.Install) > 0 {
 		pkgs, err := installPreview(ctx.Host, spec.Install)
 		in.InstallPreview = packages.Preview{Packages: pkgs, Err: err}
+	}
+	if len(spec.Purge) > 0 {
+		pkgs, err := purgePreview(ctx.Host, spec.Purge)
+		in.PurgePreview = packages.Preview{Packages: pkgs, Err: err}
 	}
 	if in.Autoremove.WillRun {
 		pkgs, err := autoremovePreview(ctx.Host)
@@ -297,7 +346,7 @@ func restore(host pluginapi.Host, p pluginapi.PackageState) error {
 		if err != nil {
 			return fmt.Errorf("preview removal of package %q: %w", name, err)
 		}
-		if extra := packages.UnexpectedRemovals(name, preview); len(extra) > 0 {
+		if extra := packages.UnexpectedRemovals([]string{name}, preview); len(extra) > 0 {
 			return fmt.Errorf("refusing to remove package %q: the transaction would also remove %s",
 				name, strings.Join(extra, ", "))
 		}
@@ -327,20 +376,22 @@ func conflict(host pluginapi.Host, p pluginapi.PackageState) []string {
 	if name == "" {
 		return nil
 	}
-	var conflicts []string
-	current := installed(host, name)
+	// A state that cannot be read is reported as a conflict rather than skipped:
+	// rollback asks this question to find out whether reverting is still safe,
+	// and "the host did not answer" is not a yes.
+	current, version, _, err := packages.RPMQuery(host, name)
+	if err != nil {
+		return []string{fmt.Sprintf("package %q: cannot read current state: %v", name, err)}
+	}
 	if current != p.WasInstalled {
-		return append(conflicts, fmt.Sprintf(
+		return []string{fmt.Sprintf(
 			"package %q: installed=%v but journal recorded installed=%v after apply (changed since apply)",
-			name, current, p.WasInstalled))
+			name, current, p.WasInstalled)}
 	}
-	if current && p.WasInstalled && p.Version != "" {
-		_, version, _, err := packages.RPMQuery(host, name)
-		if err == nil && version != "" && version != p.Version {
-			conflicts = append(conflicts, fmt.Sprintf(
-				"package %q: version is %q but journal recorded %q after apply (upgraded since apply)",
-				name, version, p.Version))
-		}
+	if current && p.WasInstalled && p.Version != "" && version != "" && version != p.Version {
+		return []string{fmt.Sprintf(
+			"package %q: version is %q but journal recorded %q after apply (upgraded since apply)",
+			name, version, p.Version)}
 	}
-	return conflicts
+	return nil
 }

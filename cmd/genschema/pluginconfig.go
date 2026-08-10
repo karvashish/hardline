@@ -99,6 +99,10 @@ func packageConfig(namePattern string) map[string]any {
 		"autoremove": stringPattern(opModePattern),
 		"install":    stringArrayPattern(namePattern),
 		"purge":      stringArrayPattern(namePattern),
+		// The collateral a purge is allowed to take. A purge resolves outwards, so
+		// the transaction is routinely larger than the list that asked for it; apply
+		// refuses any removal named in neither key.
+		"purge_also_removes": stringArrayPattern(namePattern),
 	}
 }
 

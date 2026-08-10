@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -39,25 +40,74 @@ func AppendPackages(cmd string, pkgs []string) string {
 	return cmd + " " + strings.Join(quoted, " ")
 }
 
-// Installed runs the caller's own "is this installed" probe.
-func Installed(host pluginapi.Host, installedFmt, name string) bool {
-	if host == nil {
-		return false
+// lockProbeMarker prefixes the probe's answer. The marker is what separates
+// "fuser reported no holder" from "the probe never ran": the two look identical
+// on stdout, and only one of them means the lock is free.
+const lockProbeMarker = "HL-LOCK:"
+
+// lockPathRe bounds what a lock path may look like. The paths go into the probe
+// unquoted, because one backend's lock is a glob and quoting it would make fuser
+// look for a file named "*". They are compile-time constants of this repository
+// and never profile input, so the shape is asserted at init and a violation is a
+// build bug rather than something to handle at runtime.
+var lockPathRe = regexp.MustCompile(`^/[A-Za-z0-9._*/-]+$`)
+
+// LockProbe builds the lock probe for a backend's own lock paths. fuser must be
+// present: a host that cannot answer the question has not answered it, and
+// package operations must not start on an unanswered lock check.
+func LockProbe(paths ...string) string {
+	if len(paths) == 0 {
+		panic("packages.LockProbe: no lock paths")
 	}
-	return host.RunRoot(fmt.Sprintf(installedFmt, pluginapi.ShellArg(name))) == nil
+	for _, p := range paths {
+		if !lockPathRe.MatchString(p) {
+			panic("packages.LockProbe: unsupported lock path " + p)
+		}
+	}
+	return "command -v fuser >/dev/null 2>&1 || { echo 'fuser is not installed (package psmisc)' >&2; exit 3; }; " +
+		"printf '%s' " + pluginapi.ShellArg(lockProbeMarker) + "; " +
+		"fuser " + strings.Join(paths, " ") + " 2>/dev/null; echo"
 }
 
-// CheckLock reports the package manager's lock as held, using the caller's own
-// lock paths. A failing probe is not an answer, so it is treated as unlocked.
+// CheckLock reports the package manager's lock as held, using a probe built by
+// LockProbe. A probe that fails or returns no verdict is an error: treating it
+// as "unlocked" starts a transaction against a package manager that is already
+// running one.
 func CheckLock(host pluginapi.Host, lockCheck, lockHint string) error {
+	if host == nil {
+		return fmt.Errorf("host context is required to check the package manager lock")
+	}
 	out, err := host.RunRootWithOutput(lockCheck)
 	if err != nil {
-		return nil
+		return fmt.Errorf("package manager lock check failed: %w", err)
 	}
-	if pids := strings.TrimSpace(out); pids != "" {
+	pids, ok := strings.CutPrefix(strings.TrimSpace(out), lockProbeMarker)
+	if !ok {
+		return fmt.Errorf("package manager lock check returned no verdict: %s", FirstLines(out, 3))
+	}
+	if pids = strings.TrimSpace(pids); pids != "" {
 		return fmt.Errorf("package manager lock is held by another process (PIDs: %s); wait for it to finish or %s", pids, lockHint)
 	}
 	return nil
+}
+
+// GuardPurgeTransaction refuses a purge whose real transaction reaches past
+// what the step declared. A purge is resolved outwards by every backend here,
+// so the names in the profile are a request, not the transaction: the only
+// honest way to run one is to read the transaction back first and stop when it
+// contains a package nobody signed off on.
+func GuardPurgeTransaction(purge, alsoRemoves, preview []string) error {
+	want := make([]string, 0, len(purge)+len(alsoRemoves))
+	want = append(want, purge...)
+	want = append(want, alsoRemoves...)
+
+	extra := UnexpectedRemovals(want, preview)
+	if len(extra) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"refusing to purge %s: the transaction would also remove %s; list them in purge_also_removes to accept this",
+		strings.Join(purge, ", "), strings.Join(extra, ", "))
 }
 
 // FirstLines trims a command's output down to something an error can carry.

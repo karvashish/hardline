@@ -32,14 +32,20 @@ func (s hostStub) RunRoot(cmd string) error {
 	if s.runRoot != nil {
 		return s.runRoot(cmd)
 	}
-	if strings.HasPrefix(cmd, "dpkg -s ") {
-		name := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(cmd, "dpkg -s "), " >/dev/null 2>&1"), "'\"")
-		if s.installed[name] {
-			return nil
-		}
-		return errors.New("not installed")
-	}
 	return nil
+}
+
+const dpkgProbePrefix = `dpkg-query -W -f='HL:${Status}\t${Version}\n' `
+
+// dpkgProbeName recovers the package a strict dpkg probe is asking about, so
+// the stub can answer it in dpkg's own words rather than by exit code.
+func dpkgProbeName(cmd string) (string, bool) {
+	rest, ok := strings.CutPrefix(cmd, dpkgProbePrefix)
+	if !ok {
+		return "", false
+	}
+	name, _, _ := strings.Cut(rest, " 2>&1")
+	return strings.Trim(name, "'"), true
 }
 
 func (s hostStub) RunRootWithTimeout(cmd string, _ time.Duration) (string, error) {
@@ -55,6 +61,15 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 		if strings.Contains(cmd, marker) {
 			return out, nil
 		}
+	}
+	if strings.Contains(cmd, "fuser ") {
+		return "HL-LOCK:\n", nil
+	}
+	if name, ok := dpkgProbeName(cmd); ok {
+		if s.installed[name] {
+			return "HL:install ok installed\t1.2.3-4\nHL-RC:0\n", nil
+		}
+		return "dpkg-query: no packages found matching " + name + "\nHL-RC:1\n", nil
 	}
 	return "", nil
 }
@@ -301,7 +316,7 @@ func TestCaptureAndRestore(t *testing.T) {
 	host := hostStub{
 		installed: map[string]bool{"telnet": true},
 		output: map[string]string{
-			"dpkg-query": "install ok installed\t1.2.3-4",
+			"dpkg-query": "HL:install ok installed\t1.2.3-4\nHL-RC:0",
 		},
 	}
 	res, err := capture(pluginapi.Context{Host: host}, "pkg", &Spec{
@@ -336,7 +351,147 @@ func TestCaptureAndRestore(t *testing.T) {
 	})
 }
 
+func TestApplyGuardsThePurgeTransaction(t *testing.T) {
+	t.Run("collateral is refused", func(t *testing.T) {
+		host := hostStub{
+			installed: map[string]bool{"telnet": true},
+			output: map[string]string{
+				"apt-get -s purge": "Remv telnet [1.0]\nPurg telnetd [1.0]\n",
+			},
+		}
+		err := apply(pluginapi.Context{Host: host}, &Spec{Purge: []string{"telnet"}})
+		if err == nil || !strings.Contains(err.Error(), "telnetd") {
+			t.Fatalf("expected a refusal naming the collateral, got %v", err)
+		}
+	})
+
+	t.Run("declared collateral is allowed", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{
+			cmds:      &cmds,
+			installed: map[string]bool{"telnet": true},
+			output: map[string]string{
+				"apt-get -s purge": "Remv telnet [1.0]\nPurg telnetd [1.0]\n",
+			},
+		}
+		spec := &Spec{Purge: []string{"telnet"}, PurgeAlsoRemoves: []string{"telnetd"}}
+		if err := apply(pluginapi.Context{Host: host}, spec); err != nil {
+			t.Fatalf("apply failed: %v", err)
+		}
+		if !strings.Contains(strings.Join(cmds, "\n"), "apt-get purge -y 'telnet'") {
+			t.Fatalf("expected the purge to run, got %v", cmds)
+		}
+	})
+
+	t.Run("a multiarch row is matched on the name", func(t *testing.T) {
+		host := hostStub{
+			installed: map[string]bool{"telnet": true},
+			output: map[string]string{
+				"apt-get -s purge": "Purg telnet:amd64 [1.0]\n",
+			},
+		}
+		if err := apply(pluginapi.Context{Host: host}, &Spec{Purge: []string{"telnet"}}); err != nil {
+			t.Fatalf("the architecture is not part of the name: %v", err)
+		}
+	})
+
+	t.Run("a failed preview stops the purge", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{
+			cmds:              &cmds,
+			runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") },
+		}
+		err := apply(pluginapi.Context{Host: host}, &Spec{Purge: []string{"telnet"}})
+		if err == nil {
+			t.Fatal("expected the preview failure to stop apply")
+		}
+		if strings.Contains(strings.Join(cmds, "\n"), "apt-get purge") {
+			t.Fatalf("nothing may be purged on an unreadable transaction: %v", cmds)
+		}
+	})
+}
+
+func TestProbeFailsClosed(t *testing.T) {
+	cases := map[string]string{
+		"no verdict at all":        "",
+		"a half-configured state":  "HL:install ok half-configured\t1.2.3-4\nHL-RC:0\n",
+		"an error flag":            "HL:install reinstreq installed\t1.2.3-4\nHL-RC:0\n",
+		"a malformed status":       "HL:installed\nHL-RC:0\n",
+		"an unexpected dpkg fault": "dpkg: error: dpkg status database is locked\nHL-RC:2\n",
+	}
+	for name, out := range cases {
+		t.Run(name+" is not an absence", func(t *testing.T) {
+			host := hostStub{output: map[string]string{"dpkg-query": out}}
+			if _, _, _, err := query(host, "curl"); err == nil {
+				t.Fatal("expected the probe to fail rather than report absent")
+			}
+		})
+	}
+
+	t.Run("a purged-but-not-removed package is absent", func(t *testing.T) {
+		host := hostStub{output: map[string]string{"dpkg-query": "HL:deinstall ok config-files\t1.2.3-4\nHL-RC:0\n"}}
+		was, _, _, err := query(host, "curl")
+		if err != nil || was {
+			t.Fatalf("got was=%v err=%v", was, err)
+		}
+	})
+
+	t.Run("a package dpkg never heard of is absent", func(t *testing.T) {
+		host := hostStub{output: map[string]string{"dpkg-query": "dpkg-query: no packages found matching curl\nHL-RC:1\n"}}
+		was, _, _, err := query(host, "curl")
+		if err != nil || was {
+			t.Fatalf("got was=%v err=%v", was, err)
+		}
+	})
+
+	t.Run("a probe failure is a conflict, not agreement", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}
+		got := conflict(host, pluginapi.PackageState{Name: "curl", WasInstalled: true})
+		if len(got) != 1 || !strings.Contains(got[0], "cannot read current state") {
+			t.Fatalf("got %v", got)
+		}
+	})
+
+	t.Run("purge_also_removes without purge is rejected", func(t *testing.T) {
+		if err := validate(&Spec{Install: []string{"curl"}, PurgeAlsoRemoves: []string{"telnetd"}}); err == nil {
+			t.Fatal("expected the dead key to be rejected")
+		}
+		if err := validate(&Spec{Purge: []string{"telnet"}, PurgeAlsoRemoves: []string{"telnetd;id"}}); err == nil {
+			t.Fatal("expected an injected name to be rejected")
+		}
+	})
+
+	t.Run("a probe failure stops capture", func(t *testing.T) {
+		host := hostStub{output: map[string]string{"dpkg-query": "HL:install ok unpacked\t1.0\nHL-RC:0\n"}}
+		if _, err := capture(pluginapi.Context{Host: host}, "pkg", &Spec{Install: []string{"curl"}}); err == nil {
+			t.Fatal("a state that cannot be read must not be journalled")
+		}
+	})
+}
+
 func TestRestore(t *testing.T) {
+	t.Run("refuses an undo that reaches past its own install", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{cmds: &cmds, output: map[string]string{
+			"apt-get -s purge": "Remv curl [8.0]\nRemv curl-dependent [1.0]\n",
+		}}
+		err := restore(host, pluginapi.PackageState{Name: "curl", RequestedInstall: true, WasInstalled: false})
+		if err == nil || !strings.Contains(err.Error(), "curl-dependent") {
+			t.Fatalf("expected a refusal naming the collateral, got %v", err)
+		}
+		if strings.Contains(strings.Join(cmds, "\n"), "apt-get purge -y") {
+			t.Fatalf("nothing may be removed after a refusal: %v", cmds)
+		}
+	})
+
+	t.Run("a failed preview stops the undo", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}
+		err := restore(host, pluginapi.PackageState{Name: "curl", RequestedInstall: true, WasInstalled: false})
+		if err == nil || !strings.Contains(err.Error(), "preview removal") {
+			t.Fatalf("got %v", err)
+		}
+	})
+
 	t.Run("purges what apply installed", func(t *testing.T) {
 		var cmds []string
 		host := hostStub{cmds: &cmds}
@@ -440,7 +595,7 @@ func TestConflict(t *testing.T) {
 	t.Run("upgraded since apply", func(t *testing.T) {
 		host := hostStub{
 			installed: map[string]bool{"curl": true},
-			output:    map[string]string{"dpkg-query": "install ok installed\t9.9.9"},
+			output:    map[string]string{"dpkg-query": "HL:install ok installed\t9.9.9\nHL-RC:0"},
 		}
 		got := conflict(host, pluginapi.PackageState{Name: "curl", WasInstalled: true, Version: "1.2.3-4"})
 		if len(got) != 1 || !strings.Contains(got[0], "upgraded since apply") {
@@ -457,7 +612,7 @@ func TestConflict(t *testing.T) {
 
 func TestQuery(t *testing.T) {
 	t.Run("installed with a version", func(t *testing.T) {
-		host := hostStub{output: map[string]string{"dpkg-query": "install ok installed\t1.2.3-4"}}
+		host := hostStub{output: map[string]string{"dpkg-query": "HL:install ok installed\t1.2.3-4\nHL-RC:0"}}
 		ok, version, pin, err := query(host, "curl")
 		if err != nil || !ok || version != "1.2.3-4" || pin != "curl=1.2.3-4" {
 			t.Fatalf("got %v/%q/%q/%v", ok, version, pin, err)
@@ -465,10 +620,10 @@ func TestQuery(t *testing.T) {
 	})
 
 	t.Run("installed without a version", func(t *testing.T) {
-		host := hostStub{output: map[string]string{"dpkg-query": "install ok installed"}}
-		ok, version, pin, err := query(host, "curl")
-		if err != nil || !ok || version != "" || pin != "" {
-			t.Fatalf("got %v/%q/%q/%v", ok, version, pin, err)
+		host := hostStub{output: map[string]string{"dpkg-query": "HL:install ok installed\nHL-RC:0"}}
+		if _, _, _, err := query(host, "curl"); err == nil ||
+			!strings.Contains(err.Error(), "installed with no version") {
+			t.Fatalf("an installed package without a version leaves no pin to journal: %v", err)
 		}
 	})
 

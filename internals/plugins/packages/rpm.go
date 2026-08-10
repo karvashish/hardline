@@ -1,6 +1,7 @@
 package packages
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -10,12 +11,6 @@ import (
 // rpm queries are identical under both dnf generations, so they sit here rather
 // than in dnf4/ with dnf5/ reaching into it. Anything that reads dnf's own
 // output stays in the subpackage, because the two print different tables.
-
-// RPMInstalledFmt asks the same two questions RPMQuery does, in the same order:
-// a dnf package spec is satisfied by a provide as readily as by a name, and a
-// probe that only knows names disagrees with the journal about a request that
-// resolved through one.
-const RPMInstalledFmt = "rpm -q %[1]s >/dev/null 2>&1 || rpm -q --whatprovides %[1]s >/dev/null 2>&1"
 
 // RPMNameRe accepts an rpm name, optionally arch-qualified as a profile may
 // write it ("glibc.i686"). Wider than the Debian rule: rpm names are
@@ -40,6 +35,18 @@ const (
 	rpmProvidesCmd = `rpm -q --whatprovides ` + rpmQueryFmt
 )
 
+// Both queries run unconditionally and both statuses are reported, because the
+// only safe reading of "absent" is that rpm said so twice, in its own words.
+// Redirecting stderr into stdout is what makes those words available: a probe
+// that only sees an exit code cannot tell a missing package from a broken
+// rpmdb, and both exit 1.
+const rpmProbeRC = "HL-RC:"
+
+func rpmProbe(arg string) string {
+	return rpmQueryCmd + arg + ` 2>&1; echo "` + rpmProbeRC + `$?"; ` +
+		rpmProvidesCmd + arg + ` 2>&1; echo "` + rpmProbeRC + `$?"`
+}
+
 // RPMQuery reports whether name is installed, at which version, and the exact
 // install argument that would restore that version.
 //
@@ -49,38 +56,88 @@ const (
 // rollback with nothing to undo and conflict detection reading drift that is
 // only the query looking in the wrong place.
 func RPMQuery(host pluginapi.Host, name string) (installed bool, version, pin string, err error) {
-	arg := pluginapi.ShellArg(name)
-	out, err := host.RunRootWithOutput(
-		rpmQueryCmd + arg + " 2>/dev/null || " + rpmProvidesCmd + arg + " 2>/dev/null || true")
-	if err != nil {
-		return false, "", "", err
+	if host == nil {
+		return false, "", "", fmt.Errorf("host context is required to query package %q", name)
 	}
+	out, err := host.RunRootWithOutput(rpmProbe(pluginapi.ShellArg(name)))
+	if err != nil {
+		return false, "", "", fmt.Errorf("query package %q: %w", name, err)
+	}
+	return classifyRPMProbe(name, out)
+}
+
+// classifyRPMProbe turns the probe's output into an answer or an error. Absent
+// is the narrowest of the three readings: rpm has to have printed its own miss
+// message for both queries and nothing else. Any other output - a corrupt
+// rpmdb, a truncated session, a sudo refusal - is propagated, because recording
+// "was not installed" for a package that is installed writes a rollback
+// snapshot that uninstalls it.
+func classifyRPMProbe(name, out string) (bool, string, string, error) {
+	codes := 0
+	var noise []string
 	for _, line := range strings.Split(out, "\n") {
-		answer, ok := strings.CutPrefix(strings.TrimSpace(line), "HL:")
-		if !ok {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue
 		}
-		evr, nevra, found := strings.Cut(answer, "\t")
-		if !found {
-			return true, answer, "", nil
+		if answer, ok := strings.CutPrefix(trimmed, "HL:"); ok {
+			// Both fields are required. Without the NEVRA there is no pin to
+			// journal, and rollback would reinstall whatever the repository
+			// offers later rather than what was there before.
+			evr, nevra, found := strings.Cut(answer, "\t")
+			if !found || evr == "" || nevra == "" {
+				return false, "", "", fmt.Errorf("query package %q: malformed rpm answer %q", name, answer)
+			}
+			return true, evr, nevra, nil
 		}
-		return true, evr, nevra, nil
+		if _, ok := strings.CutPrefix(trimmed, rpmProbeRC); ok {
+			codes++
+			continue
+		}
+		if isRPMMissMessage(trimmed) {
+			continue
+		}
+		noise = append(noise, trimmed)
+	}
+	if codes != 2 {
+		return false, "", "", fmt.Errorf("query package %q: rpm probe did not complete: %s", name, FirstLines(out, 3))
+	}
+	if len(noise) > 0 {
+		return false, "", "", fmt.Errorf("query package %q: rpm reported %s", name, FirstLines(strings.Join(noise, "\n"), 3))
 	}
 	return false, "", "", nil
 }
 
+// isRPMMissMessage matches the two sentences rpm prints when a query finds
+// nothing. They are the only outputs that mean "not installed".
+func isRPMMissMessage(line string) bool {
+	if strings.HasPrefix(line, "package ") && strings.HasSuffix(line, " is not installed") {
+		return true
+	}
+	return strings.HasPrefix(line, "no package provides ")
+}
+
 // UnexpectedRemovals reports which packages of a previewed removal transaction
-// are not the package the rollback is undoing. A rollback removes one thing:
-// the install this run made. Anything else in that table is a package the host
-// gained a use for since apply, and removing it would be collateral damage
-// rather than an undo.
-func UnexpectedRemovals(want string, preview []string) []string {
-	if trimmed, ok := TrimRPMArch(want); ok {
-		want = trimmed
+// nobody asked for. A rollback asks for one package - the install this run made
+// - and a purge asks for the names the step declares plus whatever collateral
+// it declares it accepts. Anything else in that table is a package the host
+// gained a use for independently, and removing it is collateral damage rather
+// than the operation the profile described.
+func UnexpectedRemovals(want []string, preview []string) []string {
+	allowed := make(map[string]struct{}, len(want))
+	for _, name := range want {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if trimmed, ok := TrimRPMArch(name); ok {
+			name = trimmed
+		}
+		allowed[name] = struct{}{}
 	}
 	var extra []string
 	for _, pkg := range preview {
-		if pkg != want {
+		if _, ok := allowed[pkg]; !ok {
 			extra = append(extra, pkg)
 		}
 	}

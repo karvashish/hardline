@@ -38,11 +38,17 @@ type PlanInputs struct {
 	Autoremove Decision
 
 	// UpgradePreview and AutoremovePreview are only consulted when the matching
-	// decision says the operation will run; InstallPreview only when there are
-	// packages to install.
+	// decision says the operation will run; InstallPreview and PurgePreview only
+	// when there are packages to install or purge.
 	UpgradePreview    Preview
 	InstallPreview    Preview
+	PurgePreview      Preview
 	AutoremovePreview Preview
+
+	// PurgeAlsoRemoves is the collateral removal set the step declares it
+	// accepts. Anything the purge transaction removes that is named neither here
+	// nor in purge is what apply refuses on.
+	PurgeAlsoRemoves []string
 }
 
 // WouldChange reports whether install or purge alone would change the host,
@@ -84,6 +90,7 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 
 	var upgradeWillChange []string
 	var installDepsWillChange []string
+	var purgeDepsWillChange []string
 	var autoremoveWillChange []string
 
 	if in.UpdateMode != "" && in.UpdateMode != "never" {
@@ -175,6 +182,44 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 		}
 	}
 
+	if len(in.PurgeInfos) > 0 {
+		if in.PurgePreview.Err != nil {
+			highlights = append(highlights, fmt.Sprintf("cannot preview the purge transaction (%v)", in.PurgePreview.Err))
+			details = append(details,
+				logger.ColorRed+fmt.Sprintf("purge: failed to preview the removal transaction (%v)", in.PurgePreview.Err)+logger.ColorReset,
+			)
+		} else {
+			explicit := make(map[string]struct{}, len(in.PurgeInfos))
+			for _, info := range in.PurgeInfos {
+				explicit[info.Name] = struct{}{}
+			}
+			for _, name := range in.PurgePreview.Packages {
+				if _, ok := explicit[name]; ok {
+					continue
+				}
+				purgeDepsWillChange = append(purgeDepsWillChange, name)
+			}
+			if len(purgeDepsWillChange) > 0 {
+				details = append(details,
+					logger.ColorRed+fmt.Sprintf("purge: the package manager will also remove %d other package(s): %s",
+						len(purgeDepsWillChange), strings.Join(purgeDepsWillChange, ", "))+logger.ColorReset,
+				)
+			}
+			want := make([]string, 0, len(in.PurgeInfos)+len(in.PurgeAlsoRemoves))
+			for _, info := range in.PurgeInfos {
+				want = append(want, info.Name)
+			}
+			want = append(want, in.PurgeAlsoRemoves...)
+			if extra := UnexpectedRemovals(want, in.PurgePreview.Packages); len(extra) > 0 {
+				msg := fmt.Sprintf(
+					"purge would also remove %s, which the step does not declare; apply will refuse until they are listed in purge_also_removes",
+					strings.Join(extra, ", "))
+				highlights = append(highlights, msg)
+				details = append(details, logger.ColorRed+"purge: "+msg+logger.ColorReset)
+			}
+		}
+	}
+
 	if in.AutoremoveMode != "" && in.AutoremoveMode != "never" {
 		if in.Autoremove.WillRun {
 			switch {
@@ -205,7 +250,7 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 	noUpdate := !in.Update.WillRun
 	noUpgrade := !in.Upgrade.WillRun || len(upgradeWillChange) == 0
 	noInstall := len(installWillChange) == 0 && len(installDepsWillChange) == 0
-	noPurge := len(purgeWillChange) == 0
+	noPurge := len(purgeWillChange) == 0 && len(purgeDepsWillChange) == 0
 	noAutoremove := !in.Autoremove.WillRun || len(autoremoveWillChange) == 0
 
 	noop := 2
@@ -229,6 +274,9 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 	}
 	for _, name := range purgeWillChange {
 		diff = append(diff, fmt.Sprintf("package %q: installed -> purged", name))
+	}
+	for _, name := range purgeDepsWillChange {
+		diff = append(diff, fmt.Sprintf("package %q: installed -> removed (pulled in by purge)", name))
 	}
 	for _, name := range autoremoveWillChange {
 		diff = append(diff, fmt.Sprintf("package %q: installed -> removed by autoremove", name))
@@ -268,6 +316,9 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 		}
 		if len(purgeWillChange) > 0 {
 			parts = append(parts, "purge: "+strings.Join(purgeWillChange, ", "))
+		}
+		if len(purgeDepsWillChange) > 0 {
+			parts = append(parts, fmt.Sprintf("remove %d package(s) pulled in by the purge", len(purgeDepsWillChange)))
 		}
 		if in.Autoremove.WillRun {
 			if len(autoremoveWillChange) == 0 {

@@ -21,6 +21,7 @@ Each tag publishes seven archives. Pick the one that matches your machine:
 | `hardline-<tag>-windows-amd64.zip` | Windows on x86_64 |
 | `hardline-<tag>-windows-arm64.zip` | Windows on arm64 (Surface Pro X, Snapdragon X) |
 | `starter-secure-ubuntu-24.04-lts-<tag>.tar.gz` | The example Ubuntu 24.04 hardening profile |
+| `starter-secure-rocky-9-<tag>.tar.gz` | The example Rocky Linux 9 hardening profile |
 
 Every archive has a companion `.sha256` file published next to it. Always verify before extracting.
 
@@ -98,7 +99,7 @@ sudo chmod 0644 /etc/hardline/profile_signing_pub.pem
 
 ### Download The Example Profile
 
-The example Ubuntu 24.04 hardening profile is shipped as its own archive so you can try Hardline without cloning the repo:
+Each starter profile is shipped as its own archive so you can try Hardline without cloning the repo. Swap `starter-secure-rocky-9` in for a RHEL-family target; the archive extracts to a directory of that name either way:
 
 ```bash
 VERSION=v0.1.2   # replace with the release tag you want

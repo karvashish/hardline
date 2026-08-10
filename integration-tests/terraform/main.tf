@@ -69,8 +69,11 @@ resource "google_compute_instance" "itest_vm" {
     auto_delete = true
     initialize_params {
       image = data.google_compute_image.target.self_link
-      size  = var.boot_disk_size_gb
-      type  = var.boot_disk_type
+      # GCE rejects a boot disk smaller than the image it is created from, and
+      # the RHEL-family images are 20 GB against Ubuntu's 10. Take the image's
+      # own size as the floor so the default fits whichever target is selected.
+      size = max(var.boot_disk_size_gb, data.google_compute_image.target.disk_size_gb)
+      type = var.boot_disk_type
     }
   }
 

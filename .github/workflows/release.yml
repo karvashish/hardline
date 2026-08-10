@@ -200,11 +200,17 @@ jobs:
           retention-days: 7
 
   profile:
-    name: Package base profile
+    name: Package ${{ matrix.profile }}
     needs: unit-tests
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - starter-secure-ubuntu-24.04-lts
+          - starter-secure-rocky-9
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -219,24 +225,25 @@ jobs:
           cache: true
 
       - name: Verify starter profile
-        run: go run ./cmd/hardline verify-profile starter-secure-ubuntu-24.04-lts
+        run: go run ./cmd/hardline verify-profile ${{ matrix.profile }}
 
       - name: Create profile tarball
         id: pack
         env:
           VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+          PROFILE: ${{ matrix.profile }}
         run: |
           set -euo pipefail
-          PKG="starter-secure-ubuntu-24.04-lts-${VERSION}"
+          PKG="${PROFILE}-${VERSION}"
           mkdir -p dist
-          tar -czf "dist/${PKG}.tar.gz" starter-secure-ubuntu-24.04-lts
+          tar -czf "dist/${PKG}.tar.gz" "${PROFILE}"
           ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 
       - name: Upload profile artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-profile
+          name: release-profile-${{ matrix.profile }}
           path: |
             dist/${{ steps.pack.outputs.pkg }}.tar.gz
             dist/${{ steps.pack.outputs.pkg }}.tar.gz.sha256

@@ -104,16 +104,17 @@ Extract the `.zip` file and run:
 Add the extracted directory to `PATH` if you want `hardline.exe` and
 `profiletool.exe` available from any shell.
 
-## Example Profile
+## Example Profiles
 
-The starter Ubuntu profile is published as a separate archive named:
+Each starter profile is published as a separate archive:
 
 ```text
 starter-secure-ubuntu-24.04-lts-<version>.tar.gz
+starter-secure-rocky-9-<version>.tar.gz
 ```
 
-Download and verify that file separately if you want a ready-to-run example
-profile.
+Download and verify the one that matches your target if you want a
+ready-to-run example profile.
 
 ## Basic Flow
 

@@ -225,8 +225,10 @@ jobs:
           cache: true
 
       - name: Verify starter profile
-        run: go run ./cmd/hardline verify-profile ${{ matrix.profile }}
+        run: go run ./cmd/hardline verify-profile profiles/${{ matrix.profile }}
 
+      # The archive is rooted at the profile directory itself, not at profiles/,
+      # so an extracted tarball is the directory the user guide names.
       - name: Create profile tarball
         id: pack
         env:
@@ -236,7 +238,7 @@ jobs:
           set -euo pipefail
           PKG="${PROFILE}-${VERSION}"
           mkdir -p dist
-          tar -czf "dist/${PKG}.tar.gz" "${PROFILE}"
+          tar -C profiles -czf "dist/${PKG}.tar.gz" "${PROFILE}"
           ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
           echo "pkg=${PKG}" >> "$GITHUB_OUTPUT"
 

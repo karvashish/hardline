@@ -9,7 +9,7 @@ Hardline is a signed-profile runner for applying opinionated system configuratio
 
 ![Hardline demo: verify, plan, apply, and roll back a signed profile on a fresh Ubuntu 24.04 host](docs/assets/demo.gif)
 
-A real run of [`demo-profile/`](demo-profile/) against a throwaway Ubuntu 24.04 host, with plain `ssh` reading the host's own state before apply, after apply, and after rollback. Output is verbatim; timing and paths are not.
+A real run of [`demo-profile/`](profiles/demo-profile/) against a throwaway Ubuntu 24.04 host, with plain `ssh` reading the host's own state before apply, after apply, and after rollback. Output is verbatim; timing and paths are not.
 
 ## What's In The Trusted Execution Surface
 
@@ -39,7 +39,7 @@ The repo ships with:
 - repo-wide Go unit tests plus GitHub Actions badges for `main`
 - a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) that provisions a real Ubuntu 24.04, Rocky 9, or Fedora host (`ITEST_OS`) and validates plan/apply/rollback, plugins, overrides, and failure paths against it
 - built-in plugins for packages, templates, services, nftables, file metadata, and audit rules
-- example hardening profiles in [`starter-secure-ubuntu-24.04-lts/profile.json`](starter-secure-ubuntu-24.04-lts/profile.json) and [`starter-secure-rocky-9/profile.json`](starter-secure-rocky-9/profile.json)
+- example hardening profiles in [`profiles/starter-secure-ubuntu-24.04-lts/profile.json`](profiles/starter-secure-ubuntu-24.04-lts/profile.json) and [`profiles/starter-secure-rocky-9/profile.json`](profiles/starter-secure-rocky-9/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 
 ## Install
@@ -118,7 +118,7 @@ If you are writing or editing profiles, start here:
 - [Action Files](docs/profiles/action-files.md) for step structure and execution ordering
 - [Built-In Plugins](docs/profiles/builtin-plugins.md) for plugin config reference
 - [Overrides And Signing](docs/profiles/overrides-and-signing.md) for runtime inputs and profile signing
-- [Example Profiles](starter-secure-ubuntu-24.04-lts/profile.json) for a concrete Ubuntu 24.04 hardening profile, and [`starter-secure-rocky-9`](starter-secure-rocky-9/profile.json) for its RHEL-family counterpart
+- [Example Profiles](profiles/starter-secure-ubuntu-24.04-lts/profile.json) for a concrete Ubuntu 24.04 hardening profile, and [`profiles/starter-secure-rocky-9`](profiles/starter-secure-rocky-9/profile.json) for its RHEL-family counterpart
 
 ## Internals
 

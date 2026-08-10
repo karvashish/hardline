@@ -14,7 +14,7 @@ git -C "$repo_root" ls-files -z --cached --others --exclude-standard |
 	tar -C "$work/src" -xf -
 
 (cd "$work/src" && go build -o "$work/hardline" ./cmd/hardline)
-cp -r "$work/src/starter-secure-ubuntu-24.04-lts" "$work/profile"
+cp -r "$work/src/profiles/starter-secure-ubuntu-24.04-lts" "$work/profile"
 rm -rf "$work/src"
 
 "$work/hardline" verify "$work/profile"

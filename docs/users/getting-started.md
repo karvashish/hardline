@@ -32,7 +32,7 @@ For `starter-secure-rocky-9`:
 
 ## Get The Example Profile
 
-The example `starter-secure-ubuntu-24.04-lts` profile is published as its own tarball on every release, and `starter-secure-rocky-9` is its RHEL-family counterpart in the repo, or you can `git clone` the repo and use the directory in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
+Each starter profile is published as its own tarball on every release: `starter-secure-ubuntu-24.04-lts` and its RHEL-family counterpart `starter-secure-rocky-9`. Extracting one gives you the directory the commands below name. You can also `git clone` the repo and use `profiles/<name>` in place. See [Install Guide → Download The Example Profile](install.md#download-the-example-profile) for the tarball route.
 
 ## First Command
 

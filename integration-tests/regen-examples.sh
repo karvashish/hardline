@@ -55,8 +55,11 @@ run rollback "${BIN}" rollback "${PROFILE_DIR}" "${RA[@]}" --log-file "${STAGE}/
 
 echo "=== NORMALIZE -> ${EXAMPLES_DIR} ==="
 # Real host IP, the runner's home prefix (the repo's parent dir), and the build
-# version become fixed placeholders so the committed artifacts are stable.
+# version become fixed placeholders so the committed artifacts are stable. The
+# in-repo profile path collapses to the bare directory name, which is what a
+# reader of these artifacts has after extracting the released tarball.
 esc_host="$(printf '%s' "${host}" | sed 's/\./\\./g')"
+esc_profile_dir="$(printf '%s' "${PROFILE_DIR%/}" | sed 's/[.[\*^$/]/\\&/g')"
 home_prefix="$(dirname "${ROOT_DIR}")"
 rm -rf "${EXAMPLES_DIR}"
 while IFS= read -r f; do
@@ -65,6 +68,7 @@ while IFS= read -r f; do
   sed -e "s/${esc_host}/203.0.113.10/g" \
       -e "s|${home_prefix}|/home/user|g" \
       -e "s/version=[^ ]*/version=0.1.2/g" \
+      -e "s|${esc_profile_dir}|$(basename "${PROFILE_DIR%/}")|g" \
       "${f}" > "${EXAMPLES_DIR}/${rel}"
 done < <(find "${STAGE}" -type f | sort)
 

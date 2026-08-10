@@ -1,12 +1,12 @@
 # Example Run Artifacts
 
-Real output from running the shipped [`starter-secure-ubuntu-24.04-lts`](https://github.com/karvashish/hardline/tree/main/starter-secure-ubuntu-24.04-lts) profile against a fresh Ubuntu 24.04 LTS host, captured so you can see what Hardline produces without running it yourself.
+Real output from running the shipped [`starter-secure-ubuntu-24.04-lts`](https://github.com/karvashish/hardline/tree/main/profiles/starter-secure-ubuntu-24.04-lts) profile against a fresh Ubuntu 24.04 LTS host, captured so you can see what Hardline produces without running it yourself.
 
 The run followed the documented flow: `verify-profile`, then `plan`, then `apply` (23 steps), then `rollback`. Logs are the `--log-file` output (plain text, one timestamped line per entry).
 
-Host, IP, and runner home paths are replaced with placeholders (`203.0.113.10`, `/home/user`), and the build version is normalized to `0.1.2`.
+Host, IP, and runner home paths are replaced with placeholders (`203.0.113.10`, `/home/user`), the build version is normalized to `0.1.2`, and the in-repo profile path is collapsed to the bare directory name you have after extracting the released tarball.
 
-Regenerate with `make examples` (defaults to `PROFILE_DIR=starter-secure-ubuntu-24.04-lts`). It provisions a throwaway Ubuntu 24.04 host, runs the documented flow against it, writes the normalized artifacts here, and always tears the host down.
+Regenerate with `make examples` (defaults to `PROFILE_DIR=profiles/starter-secure-ubuntu-24.04-lts`). It provisions a throwaway Ubuntu 24.04 host, runs the documented flow against it, writes the normalized artifacts here, and always tears the host down.
 
 ## `starter-secure-ubuntu-24.04-lts/`
 

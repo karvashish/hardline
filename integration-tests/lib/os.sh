@@ -28,7 +28,7 @@ itest_os_init() {
       TIMESYNC_UNIT="chrony"
       CRON_UNIT="cron"
       AUDIT_PKG="auditd"
-      BASE_PROFILE="${ROOT_DIR}/starter-secure-ubuntu-24.04-lts"
+      BASE_PROFILE="${ROOT_DIR}/profiles/starter-secure-ubuntu-24.04-lts"
       BASE_PROFILE_ID="starter-secure-ubuntu-24.04-lts"
       BASE_FILE_CHECKS=(
         "etc/ssh/sshd_config.d/00-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
@@ -51,7 +51,7 @@ itest_os_init() {
       TIMESYNC_UNIT="chronyd"
       CRON_UNIT="crond"
       AUDIT_PKG="audit"
-      BASE_PROFILE="${ROOT_DIR}/starter-secure-rocky-9"
+      BASE_PROFILE="${ROOT_DIR}/profiles/starter-secure-rocky-9"
       BASE_PROFILE_ID="starter-secure-rocky-9"
       BASE_FILE_CHECKS=(
         "etc/ssh/sshd_config.d/00-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"

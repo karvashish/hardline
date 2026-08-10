@@ -19,13 +19,12 @@ ITEST_PROFILE ?= integration-tests/profiles/multi-plugin-success
 ITEST_SCENARIO ?= smoke
 # Target OS for the integration VM: ubuntu (apt), rocky (dnf4), fedora (dnf5).
 ITEST_OS ?= ubuntu
-PROFILE_DIR ?= starter-secure-ubuntu-24.04-lts
+PROFILES_DIR := profiles
+PROFILE_DIR ?= $(PROFILES_DIR)/starter-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
 SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
 PROFILE_DIRS := \
-	starter-secure-ubuntu-24.04-lts \
-	starter-secure-rocky-9 \
-	demo-profile \
+	$(patsubst %/,%,$(sort $(dir $(wildcard $(PROFILES_DIR)/*/profile.json)))) \
 	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
 
 WIN_GOARCH ?= amd64
@@ -264,7 +263,7 @@ itest-all: build
 # provision a throwaway Ubuntu 24.04 host, capture verify/plan/apply/rollback
 # and the journal, normalize host/home/version placeholders, then ALWAYS tear
 # the host down. PROFILE_DIR selects the profile; EXAMPLES_DIR the output dir.
-EXAMPLES_DIR ?= docs/examples/$(PROFILE_DIR)
+EXAMPLES_DIR ?= docs/examples/$(notdir $(PROFILE_DIR))
 examples: build
 	@gen=0; down=0; \
 	if $(MAKE) itest-gcp-up; then \

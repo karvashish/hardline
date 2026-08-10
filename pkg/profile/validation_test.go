@@ -310,7 +310,7 @@ func TestAffirm_RejectsPluginConfigInjection(t *testing.T) {
 			"config":{"src":"../shared/c.tmpl","dest":"/etc/99-hardline.conf"}}`,
 		"firewall dest": `{"id":"s","plugin":"firewall",
 			"config":{"managed_dest":"/etc/nftables.d/99-hardline$(id).nft"}}`,
-		"packages_apt install": `{"id":"s","plugin":"packages_apt","config":{"install":["curl;id"]}}`,
+		"packages_apt install":  `{"id":"s","plugin":"packages_apt","config":{"install":["curl;id"]}}`,
 		"packages_dnf4 install": `{"id":"s","plugin":"packages_dnf4","config":{"install":["curl;id"]}}`,
 	}
 

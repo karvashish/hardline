@@ -17,9 +17,9 @@
 
 ## Changes Planned
 
-- packages-starter-secure: Update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+- packages-starter-secure: Update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
 - sshd-config-perms: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
-- ssh-template-apply: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600
+- ssh-template-apply: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
 - ssh-service-reload: Enable ssh at boot; reload or restart ssh
 - unattended-upgrades-auto: Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
 - sysctl-hardening-template: Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
@@ -28,8 +28,8 @@
 - firewall-service-restart: Enable nftables at boot; restart nftables
 - fail2ban-ssh-config: Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
 - fail2ban-service-enable: Enable fail2ban at boot; ensure fail2ban is started
-- auditd-rules-template: Write rendered configuration from "templates/40-audit-hardening-rules.tmpl" to "/etc/audit/rules.d/99-hardline.rules" with mode 0640
-- auditd-service-enable: Enable auditd at boot; restart auditd
+- auditd-service-enable: Enable auditd at boot; ensure auditd is started
+- auditd-rules: Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
 - journald-configure-persistence: Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
 - journald-reload: Enable systemd-journald at boot; restart systemd-journald
 - crontab-perms: Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
@@ -41,19 +41,19 @@
 
 ## Steps
 
-### packages-starter-secure (`packages`)
+### packages-starter-secure (`packages_apt`)
 
 - Status: Change planned
-- Operator summary: Update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
-- Summary: packages step: update package index; upgrade 18 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+- Operator summary: Update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+- Summary: packages step: update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
 - Details:
-  - will run: apt-get update -y (always)
-  - upgrade: would upgrade 18 package(s) (once: packages need to change)
+  - will run: package index update (always)
+  - upgrade: no packages would be upgraded (no-op) (once: packages need to change)
   - package "nftables": currently installed (no install change)
   - package "auditd": not installed (will be installed)
   - package "fail2ban": not installed (will be installed)
   - package "unattended-upgrades": currently installed (no install change)
-  - apt will also install 4 dependency package(s)
+  - the package manager will also install 4 dependency package(s)
   - package "telnet": currently installed (will be purged)
   - package "rsh-client": not installed (purge has no effect)
   - package "ftp": currently installed (will be purged)
@@ -65,24 +65,6 @@
   - autoremove: no packages would be removed (current state; may change after upgrade) (once: packages need to change)
 - Final state diff:
   - package index metadata: current -> refreshed from configured repositories
-  - package "rsync": installed -> upgraded
-  - package "libgcrypt20": installed -> upgraded
-  - package "liblzma5": installed -> upgraded
-  - package "libgnutls30t64": installed -> upgraded
-  - package "libapparmor1": installed -> upgraded
-  - package "vim": installed -> upgraded
-  - package "vim-common": installed -> upgraded
-  - package "vim-tiny": installed -> upgraded
-  - package "vim-runtime": installed -> upgraded
-  - package "xxd": installed -> upgraded
-  - package "apparmor": installed -> upgraded
-  - package "bind9-dnsutils": installed -> upgraded
-  - package "bind9-host": installed -> upgraded
-  - package "bind9-libs": installed -> upgraded
-  - package "xz-utils": installed -> upgraded
-  - package "linux-tools-common": installed -> upgraded
-  - package "snapd": installed -> upgraded
-  - package "cloud-init": installed -> upgraded
   - package "auditd": absent -> installed
   - package "fail2ban": absent -> installed
   - package "libauparse0t64": absent -> installed (dependency)
@@ -106,15 +88,15 @@
 ### ssh-template-apply (`template`)
 
 - Status: Change planned
-- Operator summary: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600
-- Summary: template step: render "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" (mode 0600)
+- Operator summary: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
+- Summary: template step: render "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" (mode 0600)
 - Details:
-  - destination "/etc/ssh/sshd_config.d/99-hardline-ssh.conf": does not exist (file will be created)
-  - desired: template "templates/10-ssh-sshd-config.tmpl" rendered to "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" with mode 0600
+  - destination "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": does not exist (file will be created)
+  - desired: template "templates/10-ssh-sshd-config.tmpl" rendered to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
 - Final state diff:
-  - file "/etc/ssh/sshd_config.d/99-hardline-ssh.conf": absent -> present (mode 0600)
-  - --- current /etc/ssh/sshd_config.d/99-hardline-ssh.conf (absent)
-  - +++ desired /etc/ssh/sshd_config.d/99-hardline-ssh.conf
+  - file "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": absent -> present (mode 0600)
+  - --- current /etc/ssh/sshd_config.d/00-hardline-ssh.conf (absent)
+  - +++ desired /etc/ssh/sshd_config.d/00-hardline-ssh.conf
   - +Protocol 2
   - +PasswordAuthentication no
   - +PermitRootLogin no
@@ -274,57 +256,29 @@
   - service enablement: disabled or not-found -> enabled
   - service activity: inactive or not-found -> active
 
-### auditd-rules-template (`template`)
-
-- Status: Change planned
-- Operator summary: Write rendered configuration from "templates/40-audit-hardening-rules.tmpl" to "/etc/audit/rules.d/99-hardline.rules" with mode 0640
-- Summary: template step: render "templates/40-audit-hardening-rules.tmpl" to "/etc/audit/rules.d/99-hardline.rules" (mode 0640)
-- Details:
-  - destination "/etc/audit/rules.d/99-hardline.rules": does not exist (file will be created)
-  - desired: template "templates/40-audit-hardening-rules.tmpl" rendered to "/etc/audit/rules.d/99-hardline.rules" with mode 0640
-- Final state diff:
-  - file "/etc/audit/rules.d/99-hardline.rules": absent -> present (mode 0640)
-  - --- current /etc/audit/rules.d/99-hardline.rules (absent)
-  - +++ desired /etc/audit/rules.d/99-hardline.rules
-  - +## Clear any existing rules
-  - +-D
-  - +
-  - +## Buffer size (keep modest)
-  - +-b 8192
-  - +## On failure: log but do not hard-stop the box
-  - +-f 1
-  - +########################
-  - +# Audit configuration
-  - +-w /etc/audit/ -p wa -k audit_config
-  - +-w /etc/libaudit.conf -p wa -k audit_config
-  - +-w /etc/audisp/ -p wa -k audit_config
-  - +# Identity and access
-  - +-w /etc/passwd -p wa -k identity
-  - +-w /etc/group -p wa -k identity
-  - +-w /etc/shadow -p wa -k identity
-  - +-w /etc/gshadow -p wa -k identity
-  - +-w /etc/security/ -p wa -k identity
-  - +## Sudoers changes
-  - +-w /etc/sudoers -p wa -k privileged
-  - +-w /etc/sudoers.d/ -p wa -k privileged
-  - +# Time changes
-  - +-a always,exit -F arch=b64 -S adjtimex -S settimeofday -S clock_settime -F auid>=1000 -F auid!=4294967295 -k time_change
-  - +-w /etc/localtime -p wa -k time_change
-  - +# Kernel module changes
-  - +-a always,exit -F arch=b64 -S init_module -S finit_module -S delete_module -F auid>=1000 -F auid!=4294967295 -k kernel_modules
-  - ... 16 more content diff line(s) omitted
-
 ### auditd-service-enable (`service`)
 
 - Status: Change planned
-- Operator summary: Enable auditd at boot; restart auditd
-- Summary: service step: enable auditd at boot; restart auditd
+- Operator summary: Enable auditd at boot; ensure auditd is started
+- Summary: service step: enable auditd at boot; ensure auditd is started
 - Details:
   - current: enabled=disabled or not-found, active=inactive or not-found
-  - desired: enabled=enabled, state=restarted (active)
+  - desired: enabled=enabled, state=active
 - Final state diff:
   - service enablement: disabled or not-found -> enabled
-  - service: restart auditd (currently inactive or not-found)
+  - service activity: inactive or not-found -> active
+
+### auditd-rules (`audit`)
+
+- Status: Change planned
+- Operator summary: Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
+- Summary: audit step: write /etc/audit/rules.d/99-hardline.rules and run augenrules --load
+- Details:
+  - /etc/audit/rules.d/99-hardline.rules: will be created from "templates/40-audit-hardening-rules.tmpl"
+  - running policy is missing 7 rule key(s): audit_config, identity, kernel_modules, logins, priv_change, privileged, time_change
+- Final state diff:
+  - file "/etc/audit/rules.d/99-hardline.rules": created -> rendered audit rules
+  - audit policy: augenrules --load would load 7 missing rule key(s)
 
 ### journald-configure-persistence (`template`)
 

@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "run_id": "20260602T163019.647616508Z",
-  "created_at": "2026-06-02T16:30:19.647616508Z",
+  "run_id": "20260810T065200.643232848Z",
+  "created_at": "2026-08-10T06:52:00.643232848Z",
   "host": "203.0.113.10",
   "profile_id": "starter-secure-ubuntu-24.04-lts",
   "profile_path": "starter-secure-ubuntu-24.04-lts",
@@ -107,8 +107,8 @@
           "package": {
             "name": "telnet",
             "was_installed": true,
-            "version": "0.17+2.5-3ubuntu4.1",
-            "pin_spec": "telnet=0.17+2.5-3ubuntu4.1",
+            "version": "0.17+2.5-3ubuntu4.2",
+            "pin_spec": "telnet=0.17+2.5-3ubuntu4.2",
             "requested_purge": true
           }
         },
@@ -256,9 +256,9 @@
         }
       ],
       "notes": [
-        "apt update is not directly reversible",
-        "apt upgrade rollback is best-effort",
-        "apt autoremove rollback is best-effort"
+        "package index update is not directly reversible",
+        "package upgrade rollback is best-effort",
+        "autoremove rollback is best-effort"
       ]
     },
     {
@@ -471,12 +471,30 @@
         {
           "kind": "file",
           "file": {
+            "path": "/etc/nftables.conf",
+            "existed": true,
+            "mode": "755",
+            "content_b64": "IyEvdXNyL3NiaW4vbmZ0IC1mCgpmbHVzaCBydWxlc2V0Cgp0YWJsZSBpbmV0IGZpbHRlciB7CgljaGFpbiBpbnB1dCB7CgkJdHlwZSBmaWx0ZXIgaG9vayBpbnB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9CgljaGFpbiBmb3J3YXJkIHsKCQl0eXBlIGZpbHRlciBob29rIGZvcndhcmQgcHJpb3JpdHkgZmlsdGVyOwoJfQoJY2hhaW4gb3V0cHV0IHsKCQl0eXBlIGZpbHRlciBob29rIG91dHB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9Cn0K"
+          }
+        },
+        {
+          "kind": "file",
+          "file": {
             "path": "/etc/nftables.d/99-hardline-firewall.nft",
             "existed": false
           }
         }
       ],
       "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/nftables.conf",
+            "existed": true,
+            "mode": "755",
+            "content_b64": "IyEvdXNyL3NiaW4vbmZ0IC1mCgpmbHVzaCBydWxlc2V0Cgp0YWJsZSBpbmV0IGZpbHRlciB7CgljaGFpbiBpbnB1dCB7CgkJdHlwZSBmaWx0ZXIgaG9vayBpbnB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9CgljaGFpbiBmb3J3YXJkIHsKCQl0eXBlIGZpbHRlciBob29rIGZvcndhcmQgcHJpb3JpdHkgZmlsdGVyOwoJfQoJY2hhaW4gb3V0cHV0IHsKCQl0eXBlIGZpbHRlciBob29rIG91dHB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9Cn0KCmluY2x1ZGUgIi9ldGMvbmZ0YWJsZXMuZC8qLm5mdCIK"
+          }
+        },
         {
           "kind": "file",
           "file": {
@@ -578,31 +596,6 @@
       }
     },
     {
-      "id": "auditd-rules-template",
-      "type": "template",
-      "rollback_mode": "deterministic",
-      "before": [
-        {
-          "kind": "file",
-          "file": {
-            "path": "/etc/audit/rules.d/99-hardline.rules",
-            "existed": false
-          }
-        }
-      ],
-      "after": [
-        {
-          "kind": "file",
-          "file": {
-            "path": "/etc/audit/rules.d/99-hardline.rules",
-            "existed": true,
-            "mode": "640",
-            "content_b64": "IyMgQ2xlYXIgYW55IGV4aXN0aW5nIHJ1bGVzCi1ECgojIyBCdWZmZXIgc2l6ZSAoa2VlcCBtb2Rlc3QpCi1iIDgxOTIKCiMjIE9uIGZhaWx1cmU6IGxvZyBidXQgZG8gbm90IGhhcmQtc3RvcCB0aGUgYm94Ci1mIDEKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIEF1ZGl0IGNvbmZpZ3VyYXRpb24KIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvYXVkaXQvIC1wIHdhIC1rIGF1ZGl0X2NvbmZpZwotdyAvZXRjL2xpYmF1ZGl0LmNvbmYgLXAgd2EgLWsgYXVkaXRfY29uZmlnCi13IC9ldGMvYXVkaXNwLyAtcCB3YSAtayBhdWRpdF9jb25maWcKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIElkZW50aXR5IGFuZCBhY2Nlc3MKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvcGFzc3dkIC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvZ3JvdXAgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9zaGFkb3cgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9nc2hhZG93IC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvc2VjdXJpdHkvIC1wIHdhIC1rIGlkZW50aXR5CgojIyBTdWRvZXJzIGNoYW5nZXMKLXcgL2V0Yy9zdWRvZXJzIC1wIHdhIC1rIHByaXZpbGVnZWQKLXcgL2V0Yy9zdWRvZXJzLmQvIC1wIHdhIC1rIHByaXZpbGVnZWQKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIFRpbWUgY2hhbmdlcwojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLWEgYWx3YXlzLGV4aXQgLUYgYXJjaD1iNjQgLVMgYWRqdGltZXggLVMgc2V0dGltZW9mZGF5IC1TIGNsb2NrX3NldHRpbWUgLUYgYXVpZD49MTAwMCAtRiBhdWlkIT00Mjk0OTY3Mjk1IC1rIHRpbWVfY2hhbmdlCi13IC9ldGMvbG9jYWx0aW1lIC1wIHdhIC1rIHRpbWVfY2hhbmdlCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBLZXJuZWwgbW9kdWxlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIGluaXRfbW9kdWxlIC1TIGZpbml0X21vZHVsZSAtUyBkZWxldGVfbW9kdWxlIC1GIGF1aWQ+PTEwMDAgLUYgYXVpZCE9NDI5NDk2NzI5NSAtayBrZXJuZWxfbW9kdWxlcwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgUHJpdmlsZWdlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIHNldHVpZCAtUyBzZXRnaWQgLVMgc2V0cmV1aWQgLVMgc2V0cmVnaWQgLVMgc2V0cmVzdWlkIC1TIHNldHJlc2dpZCAtRiBhdWlkPj0xMDAwIC1GIGF1aWQhPTQyOTQ5NjcyOTUgLWsgcHJpdl9jaGFuZ2UKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIExvZ2luIHRyYWNraW5nCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotdyAvdmFyL2xvZy9mYWlsbG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy9sYXN0bG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy90YWxseWxvZyAtcCB3YSAtayBsb2dpbnMKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIE1ha2UgcnVsZXMgYWN0aXZlCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotZSAxCg=="
-          }
-        }
-      ]
-    },
-    {
       "id": "auditd-service-enable",
       "type": "service",
       "rollback_mode": "deterministic",
@@ -629,12 +622,33 @@
         }
       ],
       "reload": {
-        "action": "restarted",
-        "restart_policy": "on_change",
-        "restart_deps": [
-          "auditd-rules-template"
-        ]
+        "action": "started"
       }
+    },
+    {
+      "id": "auditd-rules",
+      "type": "audit",
+      "rollback_mode": "deterministic",
+      "before": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/audit/rules.d/99-hardline.rules",
+            "existed": false
+          }
+        }
+      ],
+      "after": [
+        {
+          "kind": "file",
+          "file": {
+            "path": "/etc/audit/rules.d/99-hardline.rules",
+            "existed": true,
+            "mode": "640",
+            "content_b64": "IyMgQ2xlYXIgYW55IGV4aXN0aW5nIHJ1bGVzCi1ECgojIyBCdWZmZXIgc2l6ZSAoa2VlcCBtb2Rlc3QpCi1iIDgxOTIKCiMjIE9uIGZhaWx1cmU6IGxvZyBidXQgZG8gbm90IGhhcmQtc3RvcCB0aGUgYm94Ci1mIDEKCiMjIEV2ZXJ5IC13IHBhdGggbXVzdCBleGlzdDogYXVkaXRjdGwgcmVqZWN0cyBhIHdhdGNoIG9uIGEgbWlzc2luZyBwYXRoIGFuZAojIyBhdWdlbnJ1bGVzIC0tbG9hZCB0aGVuIGZhaWxzIGZvciB0aGUgd2hvbGUgcnVsZSBzZXQuIC9ldGMvYXVkaXNwIGFuZAojIyAvdmFyL2xvZy90YWxseWxvZyBhcmUgZ29uZSBvbiBjdXJyZW50IHJlbGVhc2VzLCBhbmQgcGx1Z2lucy5kIGxpdmVzIHVuZGVyCiMjIC9ldGMvYXVkaXQsIHdoaWNoIHRoZSBmaXJzdCB3YXRjaCBhbHJlYWR5IGNvdmVycy4KIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgQXVkaXQgY29uZmlndXJhdGlvbgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLXcgL2V0Yy9hdWRpdC8gLXAgd2EgLWsgYXVkaXRfY29uZmlnCi13IC9ldGMvbGliYXVkaXQuY29uZiAtcCB3YSAtayBhdWRpdF9jb25maWcKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIElkZW50aXR5IGFuZCBhY2Nlc3MKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvcGFzc3dkIC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvZ3JvdXAgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9zaGFkb3cgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9nc2hhZG93IC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvc2VjdXJpdHkvIC1wIHdhIC1rIGlkZW50aXR5CgojIyBTdWRvZXJzIGNoYW5nZXMKLXcgL2V0Yy9zdWRvZXJzIC1wIHdhIC1rIHByaXZpbGVnZWQKLXcgL2V0Yy9zdWRvZXJzLmQvIC1wIHdhIC1rIHByaXZpbGVnZWQKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIFRpbWUgY2hhbmdlcwojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLWEgYWx3YXlzLGV4aXQgLUYgYXJjaD1iNjQgLVMgYWRqdGltZXggLVMgc2V0dGltZW9mZGF5IC1TIGNsb2NrX3NldHRpbWUgLUYgYXVpZD49MTAwMCAtRiBhdWlkIT00Mjk0OTY3Mjk1IC1rIHRpbWVfY2hhbmdlCi13IC9ldGMvbG9jYWx0aW1lIC1wIHdhIC1rIHRpbWVfY2hhbmdlCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBLZXJuZWwgbW9kdWxlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIGluaXRfbW9kdWxlIC1TIGZpbml0X21vZHVsZSAtUyBkZWxldGVfbW9kdWxlIC1GIGF1aWQ+PTEwMDAgLUYgYXVpZCE9NDI5NDk2NzI5NSAtayBrZXJuZWxfbW9kdWxlcwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgUHJpdmlsZWdlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIHNldHVpZCAtUyBzZXRnaWQgLVMgc2V0cmV1aWQgLVMgc2V0cmVnaWQgLVMgc2V0cmVzdWlkIC1TIHNldHJlc2dpZCAtRiBhdWlkPj0xMDAwIC1GIGF1aWQhPTQyOTQ5NjcyOTUgLWsgcHJpdl9jaGFuZ2UKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIExvZ2luIHRyYWNraW5nCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotdyAvdmFyL2xvZy9mYWlsbG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy9sYXN0bG9nIC1wIHdhIC1rIGxvZ2lucwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgTWFrZSBydWxlcyBhY3RpdmUKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1lIDEK"
+          }
+        }
+      ]
     },
     {
       "id": "journald-configure-persistence",
@@ -899,5 +913,5 @@
       ]
     }
   ],
-  "checksum": "e3205f0d658aedd6070e6673b15ad643bcf26afc277d184c56d71ee3b4f7ebde"
+  "checksum": "6a27af151670e259c995a3514c8b2a9fdf9a1a55c05d1ac516d88a371e130902"
 }

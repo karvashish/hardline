@@ -73,11 +73,11 @@ EOF
 }
 
 # ── firewall-external-plugin: the firewall_template .so external plugin loads ─
-#    and deploys via the static multi-plugin-success profile. run_success_apply
+#    and deploys via the multi-plugin-success fixture. run_success_apply
 #    (runners.sh) verifies template + firewall_template content + journals.
 scenario_firewall_external_plugin() {
   scenario_start "firewall-external-plugin: external firewall_template .so deploys (multi-plugin-success)"
-  guard_static_profiles || return
+  guard_can_sign || return
   if ( run_success_apply "${ARTIFACT_ROOT}/firewall-external-plugin" ); then
     scenario_pass
   else

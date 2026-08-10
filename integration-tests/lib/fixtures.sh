@@ -319,6 +319,241 @@ EOJSON
   echo "${dir}"
 }
 
+# ─── Multi-plugin, ssh-reload and failure fixtures ───────────────────────────
+# These shapes used to be committed profiles under integration-tests/profiles/,
+# which declared ubuntu/apt and so pinned every rollback, layering and
+# external-plugin scenario to one target. Generating them per target is what
+# lets those scenarios assert the same things everywhere.
+
+# failing_step_json prints the step that has to abort an apply on this target.
+# The vector cannot be shared: Debian's ssh.service ExecReload runs `sshd -t`, so
+# a reload against an invalid drop-in fails cleanly and is the honest real-world
+# trigger, while RHEL's is `kill -HUP $MAINPID`, which exits 0 and leaves the
+# daemon dead on a bad config - that strands the suite instead of testing it. A
+# unit that does not exist fails identically on every init and touches nothing.
+# What the scenarios assert after the failure is the same either way.
+failing_step_json() {
+  if [ "${PKG_BACKEND}" = "apt" ]; then
+    printf '{ "id": "reload-ssh", "plugin": "service", "config": { "name": "%s", "enabled": true, "state": "reloaded" } }' "${SSH_UNIT}"
+  else
+    printf '{ "id": "restart-missing-unit", "plugin": "service", "config": { "name": "nonexistent-service-hardline-test-xyzzy", "state": "restarted" } }'
+  fi
+}
+
+# Template + external firewall_template plugin + nftables restart.
+make_profile_multi_plugin() {
+  local name="$1" template_dest="$2" fw_dest="$3" table="$4" priority="$5" tcp_port="$6" udp_port="$7"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  cat > "${dir}/templates/config.tmpl" <<EOTMPL
+# hardline integration test ${name} profile
+managed_by = hardline
+scenario = ${name}
+EOTMPL
+  cat > "${dir}/templates/firewall.tmpl" <<EOTMPL
+table inet ${table} {
+  chain input {
+    type filter hook input priority ${priority};
+    policy accept;
+{{allow_rules}}  }
+}
+EOTMPL
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-multi.json"],
+  "templates": ["templates/config.tmpl", "templates/firewall.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-multi.json" <<EOJSON
+{
+  "steps": [
+    { "id": "deploy-config", "plugin": "template", "config": {
+        "src": "templates/config.tmpl", "dest": "${template_dest}", "mode": "0644" } },
+    { "id": "deploy-firewall", "plugin": "firewall_template", "config": {
+        "backend": "nftables", "main_config": "${NFT_MAIN_CONFIG}", "policy": "drop",
+        "template_src": "templates/firewall.tmpl", "template_dest": "${fw_dest}",
+        "allow": [
+          { "port": ${tcp_port}, "proto": "tcp" },
+          { "port": ${udp_port}, "proto": "udp" }
+        ] } },
+    { "id": "restart-nftables", "plugin": "service", "config": {
+        "name": "nftables", "enabled": true, "state": "restarted" } }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# The same multi-plugin shape, then a bad sshd drop-in and a step that fails, so
+# an apply gets far enough to have real state to auto-roll-back.
+make_profile_multi_plugin_failing() {
+  local name="$1" template_dest="$2" fw_dest="$3" table="$4" priority="$5" tcp_port="$6" bad_ssh_dest="$7"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  cat > "${dir}/templates/config.tmpl" <<EOTMPL
+# hardline integration test ${name} profile
+managed_by = hardline
+scenario = ${name}
+EOTMPL
+  cat > "${dir}/templates/firewall.tmpl" <<EOTMPL
+table inet ${table} {
+  chain input {
+    type filter hook input priority ${priority};
+    policy accept;
+{{allow_rules}}  }
+}
+EOTMPL
+  cat > "${dir}/templates/ssh-invalid.tmpl" <<'EOTMPL'
+# hardline integration test forced rollback profile
+ThisDirectiveDoesNotExist definitely-invalid
+EOTMPL
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-multi.json"],
+  "templates": ["templates/config.tmpl", "templates/firewall.tmpl", "templates/ssh-invalid.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-multi.json" <<EOJSON
+{
+  "steps": [
+    { "id": "deploy-config", "plugin": "template", "config": {
+        "src": "templates/config.tmpl", "dest": "${template_dest}", "mode": "0644" } },
+    { "id": "deploy-firewall", "plugin": "firewall_template", "config": {
+        "backend": "nftables", "main_config": "${NFT_MAIN_CONFIG}", "policy": "drop",
+        "template_src": "templates/firewall.tmpl", "template_dest": "${fw_dest}",
+        "allow": [{ "port": ${tcp_port}, "proto": "tcp" }] } },
+    { "id": "restart-nftables", "plugin": "service", "config": {
+        "name": "nftables", "enabled": true, "state": "restarted" } },
+    { "id": "deploy-bad-ssh", "plugin": "template", "config": {
+        "src": "templates/ssh-invalid.tmpl", "dest": "${bad_ssh_dest}", "mode": "0600" } },
+    $(failing_step_json)
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# sshd drop-in + a reload of this target's ssh unit.
+make_profile_ssh_reload() {
+  local name="$1" dest="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  cat > "${dir}/templates/config.tmpl" <<'EOTMPL'
+# hardline integration test success profile
+ClientAliveInterval 300
+ClientAliveCountMax 2
+EOTMPL
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-ssh.json"], "templates": ["templates/config.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-ssh.json" <<EOJSON
+{
+  "steps": [
+    { "id": "deploy-config", "plugin": "template", "config": {
+        "src": "templates/config.tmpl", "dest": "${dest}", "mode": "0600" } },
+    { "id": "reload-ssh", "plugin": "service", "config": {
+        "name": "${SSH_UNIT}", "enabled": true, "state": "reloaded" } }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# An invalid sshd drop-in followed by the target's failing step: the apply must
+# abort and auto-rollback must take the bad drop-in with it.
+make_profile_ssh_reload_failing() {
+  local name="$1" dest="$2"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  cat > "${dir}/templates/config.tmpl" <<'EOTMPL'
+# hardline integration test forced rollback profile
+ThisDirectiveDoesNotExist definitely-invalid
+EOTMPL
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-ssh.json"], "templates": ["templates/config.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-ssh.json" <<EOJSON
+{
+  "steps": [
+    { "id": "deploy-config", "plugin": "template", "config": {
+        "src": "templates/config.tmpl", "dest": "${dest}", "mode": "0600" } },
+    $(failing_step_json)
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# Package install + managed file in one profile, so a rollback has to undo both.
+make_profile_package_template() {
+  local name="$1" pkg="$2" dest="$3"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions" "${dir}/templates"
+  cat > "${dir}/templates/config.tmpl" <<EOTMPL
+# hardline integration test ${name} profile
+managed_by = hardline
+scenario = ${name}
+EOTMPL
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-pkg-template.json"], "templates": ["templates/config.tmpl"]
+}
+EOJSON
+  cat > "${dir}/actions/00-pkg-template.json" <<EOJSON
+{
+  "steps": [
+    { "id": "install-${pkg}", "plugin": "${PKG_PLUGIN}",
+      "config": { "update": "once", "install": ["${pkg}"] } },
+    { "id": "deploy-config", "plugin": "template", "config": {
+        "src": "templates/config.tmpl", "dest": "${dest}", "mode": "0644" } }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
+# make_shared_fixtures builds the profiles the rollback runners reuse across
+# scenarios, once per run, and points the *_PROFILE variables at them.
+make_shared_fixtures() {
+  MULTI_SUCCESS_PROFILE="$(make_profile_multi_plugin "${MULTI_SUCCESS_ID}" \
+    "${MULTI_SUCCESS_TEMPLATE_DEST}" "${MULTI_SUCCESS_FIREWALL_DEST}" \
+    "${MULTI_SUCCESS_FIREWALL_TABLE}" 10 2222 5353)"
+  LAYER_BASE_PROFILE="$(make_profile_multi_plugin "${LAYER_BASE_ID}" \
+    "${LAYER_BASE_TEMPLATE_DEST}" "${LAYER_BASE_FIREWALL_DEST}" \
+    "${LAYER_BASE_FIREWALL_TABLE}" 30 2023 5355)"
+  FAILURE_PROFILE="$(make_profile_multi_plugin_failing "${MULTI_FAILURE_ID}" \
+    "${MULTI_FAILURE_TEMPLATE_DEST}" "${MULTI_FAILURE_FIREWALL_DEST}" \
+    "${MULTI_FAILURE_FIREWALL_TABLE}" 20 2022 "${FAILURE_DEST}")"
+  SSH_RELOAD_PROFILE="$(make_profile_ssh_reload "${SSH_RELOAD_ID}" "${SSH_RELOAD_DEST}")"
+  SSH_RELOAD_FORCE_PROFILE="$(make_profile_ssh_reload_failing "${SSH_RELOAD_FORCE_ID}" "${FAILURE_DEST}")"
+  PACKAGE_ROLLBACK_PROFILE="$(make_profile_package_template "${PACKAGE_ROLLBACK_ID}" \
+    "${PACKAGE_ROLLBACK_PACKAGE}" "${PACKAGE_ROLLBACK_TEMPLATE_DEST}")"
+}
+
 # Profile with a failing service step (triggers auto-rollback of the good step).
 make_profile_with_failing_step() {
   local name="$1" good_dest="$2" content="$3"

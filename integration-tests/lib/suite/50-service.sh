@@ -145,7 +145,6 @@ scenario_service_static_reload_rollback() {
   local dir="${ARTIFACT_ROOT}/service-static-reload-rollback"
   reset_dir "${dir}"
   scenario_start "service-static-reload-rollback: static unit reloads on rollback, no false drift conflict"
-  guard_static_profiles || return
   guard_can_sign || return
 
   local dest="/etc/hardline.d/99-hardline-svc-static-rb.conf"

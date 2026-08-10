@@ -130,20 +130,8 @@ nft_include_test() {
   printf "grep -E -q 'include[[:space:]]+\"?/etc/nftables\\\\.d/\\\\*\\\\.nft\"?' %s" "${NFT_MAIN_CONFIG}"
 }
 
-# The committed profiles under integration-tests/profiles/ declare an Ubuntu
-# host and an apt backend, so scenarios built on them only run on that target.
-# Every plugin they cover is also covered by the dynamic fixtures, which take
-# their backend and main config from the variables above.
-target_is_ubuntu() { [ "${ITEST_OS}" = "ubuntu" ]; }
-
-guard_static_profiles() {
-  if [ "${ITEST_OS}" != "ubuntu" ]; then
-    scenario_skip "committed static profiles target Ubuntu; ITEST_OS=${ITEST_OS}"
-    return 1
-  fi
-  return 0
-}
-
+# Scenarios that apply a firewall need the nftables include the starter profile
+# writes, so they can only run where a starter profile ships.
 guard_base_profile() {
   if [ -z "${BASE_PROFILE}" ]; then
     scenario_skip "no starter profile ships for ITEST_OS=${ITEST_OS}"

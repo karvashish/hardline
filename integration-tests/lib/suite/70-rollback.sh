@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 70-rollback.sh — rollback + auto-rollback over the static multi-plugin / SSH
-#                  profiles, driven by the rigorous runners in lib/runners.sh.
+# 70-rollback.sh — rollback + auto-rollback over the multi-plugin / SSH
+#                  fixtures, driven by the rigorous runners in lib/runners.sh.
 # =============================================================================
 # Sourced by itest.sh. Do not run directly.
 
@@ -10,7 +10,7 @@ scenario_multi_plugin_rollback() {
   local dir="${ARTIFACT_ROOT}/multi-plugin-rollback"
   reset_dir "${dir}"
   scenario_start "multi-plugin-rollback: apply multi-plugin-success then rollback reverts everything"
-  guard_static_profiles || return
+  guard_can_sign || return
 
   if ! ( run_success_apply "${dir}/apply" ); then
     note_fail "multi-plugin-success apply/verification failed"
@@ -33,7 +33,7 @@ EOF
 #    sshd -t valid, and a local journal with status=failed.
 scenario_auto_rollback_on_failure() {
   scenario_start "auto-rollback-on-failure: bad sshd config auto-rolls-back; failed journal recorded"
-  guard_static_profiles || return
+  guard_can_sign || return
   if ( run_failure_apply "${ARTIFACT_ROOT}/auto-rollback-on-failure" ); then
     scenario_pass
   else
@@ -47,7 +47,7 @@ scenario_layered_rollback() {
   local dir="${ARTIFACT_ROOT}/layered-rollback"
   reset_dir "${dir}"
   scenario_start "layered-rollback: rollback top layer (multi-success), base layer (layer-base) survives"
-  guard_static_profiles || return
+  guard_can_sign || return
 
   if ! ( run_layer_base_apply "${dir}/layer-base-apply" ) || ! ( run_success_apply "${dir}/multi-success-apply" ); then
     note_fail "layered apply setup failed"; scenario_end; return
@@ -80,7 +80,7 @@ scenario_layered_auto_rollback() {
   local dir="${ARTIFACT_ROOT}/layered-auto-rollback"
   reset_dir "${dir}"
   scenario_start "layered-auto-rollback: forced-failure auto-rollback keeps the base layer"
-  guard_static_profiles || return
+  guard_can_sign || return
 
   if ! ( run_layer_base_apply "${dir}/layer-base-apply" ); then
     note_fail "layer-base apply setup failed"; scenario_end; return
@@ -113,15 +113,15 @@ scenario_ssh_reload_rollback() {
   local dir="${ARTIFACT_ROOT}/ssh-reload-rollback"
   reset_dir "${dir}"
   scenario_start "ssh-reload-rollback: rollback reverts ssh drop-in and re-runs the sshd reload (observed via systemd)"
-  guard_static_profiles || return
+  guard_can_sign || return
 
   must_hl "${dir}/apply.log" "apply ssh-reload profile" -- apply "${SSH_RELOAD_PROFILE}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
   ssh_cmd "test -f ${SSH_RELOAD_DEST}" || { note_fail "ssh drop-in not deployed by apply"; scenario_end; return; }
 
   # Observe sshd directly across the rollback rather than reading hardline's log.
-  local mark0 cur; mark0="$(svc_actmark ssh)"; cur="$(journal_cursor)"
+  local mark0 cur; mark0="$(svc_actmark "${SSH_UNIT}")"; cur="$(journal_cursor)"
   must_hl "${dir}/rollback.log" "rollback ssh-reload profile" -- rollback "${SSH_RELOAD_PROFILE}" "${short_remote_args[@]}" -d
-  svc_acted_since ssh "${mark0}" "${cur}" \
+  svc_acted_since "${SSH_UNIT}" "${mark0}" "${cur}" \
     || note_fail "sshd not reloaded/restarted on rollback (independent: MainPID + StateChange unchanged, no journal reload)"
   must_remote "drop-in gone and sshd config valid after rollback" <<EOF
 test ! -e ${SSH_RELOAD_DEST}
@@ -135,7 +135,7 @@ scenario_ssh_reload_auto_rollback() {
   local dir="${ARTIFACT_ROOT}/ssh-reload-auto-rollback"
   reset_dir "${dir}"
   scenario_start "ssh-reload-auto-rollback: invalid sshd config fails apply and auto-rolls-back the bad drop-in"
-  guard_static_profiles || return
+  guard_can_sign || return
 
   ssh_cmd "sudo rm -f ${FAILURE_DEST}"
   expect_hl_fail "${dir}/apply.log" "apply with invalid sshd config rejected" -- apply "${SSH_RELOAD_FORCE_PROFILE}" "${remote_args[@]}"
@@ -153,7 +153,6 @@ scenario_rollback_no_journal() {
   reset_dir "${dir}"
   rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
   scenario_start "rollback-no-journal: rollback exits non-zero when there is no journal to apply"
-  guard_static_profiles || return
   guard_can_sign || return
 
   local p; p=$(make_profile_template "no-journal" "/etc/hardline.d/99-hardline-no-journal.conf" "NoJournal=yes")
@@ -169,7 +168,7 @@ scenario_apply_no_local_rollback() {
   reset_dir "${dir}"
   rm -rf "${STATE_DIR}"; mkdir -p "${STATE_DIR}"
   scenario_start "apply-no-local-rollback: local journal dropped, remote kept, rollback from remote reverts state"
-  guard_static_profiles || return
+  guard_can_sign || return
 
   ssh_cmd "sudo bash -seo pipefail" <<EOF
 rm -f ${MULTI_SUCCESS_TEMPLATE_DEST} ${MULTI_SUCCESS_FIREWALL_DEST}

@@ -5,6 +5,27 @@
 # Sourced by itest.sh. Do not run directly.
 # Requires: all variables from itest.sh (BINARY_PATH, remote_args, etc.)
 
+# ensure_nftables_ready puts the host into the state every firewall scenario
+# needs before it applies anything: nftables installed, enabled, running, and
+# its main config including the drop-in directory the plugin writes into. The
+# starter profile happens to do all of this too, but a target that ships no
+# starter profile is still a target the firewall scenarios have to run on, so
+# the suite sets it up rather than treating it as a reason to skip.
+ensure_nftables_ready() {
+  echo "== itest setup: nftables service + include (${NFT_MAIN_CONFIG}) =="
+  pkg_installed nftables || pkg_install nftables || fail "could not install nftables"
+  ssh_cmd "sudo bash -seo pipefail" <<EOF || fail "could not prepare nftables on the host"
+install -d -m 0755 /etc/nftables.d
+touch ${NFT_MAIN_CONFIG}
+$(nft_include_test) || printf '\n%s\n' 'include "/etc/nftables.d/*.nft"' >> ${NFT_MAIN_CONFIG}
+systemctl enable nftables >/dev/null 2>&1
+systemctl restart nftables
+systemctl is-enabled nftables >/dev/null 2>&1
+systemctl is-active nftables >/dev/null 2>&1
+nft -c -f ${NFT_MAIN_CONFIG} >/dev/null
+EOF
+}
+
 ensure_base_bootstrap() {
   local dir="${ARTIFACT_ROOT}/bootstrap-base"
   local quoted_marker
@@ -162,8 +183,8 @@ EOF
 
   remote_file="${check_dir}/etc/hardline.d/99-hardline-itest-success.conf"
   test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${MULTI_SUCCESS_PROFILE}/templates/10-managed.conf.tmpl" "${remote_file}" || {
-    diff -u "${MULTI_SUCCESS_PROFILE}/templates/10-managed.conf.tmpl" "${remote_file}" || true
+  cmp -s "${MULTI_SUCCESS_PROFILE}/templates/config.tmpl" "${remote_file}" || {
+    diff -u "${MULTI_SUCCESS_PROFILE}/templates/config.tmpl" "${remote_file}" || true
     rm -rf "${check_dir}"; fail "success profile template mismatch"
   }
 
@@ -222,8 +243,8 @@ test ! -e "${MULTI_FAILURE_FIREWALL_DEST}"
 test ! -e "${FAILURE_DEST}"
 ! nft list table inet "${MULTI_FAILURE_FIREWALL_TABLE}" >/dev/null 2>&1
 /usr/sbin/sshd -t
-systemctl is-enabled ssh >/dev/null 2>&1
-systemctl is-active ssh >/dev/null 2>&1
+systemctl is-enabled ${SSH_UNIT} >/dev/null 2>&1
+systemctl is-active ${SSH_UNIT} >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
 $(nft_include_test)
@@ -265,8 +286,8 @@ test ! -e "${FAILURE_DEST}"
 systemctl restart nftables
 ! nft list table inet "${MULTI_FAILURE_FIREWALL_TABLE}" >/dev/null 2>&1
 /usr/sbin/sshd -t
-systemctl is-enabled ssh >/dev/null 2>&1
-systemctl is-active ssh >/dev/null 2>&1
+systemctl is-enabled ${SSH_UNIT} >/dev/null 2>&1
+systemctl is-active ${SSH_UNIT} >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
 $(nft_include_test)
@@ -283,13 +304,9 @@ run_package_rollback_apply() {
   rm -rf "${STATE_DIR}"
   mkdir -p "${STATE_DIR}"
 
-  # The static package-rollback profile declares backend=apt, so this runner is
-  # Ubuntu-only and its assertions stay apt-specific on purpose.
+  pkg_purge "${PACKAGE_ROLLBACK_PACKAGE}" || true
   ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
-if dpkg -s "${PACKAGE_ROLLBACK_PACKAGE}" >/dev/null 2>&1; then
-  DEBIAN_FRONTEND=noninteractive apt-get purge -y "${PACKAGE_ROLLBACK_PACKAGE}" >/dev/null 2>&1
-fi
 rm -f "${PACKAGE_ROLLBACK_TEMPLATE_DEST}"
 test ! -e "${PACKAGE_ROLLBACK_TEMPLATE_DEST}"
 systemctl is-enabled nftables >/dev/null 2>&1
@@ -313,15 +330,15 @@ EOF
   }
   remote_file="${check_dir}/etc/hardline.d/99-hardline-itest-package-rollback.conf"
   test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${PACKAGE_ROLLBACK_PROFILE}/templates/10-managed.conf.tmpl" "${remote_file}" || {
-    diff -u "${PACKAGE_ROLLBACK_PROFILE}/templates/10-managed.conf.tmpl" "${remote_file}" || true
+  cmp -s "${PACKAGE_ROLLBACK_PROFILE}/templates/config.tmpl" "${remote_file}" || {
+    diff -u "${PACKAGE_ROLLBACK_PROFILE}/templates/config.tmpl" "${remote_file}" || true
     rm -rf "${check_dir}"; fail "package rollback template mismatch"
   }
   rm -rf "${check_dir}"
 
   if ! ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
-dpkg -s "${PACKAGE_ROLLBACK_PACKAGE}" >/dev/null 2>&1
+$(pkg_installed_test "${PACKAGE_ROLLBACK_PACKAGE}")
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
 EOF
@@ -384,8 +401,8 @@ EOF
 
   remote_file="${check_dir}/etc/hardline.d/99-hardline-itest-layer-base.conf"
   test "$(stat -c %a "${remote_file}")" = "644" || { rm -rf "${check_dir}"; fail "unexpected mode for ${remote_file}"; }
-  cmp -s "${LAYER_BASE_PROFILE}/templates/10-managed.conf.tmpl" "${remote_file}" || {
-    diff -u "${LAYER_BASE_PROFILE}/templates/10-managed.conf.tmpl" "${remote_file}" || true
+  cmp -s "${LAYER_BASE_PROFILE}/templates/config.tmpl" "${remote_file}" || {
+    diff -u "${LAYER_BASE_PROFILE}/templates/config.tmpl" "${remote_file}" || true
     rm -rf "${check_dir}"; fail "layer base template mismatch"
   }
 

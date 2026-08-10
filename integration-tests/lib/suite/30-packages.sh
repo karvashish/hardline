@@ -49,22 +49,18 @@ EOF
 scenario_package_rollback() {
   local dir="${ARTIFACT_ROOT}/package-rollback"
   reset_dir "${dir}"
-  scenario_start "package-rollback: install+rollback-purges (static), reinstall-on-rollback, conflict/force"
+  scenario_start "package-rollback: install+rollback-purges, reinstall-on-rollback, conflict/force"
   guard_can_sign || return
 
-  # Part A — static package-rollback profile: install tree + managed file, verify
-  # journals, then rollback purges the package and removes the file. The static
-  # profile declares apt, so this part is Ubuntu-only; parts B and C cover the
-  # same journal path on every target through the dynamic fixtures.
-  if target_is_ubuntu; then
-    run_package_rollback_apply "${dir}/static-apply"
-    must_hl "${dir}/static-rollback.log" "rollback static package profile" -- \
-      rollback "${PACKAGE_ROLLBACK_PROFILE}" "${short_remote_args[@]}" -d
-    must_remote "static rollback purged package + removed file" <<EOF
+  # Part A — package + managed file in one profile: verify journals, then roll
+  # back and confirm it purges the package and removes the file.
+  run_package_rollback_apply "${dir}/combined-apply"
+  must_hl "${dir}/combined-rollback.log" "rollback package+template profile" -- \
+    rollback "${PACKAGE_ROLLBACK_PROFILE}" "${short_remote_args[@]}" -d
+  must_remote "rollback purged package + removed file" <<EOF
 $(pkg_absent_test "${PACKAGE_ROLLBACK_PACKAGE}")
 test ! -e ${PACKAGE_ROLLBACK_TEMPLATE_DEST}
 EOF
-  fi
 
   # Part B — rollback reinstalls a package the apply purged.
   pkg_install tree || true

@@ -11,11 +11,19 @@ COVER_PROFILE := $(abspath $(OUTDIR)/active.cover.out)
 GO_CACHE_DIR := $(abspath $(OUTDIR)/.gocache)
 MIN_COVERAGE ?= 90
 TERRAFORM ?= terraform
-ITEST_TF_DIR := integration-tests/terraform
-ITEST_TF_STATE := $(abspath $(OUTDIR)/itest-gcp.tfstate)
-ITEST_TF_OUTPUTS := $(abspath $(OUTDIR)/itest-gcp.outputs.json)
-ITEST_TFVARS ?= $(ITEST_TF_DIR)/terraform.tfvars
-ITEST_PROFILE ?= integration-tests/profiles/multi-plugin-success
+ITEST_TF_SRC := integration-tests/terraform
+# Each target OS provisions from its own terraform working directory, state and
+# instance name, so two targets can be brought up, tested and torn down at the
+# same time instead of one after the other. A shared plugin cache keeps the
+# second working directory from re-downloading the provider.
+ITEST_TF_DIR := $(OUTDIR)/tf/$(ITEST_OS)
+ITEST_TF_OUTPUTS := $(abspath $(OUTDIR)/itest-gcp-$(ITEST_OS).outputs.json)
+ITEST_TFVARS ?= $(ITEST_TF_SRC)/terraform.tfvars
+ITEST_INSTANCE_PREFIX ?= hardline-itest-$(ITEST_OS)
+export TF_PLUGIN_CACHE_DIR := $(abspath $(OUTDIR)/.tfplugins)
+# A real signed profile for the CLI scenarios to verify and plan against; the
+# suite generates every other profile it needs, per target.
+ITEST_PROFILE ?= $(PROFILE_DIR)
 ITEST_SCENARIO ?= smoke
 # Target OS for the integration VM: ubuntu (apt), rocky (dnf4), fedora (dnf5).
 ITEST_OS ?= ubuntu
@@ -23,14 +31,12 @@ PROFILES_DIR := profiles
 PROFILE_DIR ?= $(PROFILES_DIR)/starter-secure-ubuntu-24.04-lts
 SIGNING_KEY ?= $(OUTDIR)/profile_signing.key
 SIGNING_PUB ?= internals/verify/profile_signing_pub.pem
-PROFILE_DIRS := \
-	$(patsubst %/,%,$(sort $(dir $(wildcard $(PROFILES_DIR)/*/profile.json)))) \
-	$(patsubst %/,%,$(sort $(dir $(wildcard integration-tests/profiles/*/profile.json))))
+PROFILE_DIRS := $(patsubst %/,%,$(sort $(dir $(wildcard $(PROFILES_DIR)/*/profile.json))))
 
 WIN_GOARCH ?= amd64
 WIN_OUTDIR := $(OUTDIR)/windows/$(WIN_GOARCH)
 
-.PHONY: all test check-schemas check-standalone build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all examples itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
+.PHONY: all test check-schemas check-standalone build build-plugins build-firewall-template-plugin build-windows profiletool ensure-embedded-pubkey keygen sign-profile sign-profiles genschema tidy clean itest itest-scenario itest-scenarios itest-all itest-run examples itest-gcp-preflight itest-gcp-init itest-gcp-plan itest-gcp-up itest-gcp-down itest-gcp-clean
 
 all: test build
 
@@ -168,7 +174,7 @@ itest-gcp-preflight:
 	echo "gcloud project: $$project"
 	@if [ ! -f "$(abspath $(ITEST_TFVARS))" ]; then \
 		echo "missing tfvars file: $(abspath $(ITEST_TFVARS))"; \
-		echo "create it from template: cp $(ITEST_TF_DIR)/terraform.tfvars.example $(ITEST_TFVARS)"; \
+		echo "create it from template: cp $(ITEST_TF_SRC)/terraform.tfvars.example $(ITEST_TFVARS)"; \
 		exit 1; \
 	fi
 	@tf_project="$$(awk -F= '/^[[:space:]]*project_id[[:space:]]*=/{gsub(/[[:space:]"]/, "", $$2); print $$2}' "$(abspath $(ITEST_TFVARS))" | head -n 1)"; \
@@ -203,21 +209,22 @@ itest-gcp-preflight:
 	fi
 
 itest-gcp-init: itest-gcp-preflight
-	@mkdir -p $(OUTDIR)
-	@cd $(ITEST_TF_DIR) && $(TERRAFORM) init -reconfigure -backend-config="path=$(ITEST_TF_STATE)"
+	@mkdir -p $(ITEST_TF_DIR) $(TF_PLUGIN_CACHE_DIR)
+	@cp $(ITEST_TF_SRC)/*.tf $(ITEST_TF_DIR)/
+	@cd $(ITEST_TF_DIR) && $(TERRAFORM) init -input=false
 
 itest-gcp-plan: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
 	TFVARS_ARG=""; \
 	if [ -f "$(abspath $(ITEST_TFVARS))" ]; then TFVARS_ARG="-var-file=$(abspath $(ITEST_TFVARS))"; fi; \
-	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS)"; \
+	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS) -var instance_name_prefix=$(ITEST_INSTANCE_PREFIX)"; \
 	$(TERRAFORM) plan $$TFVARS_ARG
 
 itest-gcp-up: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
 	TFVARS_ARG=""; \
 	if [ -f "$(abspath $(ITEST_TFVARS))" ]; then TFVARS_ARG="-var-file=$(abspath $(ITEST_TFVARS))"; fi; \
-	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS)"; \
+	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS) -var instance_name_prefix=$(ITEST_INSTANCE_PREFIX)"; \
 	$(TERRAFORM) apply -auto-approve $$TFVARS_ARG && \
 	$(TERRAFORM) output -json > "$(ITEST_TF_OUTPUTS)"
 	@echo "wrote outputs to $(ITEST_TF_OUTPUTS)"
@@ -227,7 +234,7 @@ itest-gcp-down: itest-gcp-init
 	@cd $(ITEST_TF_DIR) && \
 	TFVARS_ARG=""; \
 	if [ -f "$(abspath $(ITEST_TFVARS))" ]; then TFVARS_ARG="-var-file=$(abspath $(ITEST_TFVARS))"; fi; \
-	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS)"; \
+	TFVARS_ARG="$$TFVARS_ARG -var os=$(ITEST_OS) -var instance_name_prefix=$(ITEST_INSTANCE_PREFIX)"; \
 	$(TERRAFORM) destroy -auto-approve $$TFVARS_ARG
 
 itest-gcp-clean: itest-gcp-down
@@ -248,7 +255,13 @@ itest-scenarios:
 # until the host is ready), run every scenario, then ALWAYS tear the host down.
 # Exits with the scenario status; flags a failed teardown loudly so a billable
 # VM is never left running silently.
-itest-all: build
+itest-all: build itest-run
+
+# The same run against an already-built binary. Two targets can be exercised at
+# the same time this way (`make build` once, then one itest-run per ITEST_OS in
+# parallel); going through itest-all twice instead would run two builds writing
+# the same schema and binary paths at the same time.
+itest-run:
 	@scen=0; down=0; \
 	if $(MAKE) itest-gcp-up; then \
 		ITEST_OS=$(ITEST_OS) integration-tests/itest.sh all "$(ITEST_PROFILE)" "$(ITEST_TF_OUTPUTS)" "$(abspath $(OUTDIR)/$(BINARY))" || scen=$$?; \

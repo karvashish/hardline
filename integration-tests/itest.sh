@@ -26,18 +26,19 @@ BINARY_PATH="${4:?hardline binary path required}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB_DIR="${ROOT_DIR}/integration-tests/lib"
 KNOWN_HOSTS_PATH=""
-STATE_DIR="${ROOT_DIR}/tmp/itest-state"
-ARTIFACT_ROOT="${ROOT_DIR}/tmp/itest-artifacts"
 DYNAMIC_PROFILES_DIR=""
+STATE_DIR=""
+ARTIFACT_ROOT=""
 
-# ─── Static profile paths (used by runners.sh) ───────────────────────────────
-# BASE_PROFILE is target-dependent and set by itest_os_init below.
-MULTI_SUCCESS_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-success"
-PACKAGE_ROLLBACK_PROFILE="${ROOT_DIR}/integration-tests/profiles/package-rollback"
-LAYER_BASE_PROFILE="${ROOT_DIR}/integration-tests/profiles/layer-base"
-FAILURE_PROFILE="${ROOT_DIR}/integration-tests/profiles/multi-plugin-force-rollback"
-SSH_RELOAD_PROFILE="${ROOT_DIR}/integration-tests/profiles/ssh-reload-success"
-SSH_RELOAD_FORCE_PROFILE="${ROOT_DIR}/integration-tests/profiles/ssh-reload-force-rollback"
+# ─── Shared fixture profile ids (used by runners.sh) ─────────────────────────
+# The matching *_PROFILE directories are generated per target by
+# make_shared_fixtures, below; BASE_PROFILE is set by itest_os_init.
+MULTI_SUCCESS_ID="itest-multi-plugin-success"
+PACKAGE_ROLLBACK_ID="itest-package-rollback"
+LAYER_BASE_ID="itest-layer-base"
+MULTI_FAILURE_ID="itest-multi-plugin-force-rollback"
+SSH_RELOAD_ID="itest-ssh-reload-success"
+SSH_RELOAD_FORCE_ID="itest-ssh-reload-force-rollback"
 
 # ─── Remote destination constants (used by runners.sh) ───────────────────────
 MULTI_SUCCESS_TEMPLATE_DEST="/etc/hardline.d/99-hardline-itest-success.conf"
@@ -81,6 +82,9 @@ test -f "${OUTPUTS_JSON}" || fail "missing terraform outputs json: ${OUTPUTS_JSO
 test -x "${BINARY_PATH}" || fail "hardline binary missing: ${BINARY_PATH} (run: make build)"
 
 itest_os_init
+# Journals and artifacts are scoped by target so two targets can run at once.
+STATE_DIR="${ROOT_DIR}/tmp/itest-state-${ITEST_OS}"
+ARTIFACT_ROOT="${ROOT_DIR}/tmp/itest-artifacts-${ITEST_OS}"
 if [ -n "${BASE_PROFILE}" ]; then
   test -f "${BASE_PROFILE}/manifest.json" || fail "missing base profile manifest: ${BASE_PROFILE}/manifest.json"
 fi
@@ -115,8 +119,10 @@ remote_args=(--host "${host}" --user "${user}" --keypath "${key_path}")
 short_remote_args=(-H "${host}" -u "${user}" -k "${key_path}")
 
 init_signing
+make_shared_fixtures
 ssh_open_master
 ssh_cmd "sudo mkdir -p /etc/hardline.d /etc/nftables.d"
+ensure_nftables_ready
 
 # ─── Scenario registry (ordered) ─────────────────────────────────────────────
 # Function name = scenario_<name-with-dashes-as-underscores>.
@@ -137,7 +143,7 @@ SCENARIOS=(
   service-state-rollback service-conflict
   # File meta
   filemeta-stamp filemeta-rollback-conflict filemeta-guards
-  # Rollback (static-profile heavy applies)
+  # Rollback (multi-plugin and ssh-reload applies)
   multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback
   ssh-reload-rollback ssh-reload-auto-rollback rollback-no-journal apply-no-local-rollback
   # Overrides

@@ -1,7 +1,8 @@
 # Profiles
 
-The signed profiles this repository ships. Test fixtures live under
-`integration-tests/profiles/` instead; nothing here is a fixture.
+The signed profiles this repository ships. The integration suite generates the
+profiles it applies at run time (`integration-tests/lib/fixtures.sh`), so
+nothing here is a test fixture.
 
 | Directory | What it is |
 | --- | --- |
@@ -14,4 +15,4 @@ archive is `starter-secure-ubuntu-24.04-lts/`, not `profiles/...`. That is the
 form the user guide names.
 
 Every directory here is signed by `make sign-profiles`, which picks them up by
-glob along with the integration-test fixtures.
+glob.

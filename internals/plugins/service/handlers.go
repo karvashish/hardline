@@ -86,8 +86,50 @@ func validateServiceSpec(spec *Spec) error {
 
 	switch strings.ToLower(strings.TrimSpace(spec.State)) {
 	case "", "started", "start", "stopped", "stop", "restarted", "restart", "reloaded", "reload", "reload-or-restart":
-		return nil
 	default:
 		return fmt.Errorf("unsupported service state %q for %s", spec.State, strings.TrimSpace(spec.Name))
 	}
+
+	return validateRestartPolicy(spec)
+}
+
+// validateRestartPolicy closes the restart-policy enum. Anything other than
+// "always" used to behave roughly like "on_change", so a typo silently bought
+// the weaker behaviour: a profile asking to restart unconditionally would skip
+// the restart instead.
+func validateRestartPolicy(spec *Spec) error {
+	p := spec.RestartPolicy
+	if p == nil {
+		return nil
+	}
+
+	unit := strings.TrimSpace(spec.Name)
+	switch strings.ToLower(strings.TrimSpace(p.Type)) {
+	case "always":
+		if len(p.Steps) > 0 {
+			return fmt.Errorf("service %s: restart_policy type \"always\" must not declare steps", unit)
+		}
+	case "on_change":
+		if len(p.Steps) == 0 {
+			return fmt.Errorf("service %s: restart_policy type \"on_change\" requires at least one step to watch", unit)
+		}
+		seen := make(map[string]struct{}, len(p.Steps))
+		for _, id := range p.Steps {
+			trimmed := strings.TrimSpace(id)
+			if trimmed == "" {
+				return fmt.Errorf("service %s: restart_policy steps contains an empty step ID", unit)
+			}
+			if _, dup := seen[trimmed]; dup {
+				return fmt.Errorf("service %s: restart_policy steps contains duplicate %q", unit, trimmed)
+			}
+			seen[trimmed] = struct{}{}
+		}
+	default:
+		return fmt.Errorf("service %s: unsupported restart_policy type %q (expected \"always\" or \"on_change\")", unit, p.Type)
+	}
+
+	if strings.TrimSpace(spec.State) == "" {
+		return fmt.Errorf("service %s: restart_policy requires a state to apply it to", unit)
+	}
+	return nil
 }

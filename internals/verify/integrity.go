@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -33,6 +32,15 @@ const (
 	// LocalKeyPath is the fixed filesystem location for a user-supplied signing
 	// public key. This path cannot be changed — users must place their key here.
 	LocalKeyPath = "/etc/hardline/profile_signing_pub.pem"
+
+	// maxProfileFileBytes and maxProfileTotalBytes bound the snapshot the
+	// integrity check holds in memory. Every signed file is retained so that
+	// nothing is read from disk again after the signature is checked, which
+	// means a profile directory is an input the runner allocates for: without a
+	// bound, a directory nobody has signed yet can exhaust the process before
+	// the first hash is ever compared.
+	maxProfileFileBytes  = 1 << 20
+	maxProfileTotalBytes = 16 << 20
 )
 
 type profileManifest struct {
@@ -53,12 +61,16 @@ var embeddedProfileSigningPubPEM []byte
 var statFunc = os.Stat
 
 // VerifiedManifest is what a passed integrity check yields: the digest of the
-// exact manifest bytes whose signature was checked, and the set of paths that
-// signature covers. Callers use Files to assert that everything the profile
-// declares is actually signed, and Digest to detect a mid-run edit.
+// exact manifest bytes whose signature was checked, and the content of every
+// file that signature covers, keyed by profile-relative path.
+//
+// Files holds bytes rather than paths because the signature says nothing about
+// a path — it says that these bytes hashed to these values at this instant.
+// Re-reading the path afterwards reads whatever is there now, so every later
+// phase consumes this snapshot and the profile directory is never opened again.
 type VerifiedManifest struct {
 	Digest string
-	Files  map[string]struct{}
+	Files  map[string][]byte
 }
 
 func VerifyProfileIntegrity(profileDir string, useLocalKey bool) (*VerifiedManifest, error) {
@@ -111,7 +123,7 @@ func VerifyProfileIntegrity(profileDir string, useLocalKey bool) (*VerifiedManif
 		expected[normalized] = sum
 	}
 
-	actual, err := collectProfileHashes(profileDir)
+	actual, err := collectProfileFiles(profileDir)
 	if err != nil {
 		return nil, err
 	}
@@ -121,30 +133,19 @@ func VerifyProfileIntegrity(profileDir string, useLocalKey bool) (*VerifiedManif
 			return nil, fmt.Errorf("unexpected file not listed in manifest: %s", rel)
 		}
 	}
-	files := make(map[string]struct{}, len(expected))
+	files := make(map[string][]byte, len(expected))
 	for rel, want := range expected {
-		got, ok := actual[rel]
+		content, ok := actual[rel]
 		if !ok {
 			return nil, fmt.Errorf("manifest references missing file: %s", rel)
 		}
-		if got != want {
+		if got := digestBytes(content); got != want {
 			return nil, fmt.Errorf("hash mismatch for %s: expected %s got %s", rel, want, got)
 		}
-		files[rel] = struct{}{}
+		files[rel] = content
 	}
 
 	return &VerifiedManifest{Digest: digestBytes(manifestBytes), Files: files}, nil
-}
-
-// ManifestDigest re-reads the profile manifest and hashes it, without checking
-// the signature. Used to detect a profile directory edited between the verify
-// phase and the first write of apply.
-func ManifestDigest(profileDir string) (string, error) {
-	manifestBytes, err := os.ReadFile(filepath.Join(profileDir, manifestFileName))
-	if err != nil {
-		return "", fmt.Errorf("re-read manifest for %q: %w", profileDir, err)
-	}
-	return digestBytes(manifestBytes), nil
 }
 
 func digestBytes(b []byte) string {
@@ -223,8 +224,13 @@ func parsePEMPublicKey(pemData []byte, label string) (ed25519.PublicKey, error) 
 	return pub, nil
 }
 
-func collectProfileHashes(profileDir string) (map[string]string, error) {
-	hashes := make(map[string]string)
+// collectProfileFiles reads every signable file in the profile directory into
+// memory once. It is the only place the profile directory is read: the bytes it
+// returns are what gets hashed, and the same bytes are what every later phase
+// consumes, so there is no second read for an attacker to race.
+func collectProfileFiles(profileDir string) (map[string][]byte, error) {
+	files := make(map[string][]byte)
+	total := 0
 
 	err := filepath.WalkDir(profileDir, func(fullPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -248,33 +254,36 @@ func collectProfileHashes(profileDir string) (map[string]string, error) {
 			return fmt.Errorf("unsupported non-regular profile file: %s", rel)
 		}
 
-		sum, err := sha256File(fullPath)
+		info, err := d.Info()
 		if err != nil {
-			return fmt.Errorf("hash file %s: %w", rel, err)
+			return fmt.Errorf("stat profile file %s: %w", rel, err)
 		}
-		hashes[rel] = sum
+		if info.Size() > maxProfileFileBytes {
+			return fmt.Errorf("profile file %s is %d bytes, over the %d byte limit", rel, info.Size(), maxProfileFileBytes)
+		}
+
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			return fmt.Errorf("read file %s: %w", rel, err)
+		}
+		// The size is rechecked against the bytes actually read: the stat above
+		// describes the file as it was a moment earlier, not as it was read.
+		if len(content) > maxProfileFileBytes {
+			return fmt.Errorf("profile file %s is %d bytes, over the %d byte limit", rel, len(content), maxProfileFileBytes)
+		}
+		total += len(content)
+		if total > maxProfileTotalBytes {
+			return fmt.Errorf("profile directory exceeds the %d byte total limit", maxProfileTotalBytes)
+		}
+
+		files[rel] = content
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walk profile directory %q: %w", profileDir, err)
 	}
 
-	return hashes, nil
-}
-
-func sha256File(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return files, nil
 }
 
 func normalizeManifestPath(rel string) (string, error) {
@@ -295,13 +304,13 @@ func normalizeManifestPath(rel string) (string, error) {
 }
 
 func BuildProfileManifest(profileDir string) (*profileManifest, error) {
-	hashes, err := collectProfileHashes(profileDir)
+	files, err := collectProfileFiles(profileDir)
 	if err != nil {
 		return nil, err
 	}
 
-	paths := make([]string, 0, len(hashes))
-	for rel := range hashes {
+	paths := make([]string, 0, len(files))
+	for rel := range files {
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
@@ -315,7 +324,7 @@ func BuildProfileManifest(profileDir string) (*profileManifest, error) {
 	for _, rel := range paths {
 		manifest.Files = append(manifest.Files, manifestEntry{
 			Path:   rel,
-			SHA256: hashes[rel],
+			SHA256: digestBytes(files[rel]),
 		})
 	}
 

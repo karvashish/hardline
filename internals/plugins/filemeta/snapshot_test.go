@@ -25,7 +25,7 @@ func TestNormalizeMode(t *testing.T) {
 			t.Fatalf("normalizeMode(%q)=%q want %q", tc.in, got, tc.want)
 		}
 	}
-	if _, err := normalizeMode("nope"); err == nil || !strings.Contains(err.Error(), "invalid octal mode") {
+	if _, err := normalizeMode("nope"); err == nil || !strings.Contains(err.Error(), "invalid file mode") {
 		t.Fatalf("expected invalid mode error, got %v", err)
 	}
 }
@@ -244,4 +244,21 @@ func TestApplyManagedAttrs(t *testing.T) {
 			t.Fatalf("expected set error, got %v", err)
 		}
 	})
+}
+
+// TestNormalizeMode_RejectsOutOfRange pins that a mode wider than 4 octal
+// digits is refused rather than truncated into some other permission set.
+func TestNormalizeMode_RejectsOutOfRange(t *testing.T) {
+	for _, raw := range []string{"77777", "10000", "4294967296"} {
+		if _, err := normalizeMode(raw); err == nil {
+			t.Fatalf("expected %q to be rejected", raw)
+		}
+	}
+	// An empty mode still means "leave the mode alone".
+	if got, err := normalizeMode("  "); err != nil || got != "" {
+		t.Fatalf("expected an empty mode to stay empty, got %q %v", got, err)
+	}
+	if got, err := normalizeMode("0640"); err != nil || got != "640" {
+		t.Fatalf("expected canonical 640, got %q %v", got, err)
+	}
 }

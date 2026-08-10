@@ -22,10 +22,16 @@ const (
 	ObjectValidate = "validate"
 )
 
+// FileSnapshot is the recorded state of a managed file. Owner and group are
+// carried alongside content because restoring the right bytes under the wrong
+// ownership is not a restoration, and a change of ownership alone is still a
+// change to the host.
 type FileSnapshot struct {
 	Path       string `json:"path"`
 	Existed    bool   `json:"existed"`
 	Mode       string `json:"mode,omitempty"`
+	Owner      string `json:"owner"`
+	Group      string `json:"group"`
 	ContentB64 string `json:"content_b64,omitempty"`
 }
 
@@ -40,11 +46,18 @@ type FileMetaSnapshot struct {
 	Attrs   string `json:"attrs,omitempty"`
 }
 
+// ServiceState is the recorded state of a systemd unit. Enabled and Active are
+// the booleans rollback acts on; EnabledState and ActiveState carry what
+// systemctl actually reported, because "not enabled" covers disabled, masked,
+// static, indirect and generated, and restoring those as a plain "disable" is
+// not the same unit configuration the host had.
 type ServiceState struct {
-	Unit    string `json:"unit"`
-	Enabled bool   `json:"enabled"`
-	Active  bool   `json:"active"`
-	Known   bool   `json:"known"`
+	Unit         string `json:"unit"`
+	Enabled      bool   `json:"enabled"`
+	Active       bool   `json:"active"`
+	EnabledState string `json:"enabled_state"`
+	ActiveState  string `json:"active_state"`
+	Known        bool   `json:"known"`
 }
 
 // ServiceReload is step-level service intent (not observed state) the rollback consults to re-run the action.

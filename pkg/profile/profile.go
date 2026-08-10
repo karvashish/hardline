@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -14,6 +14,10 @@ import (
 
 	"github.com/karvashish/hardline/pkg/logger"
 )
+
+// profileFileName is the profile-relative key of the profile manifest itself
+// inside the signed snapshot.
+const profileFileName = "profile.json"
 
 // OSInfo is the target declaration the runner checks /etc/os-release against.
 // Family and Version are pattern-bound so a missing or malformed value cannot
@@ -41,6 +45,7 @@ type Profile struct {
 
 	profilePath      string                     `json:"-"`
 	ActionFiles      []ActionFile               `json:"-"`
+	files            map[string][]byte          `json:"-"`
 	runtimeOverrides map[string]json.RawMessage `json:"-"`
 }
 
@@ -56,30 +61,32 @@ type ActionFile struct {
 	Path  string `json:"-"`
 }
 
-func Load(dir string) (*Profile, error) {
-	logger.Debugf("profile.Load: dir=%q\n", dir)
+// LoadFromBundle decodes a profile out of the byte snapshot the integrity check
+// authenticated, keyed by profile-relative path. dir is retained for messages
+// only: nothing here opens a file, because a second read of a path whose bytes
+// were already signed reads whatever is on disk now rather than what was signed.
+func LoadFromBundle(dir string, files map[string][]byte) (*Profile, error) {
+	logger.Debugf("profile.LoadFromBundle: dir=%q files=%d\n", dir, len(files))
 
 	if dir == "" {
 		return nil, fmt.Errorf("decode profile.json: profile not found")
 	}
 
-	profileJSON := filepath.Join(dir, "profile.json")
-
-	f, err := os.Open(profileJSON)
-	if err != nil {
-		return nil, fmt.Errorf("open profile.json: %w", err)
+	profileJSON, ok := files[profileFileName]
+	if !ok {
+		return nil, fmt.Errorf("decode profile.json: %s is not covered by the signed manifest", profileFileName)
 	}
-	defer f.Close()
 
 	var p Profile
-	if err := json.NewDecoder(f).Decode(&p); err != nil {
+	if err := json.Unmarshal(profileJSON, &p); err != nil {
 		return nil, fmt.Errorf("decode profile.json: %w", err)
 	}
 
 	p.profilePath = dir
+	p.files = files
 
 	logger.Debugf(
-		"profile.Load: loaded profile id=%q actions=%d templates=%d\n",
+		"profile.LoadFromBundle: loaded profile id=%q actions=%d templates=%d\n",
 		p.ID, len(p.Actions), len(p.Templates),
 	)
 
@@ -90,12 +97,11 @@ func Load(dir string) (*Profile, error) {
 	return &p, nil
 }
 
-// resolve turns a profile-supplied reference into an absolute path that is
-// provably inside the profile directory. The signature covers only files under
-// profilePath, so a reference that escapes - through an absolute path, a ..
-// segment, or a symlinked subdirectory - would be read unsigned and mutable by
-// anyone who can write to the target. A reference that does not exist yet is
-// returned as-is; the caller's read reports the missing file.
+// resolve turns a profile-supplied reference into the profile-relative key the
+// signed snapshot is indexed by. The snapshot covers only files under the
+// profile directory, so a reference that escapes - through an absolute path or
+// a .. segment - names something the signature never covered, and is rejected
+// here rather than looked up and missed.
 func (p *Profile) resolve(rel string) (string, error) {
 	clean := filepath.ToSlash(strings.TrimSpace(rel))
 	if clean == "" {
@@ -112,32 +118,32 @@ func (p *Profile) resolve(rel string) (string, error) {
 			return "", fmt.Errorf("profile reference %q must not contain a %q segment", rel, "..")
 		}
 	}
+	return path.Clean(clean), nil
+}
 
-	full := filepath.Join(p.profilePath, filepath.FromSlash(clean))
-
-	resolvedDir, err := filepath.EvalSymlinks(filepath.Dir(full))
+// signedBytes returns the authenticated content for a profile-relative
+// reference. A reference the manifest did not cover is an error, not a miss:
+// the only way to reach content outside the snapshot is to name it.
+func (p *Profile) signedBytes(rel string) ([]byte, error) {
+	key, err := p.resolve(rel)
 	if err != nil {
-		return full, nil
+		return nil, err
 	}
-	root, err := filepath.EvalSymlinks(p.profilePath)
-	if err != nil {
-		return "", fmt.Errorf("resolve profile directory %q: %w", p.profilePath, err)
+	content, ok := p.files[key]
+	if !ok {
+		return nil, fmt.Errorf("profile reference %q is not covered by the signed manifest", rel)
 	}
-	inside, err := filepath.Rel(root, resolvedDir)
-	if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("profile reference %q resolves outside the profile directory", rel)
-	}
-	return full, nil
+	return content, nil
 }
 
 func (p *Profile) ActionPaths() ([]string, error) {
 	out := make([]string, 0, len(p.Actions))
 	for _, rel := range p.Actions {
-		full, err := p.resolve(rel)
+		key, err := p.resolve(rel)
 		if err != nil {
 			return nil, fmt.Errorf("profile action %w", err)
 		}
-		out = append(out, full)
+		out = append(out, key)
 	}
 	return out, nil
 }
@@ -172,32 +178,24 @@ func (p *Profile) isDeclaredTemplate(rel string) bool {
 }
 
 func (p *Profile) loadActions() error {
-	paths, err := p.ActionPaths()
-	if err != nil {
-		return err
-	}
-	result := make([]ActionFile, 0, len(paths))
+	result := make([]ActionFile, 0, len(p.Actions))
 
-	logger.Debugf("profile.loadActions: %d action paths\n", len(paths))
+	logger.Debugf("profile.loadActions: %d action references\n", len(p.Actions))
 
-	for _, path := range paths {
-		logger.Debugf("profile.loadActions: opening action file %q\n", path)
-
-		f, err := os.Open(path)
+	for _, rel := range p.Actions {
+		content, err := p.signedBytes(rel)
 		if err != nil {
-			return fmt.Errorf("open action file %q: %w", path, err)
+			return fmt.Errorf("profile action %w", err)
 		}
 
 		var af ActionFile
-		if err := json.NewDecoder(f).Decode(&af); err != nil {
-			f.Close()
-			return fmt.Errorf("decode action file %q: %w", path, err)
+		if err := json.Unmarshal(content, &af); err != nil {
+			return fmt.Errorf("decode action file %q: %w", rel, err)
 		}
-		f.Close()
 
-		logger.Debugf("profile.loadActions: action file %q has %d steps\n", path, len(af.Steps))
+		logger.Debugf("profile.loadActions: action file %q has %d steps\n", rel, len(af.Steps))
 
-		af.Path = path
+		af.Path = rel
 		result = append(result, af)
 	}
 
@@ -213,15 +211,11 @@ func (p *Profile) LoadTemplate(rel string) ([]byte, error) {
 		return nil, fmt.Errorf("template %q not declared in profile.json", rel)
 	}
 
-	full, err := p.resolve(rel)
+	content, err := p.signedBytes(rel)
 	if err != nil {
 		return nil, fmt.Errorf("profile template %w", err)
 	}
-	b, err := os.ReadFile(full)
-	if err != nil {
-		return nil, fmt.Errorf("read template %q: %w", full, err)
-	}
-	return b, nil
+	return content, nil
 }
 
 func (p *Profile) SetRuntimeOverrides(overrides map[string]json.RawMessage) {

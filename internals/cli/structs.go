@@ -13,6 +13,7 @@ type Command struct {
 	ReportFormat      string
 	KeepLocalRollback bool
 	ForceRollback     bool
+	LocalJournal      bool
 	AllowLocalKey     bool
 	Debug             bool
 }

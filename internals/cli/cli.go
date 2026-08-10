@@ -39,7 +39,7 @@ Commands:
                          run plan with profile
   apply <profile> [--host HOST| -H HOST] [--port PORT| -p PORT] [--user USER| -u USER] [--keypath PATH| -k PATH] [--overrides-file PATH] [--allow-local-key] [--log-file PATH] [--report-file PATH] [--report-format json|yaml|md] [--keep-local-rollback] [--debug| -d]
                          run apply with profile
-  rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT] [--user USER| -u USER] [--keypath PATH| -k PATH] [--allow-local-key] [--log-file PATH] [--force-rollback] [--debug| -d]
+  rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT] [--user USER| -u USER] [--keypath PATH| -k PATH] [--allow-local-key] [--log-file PATH] [--force-rollback] [--local-journal] [--debug| -d]
                          rollback the last successful apply run for a profile
   verify-profile <profile> [--overrides-file PATH] [--allow-local-key] [--log-file PATH] [--debug| -d]
                          run verify-profile with profile
@@ -115,7 +115,7 @@ Example:
 `
 	case "rollback":
 		return `Usage:
-  hardline rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT] [--user USER| -u USER] [--keypath PATH| -k PATH] [--allow-local-key] [--log-file PATH] [--force-rollback] [--debug| -d]
+  hardline rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT] [--user USER| -u USER] [--keypath PATH| -k PATH] [--allow-local-key] [--log-file PATH] [--force-rollback] [--local-journal] [--debug| -d]
 
 Arguments:
   <profile>              profile directory to rollback
@@ -129,6 +129,7 @@ Flags:
   --allow-local-key      verify profile using a local signing key from /etc/hardline/profile_signing_pub.pem
   --log-file PATH        write plain-text logs to file
   --force-rollback       proceed even when a file was modified after this profile ran
+  --local-journal        roll back from the runner-side journal when apply could not commit the target journal
                          (use when another profile or manual edit changed an overlapping file)
   --debug, -d            enable debug output
 
@@ -223,6 +224,7 @@ func Parse(command string, args []string) Command {
 		allowLocalKey     bool
 		help              bool
 		debug             bool
+		localJournal      bool
 	)
 
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -258,6 +260,7 @@ func Parse(command string, args []string) Command {
 		}
 		if command == "rollback" {
 			fs.BoolVar(&forceRollback, "force-rollback", false, "proceed even when a file was modified after this profile ran")
+			fs.BoolVar(&localJournal, "local-journal", false, "roll back from the runner-side journal when the target journal was never committed")
 		}
 	default:
 		fs.BoolVar(&debug, "debug", false, "enable debug output")
@@ -293,6 +296,7 @@ func Parse(command string, args []string) Command {
 		ReportFormat:      reportFormat,
 		KeepLocalRollback: keepLocalRollback,
 		ForceRollback:     forceRollback,
+		LocalJournal:      localJournal,
 		AllowLocalKey:     allowLocalKey,
 		Debug:             debug,
 	}

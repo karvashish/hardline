@@ -3,6 +3,7 @@ package pluginapi
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -58,9 +59,7 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("missing file", func(t *testing.T) {
-		snap, err := SnapshotRemoteFile(pluginAPIHostStub{
-			runRoot: func(string) error { return errors.New("not found") },
-		}, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
+		snap, err := SnapshotRemoteFile(statStub("", nil, nil), managedTestPath)
 		if err != nil {
 			t.Fatalf("SnapshotRemoteFile failed: %v", err)
 		}
@@ -70,39 +69,90 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("existing file", func(t *testing.T) {
-		snap, err := SnapshotRemoteFile(pluginAPIHostStub{
-			runRoot:           func(string) error { return nil },
-			runRootWithOutput: func(string) (string, error) { return "644\n", nil },
-			readRootFile:      func(string) (string, error) { return "abc", nil },
-		}, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
+		snap, err := SnapshotRemoteFile(statStub("regular file|644|root|shadow|3\n",
+			func(string) (string, error) { return "abc", nil }, nil), managedTestPath)
 		if err != nil {
 			t.Fatalf("SnapshotRemoteFile failed: %v", err)
 		}
 		if !snap.Existed || snap.Mode != "644" || snap.ContentB64 != "YWJj" {
 			t.Fatalf("unexpected snapshot: %+v", snap)
 		}
+		if snap.Owner != "root" || snap.Group != "shadow" {
+			t.Fatalf("expected ownership to be captured, got %+v", snap)
+		}
 	})
 
 	t.Run("stat error", func(t *testing.T) {
 		_, err := SnapshotRemoteFile(pluginAPIHostStub{
-			runRoot:           func(string) error { return nil },
 			runRootWithOutput: func(string) (string, error) { return "", errors.New("stat boom") },
-		}, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
+		}, managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "stat boom") {
 			t.Fatalf("expected stat error, got %v", err)
 		}
 	})
 
+	t.Run("unparseable stat output", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(statStub("644", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "unexpected format") {
+			t.Fatalf("expected stat parse error, got %v", err)
+		}
+	})
+
 	t.Run("read error", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(pluginAPIHostStub{
-			runRoot:           func(string) error { return nil },
-			runRootWithOutput: func(string) (string, error) { return "644", nil },
-			readRootFile:      func(string) (string, error) { return "", errors.New("read boom") },
-		}, "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")
+		_, err := SnapshotRemoteFile(statStub("regular file|644|root|root|3",
+			func(string) (string, error) { return "", errors.New("read boom") }, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "read boom") {
 			t.Fatalf("expected read error, got %v", err)
 		}
 	})
+
+	// A managed path that is no longer a regular file is a host that changed
+	// under hardline, not a file to read and later rewrite.
+	t.Run("refuses non-regular files", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(statStub("character special file|666|root|root|0", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("expected non-regular file refusal, got %v", err)
+		}
+	})
+
+	t.Run("refuses symlinks", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(statStub("regular file|644|root|root|3", nil,
+			func(cmd string) error {
+				if strings.Contains(cmd, "test ! -L") {
+					return errors.New("is a symlink")
+				}
+				return nil
+			}), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("expected symlink refusal, got %v", err)
+		}
+	})
+
+	t.Run("refuses oversized files", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(statStub(
+			fmt.Sprintf("regular file|644|root|root|%d", MaxSnapshotBytes+1), nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "exceeds the") {
+			t.Fatalf("expected size refusal, got %v", err)
+		}
+	})
+
+	t.Run("refuses a file that grows between stat and read", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(statStub("regular file|644|root|root|3",
+			func(string) (string, error) { return strings.Repeat("x", MaxSnapshotBytes+1), nil }, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "exceeds the") {
+			t.Fatalf("expected size refusal on read, got %v", err)
+		}
+	})
+}
+
+// statStub serves one stat line and optional read/run behaviour, which is the
+// whole surface SnapshotRemoteFile touches.
+func statStub(statLine string, read func(string) (string, error), run func(string) error) pluginAPIHostStub {
+	return pluginAPIHostStub{
+		runRoot:           run,
+		runRootWithOutput: func(string) (string, error) { return statLine, nil },
+		readRootFile:      read,
+	}
 }
 
 type pluginAPIHostStub struct {
@@ -225,6 +275,8 @@ func TestRestoreFileSnapshot(t *testing.T) {
 			Path:       managedTestPath,
 			Existed:    true,
 			Mode:       "640",
+			Owner:      "root",
+			Group:      "root",
 			ContentB64: base64.StdEncoding.EncodeToString([]byte("hello")),
 		})
 		if err != nil {
@@ -238,7 +290,7 @@ func TestRestoreFileSnapshot(t *testing.T) {
 	t.Run("bad content decode", func(t *testing.T) {
 		err := RestoreFileSnapshot(pluginAPIHostStub{
 			runRoot: func(string) error { return nil },
-		}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: "!!!not-base64!!!"})
+		}, FileSnapshot{Path: managedTestPath, Existed: true, Mode: "640", Owner: "root", Group: "root", ContentB64: "!!!not-base64!!!"})
 		if err == nil || !strings.Contains(err.Error(), "decode snapshot content") {
 			t.Fatalf("expected decode error, got %v", err)
 		}
@@ -247,33 +299,54 @@ func TestRestoreFileSnapshot(t *testing.T) {
 
 func TestFileSnapshotConflict(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte("expected"))
-
-	if c := FileSnapshotConflict(pluginAPIHostStub{}, FileSnapshot{Path: managedTestPath, Existed: false}); c != nil {
-		t.Fatalf("absent file should report no conflict, got %v", c)
+	recorded := FileSnapshot{Path: managedTestPath, Existed: true, Mode: "600", Owner: "root", Group: "root", ContentB64: encoded}
+	live := func(mode, owner, group, content string) pluginAPIHostStub {
+		return statStub(fmt.Sprintf("regular file|%s|%s|%s|%d", mode, owner, group, len(content)),
+			func(string) (string, error) { return content, nil }, nil)
 	}
 
-	if c := FileSnapshotConflict(pluginAPIHostStub{}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: "!!!"}); c != nil {
-		t.Fatalf("undecodable journal content should be skipped, got %v", c)
+	if c := FileSnapshotConflict(live("600", "root", "root", "expected"), recorded); c != nil {
+		t.Fatalf("matching state should report no conflict, got %v", c)
 	}
 
-	readErr := FileSnapshotConflict(pluginAPIHostStub{
-		readRootFile: func(string) (string, error) { return "", errors.New("nope") },
-	}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: encoded})
-	if len(readErr) != 1 || !strings.Contains(readErr[0], "cannot be read") {
-		t.Fatalf("expected read conflict, got %v", readErr)
+	// The E17 regression: a journal recording absence plus a file that exists
+	// now is drift, because rolling back would delete someone else's file.
+	appeared := FileSnapshotConflict(live("644", "root", "root", "new"), FileSnapshot{Path: managedTestPath, Existed: false})
+	if len(appeared) != 1 || !strings.Contains(appeared[0], "created since apply") {
+		t.Fatalf("expected an appeared-file conflict, got %v", appeared)
 	}
 
-	drift := FileSnapshotConflict(pluginAPIHostStub{
-		readRootFile: func(string) (string, error) { return "tampered", nil },
-	}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: encoded})
+	if c := FileSnapshotConflict(statStub("", nil, nil), FileSnapshot{Path: managedTestPath, Existed: false}); c != nil {
+		t.Fatalf("still-absent file should report no conflict, got %v", c)
+	}
+
+	removed := FileSnapshotConflict(statStub("", nil, nil), recorded)
+	if len(removed) != 1 || !strings.Contains(removed[0], "now absent") {
+		t.Fatalf("expected a removed-file conflict, got %v", removed)
+	}
+
+	unreadable := FileSnapshotConflict(pluginAPIHostStub{
+		runRootWithOutput: func(string) (string, error) { return "", errors.New("nope") },
+	}, recorded)
+	if len(unreadable) != 1 || !strings.Contains(unreadable[0], "cannot be inspected") {
+		t.Fatalf("expected an inspection conflict, got %v", unreadable)
+	}
+
+	drift := FileSnapshotConflict(live("600", "root", "root", "tampered"), recorded)
 	if len(drift) != 1 || !strings.Contains(drift[0], "differs") {
 		t.Fatalf("expected drift conflict, got %v", drift)
 	}
 
-	if c := FileSnapshotConflict(pluginAPIHostStub{
-		readRootFile: func(string) (string, error) { return "expected", nil },
-	}, FileSnapshot{Path: managedTestPath, Existed: true, ContentB64: encoded}); c != nil {
-		t.Fatalf("matching content should report no conflict, got %v", c)
+	// Mode and ownership drift are conflicts in their own right: the bytes can
+	// be untouched while the file has been made world-writable.
+	modeDrift := FileSnapshotConflict(live("666", "root", "root", "expected"), recorded)
+	if len(modeDrift) != 1 || !strings.Contains(modeDrift[0], "mode is 666") {
+		t.Fatalf("expected mode drift conflict, got %v", modeDrift)
+	}
+
+	ownerDrift := FileSnapshotConflict(live("600", "nobody", "nogroup", "expected"), recorded)
+	if len(ownerDrift) != 1 || !strings.Contains(ownerDrift[0], "owner is nobody:nogroup") {
+		t.Fatalf("expected owner drift conflict, got %v", ownerDrift)
 	}
 }
 
@@ -303,5 +376,142 @@ func TestCapturesDifferFileMeta(t *testing.T) {
 	b := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFileMeta}}}
 	if !CapturesDiffer(a, b) {
 		t.Fatal("nil vs non-nil FileMeta should differ")
+	}
+}
+
+// TestCapturesDiffer_ModeOnlyChange is the E09 regression: a step that only
+// changed permissions used to report ALIGNED, which also withheld the trigger
+// from any service watching it with restart_policy: on_change.
+func TestCapturesDiffer_ModeOnlyChange(t *testing.T) {
+	before := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFile,
+		File: &FileSnapshot{Existed: true, Mode: "666", Owner: "root", Group: "root", ContentB64: "eA=="}}}}
+	after := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFile,
+		File: &FileSnapshot{Existed: true, Mode: "600", Owner: "root", Group: "root", ContentB64: "eA=="}}}}
+
+	if !CapturesDiffer(before, after) {
+		t.Fatal("a mode-only change is a change")
+	}
+
+	ownerAfter := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFile,
+		File: &FileSnapshot{Existed: true, Mode: "666", Owner: "nobody", Group: "root", ContentB64: "eA=="}}}}
+	if !CapturesDiffer(before, ownerAfter) {
+		t.Fatal("an ownership-only change is a change")
+	}
+
+	if CapturesDiffer(before, before) {
+		t.Fatal("identical file state must not report a change")
+	}
+}
+
+// TestCapturesDiffer_PackageUpgrade covers the other half of E09: an upgrade
+// leaves WasInstalled true on both sides.
+func TestCapturesDiffer_PackageUpgrade(t *testing.T) {
+	before := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectPackage,
+		Package: &PackageState{Name: "curl", WasInstalled: true, Version: "8.5.0-1", PinSpec: "curl=8.5.0-1"}}}}
+	after := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectPackage,
+		Package: &PackageState{Name: "curl", WasInstalled: true, Version: "8.5.0-2", PinSpec: "curl=8.5.0-2"}}}}
+
+	if !CapturesDiffer(before, after) {
+		t.Fatal("a package version change is a change")
+	}
+	if CapturesDiffer(before, before) {
+		t.Fatal("identical package state must not report a change")
+	}
+}
+
+// TestCapturesDiffer_ExactServiceState covers E15: masked and disabled are both
+// "not enabled", but moving between them changes the unit's configuration.
+func TestCapturesDiffer_ExactServiceState(t *testing.T) {
+	masked := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectService,
+		Service: &ServiceState{Unit: "telnet.socket", Known: true, EnabledState: "masked", ActiveState: "inactive"}}}}
+	disabled := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectService,
+		Service: &ServiceState{Unit: "telnet.socket", Known: true, EnabledState: "disabled", ActiveState: "inactive"}}}}
+
+	if !CapturesDiffer(masked, disabled) {
+		t.Fatal("masked and disabled are different unit states")
+	}
+	if CapturesDiffer(masked, masked) {
+		t.Fatal("identical service state must not report a change")
+	}
+}
+
+// TestRestoreFileSnapshot_RestoresOwnership pins that a restore puts ownership
+// back: the right bytes under the wrong owner is not the pre-apply state.
+func TestRestoreFileSnapshot_RestoresOwnership(t *testing.T) {
+	var cmds []string
+	host := pluginAPIHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+	}
+
+	err := RestoreFileSnapshot(host, FileSnapshot{
+		Path: managedTestPath, Existed: true, Mode: "640",
+		Owner: "root", Group: "shadow", ContentB64: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if err != nil {
+		t.Fatalf("RestoreFileSnapshot failed: %v", err)
+	}
+
+	joined := strings.Join(cmds, "\n")
+	if !strings.Contains(joined, "chown 'root:shadow'") {
+		t.Fatalf("expected ownership to be restored, got %v", cmds)
+	}
+}
+
+// An ownership-free snapshot is a journal this hardline never wrote, and
+// restoring content without ownership is not a restoration.
+func TestRestoreFileSnapshot_RejectsUnrecordedOwnership(t *testing.T) {
+	err := RestoreFileSnapshot(pluginAPIHostStub{
+		runRoot: func(string) error { return nil },
+	}, FileSnapshot{
+		Path: managedTestPath, Existed: true, Mode: "640",
+		ContentB64: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if err == nil || !strings.Contains(err.Error(), "no owner or group") {
+		t.Fatalf("expected an ownership-free snapshot to be refused, got %v", err)
+	}
+}
+
+// TestParseFileMode pins that there is no tolerated default. A record that
+// cannot say what mode a file had must not restore it as 0600, which would
+// invent a state the host never had.
+func TestParseFileMode(t *testing.T) {
+	rejects := map[string]string{
+		"empty":        "",
+		"blank":        "   ",
+		"not octal":    "wide-open",
+		"decimal only": "9999",
+		"out of range": "77777",
+	}
+	for name, raw := range rejects {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseFileMode(raw); err == nil {
+				t.Fatalf("expected %q to be rejected", raw)
+			}
+		})
+	}
+
+	got, err := ParseFileMode(" 640 ")
+	if err != nil || got != os.FileMode(0o640) {
+		t.Fatalf("expected 0640, got %o err=%v", got, err)
+	}
+	if got, err := ParseFileMode("4755"); err != nil || got != os.FileMode(0o4755) {
+		t.Fatalf("expected setuid bits to survive, got %o err=%v", got, err)
+	}
+}
+
+// TestRestoreFileSnapshot_RejectsUnrecordedMode is the other half: a journal
+// with no usable mode cannot drive a restore.
+func TestRestoreFileSnapshot_RejectsUnrecordedMode(t *testing.T) {
+	err := RestoreFileSnapshot(pluginAPIHostStub{
+		runRoot: func(string) error { return nil },
+	}, FileSnapshot{
+		Path: managedTestPath, Existed: true, Owner: "root", Group: "root",
+		ContentB64: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if err == nil || !strings.Contains(err.Error(), "no file mode recorded") {
+		t.Fatalf("expected a mode-free snapshot to be refused, got %v", err)
 	}
 }

@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -52,30 +50,6 @@ func TestApply_ErrorPaths(t *testing.T) {
 		if err := Apply(context.Background(), c, nil); err == nil ||
 			!strings.Contains(err.Error(), "verified profile bundle") {
 			t.Fatal("expected Apply to refuse to run without a verified bundle")
-		}
-	})
-
-	t.Run("profile edited after verification", func(t *testing.T) {
-		restore := stubApplyDeps()
-		defer restore()
-
-		newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
-		ensureApplySudo = func(_ *remote.Client) error { return nil }
-		applied := false
-		runApplyProfile = func(context.Context, *remote.Client, *profile.Profile, *rollback.Journal) error {
-			applied = true
-			return nil
-		}
-		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
-		compareSemVer = func(a, b string) (int, error) { return 0, nil }
-		manifestDigest = func(string) (string, error) { return "a-different-digest", nil }
-
-		err := applyWithBundle(context.Background(), c)
-		if err == nil || !strings.Contains(err.Error(), "changed after verification") {
-			t.Fatalf("expected mid-run edit to abort apply, got %v", err)
-		}
-		if applied {
-			t.Fatal("expected nothing to be applied after a failed integrity re-check")
 		}
 	})
 
@@ -279,20 +253,14 @@ func TestApplyCommand_PassesRuntimeOverrides(t *testing.T) {
 	restore := stubApplyDeps()
 	defer restore()
 
-	dir := t.TempDir()
-	overridesPath := filepath.Join(dir, "overrides.json")
-	if err := os.WriteFile(overridesPath, []byte(`{"ssh_port": 2222}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	c := cli.Command{
-		Profile:       "profile",
-		Host:          "host",
-		User:          "user",
-		KeyPath:       "/tmp/key",
-		Debug:         true,
-		OverridesFile: overridesPath,
+		Profile: "profile",
+		Host:    "host",
+		User:    "user",
+		KeyPath: "/tmp/key",
+		Debug:   true,
 	}
+	applyBundleOverrides = map[string]json.RawMessage{"ssh_port": json.RawMessage(`2222`)}
 
 	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
@@ -817,11 +785,10 @@ func stubApplyDeps() func() {
 	prevRemoveRunnerJournal := removeRunnerJournal
 	prevSaveTargetJournal := saveTargetJournal
 	prevRunStep := runStep
-	prevAcquireLock := acquireRemoteApplyLock
-	prevReleaseLock := releaseRemoteApplyLock
-	prevManifestDigest := manifestDigest
+	prevAcquireLock := acquireMutationLock
+	prevReleaseLock := releaseMutationLock
 	applyBundleProfile = &profile.Profile{MinHardline: "1.0.0", ProfileSchema: 1}
-	manifestDigest = func(string) (string, error) { return "digest", nil }
+	applyBundleOverrides = nil
 	return func() {
 		newSSHClient = prevNewSSH
 		versionCmd = prevVersion
@@ -835,9 +802,8 @@ func stubApplyDeps() func() {
 		removeRunnerJournal = prevRemoveRunnerJournal
 		saveTargetJournal = prevSaveTargetJournal
 		runStep = prevRunStep
-		acquireRemoteApplyLock = prevAcquireLock
-		releaseRemoteApplyLock = prevReleaseLock
-		manifestDigest = prevManifestDigest
+		acquireMutationLock = prevAcquireLock
+		releaseMutationLock = prevReleaseLock
 	}
 }
 
@@ -857,8 +823,8 @@ func TestApplyCommand_LockContention(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	acquireRemoteApplyLock = func(_ *remote.Client) error {
-		return fmt.Errorf("another hardline apply is already running on this host; if stale, run: sudo rmdir %s", remoteApplyLockDir)
+	acquireMutationLock = func(_ *remote.Client) error {
+		return fmt.Errorf("another hardline apply is already running on this host; if stale, run: sudo rmdir %s", remote.MutationLockDir)
 	}
 
 	err := applyWithBundle(context.Background(), c)
@@ -883,9 +849,9 @@ func TestApplyCommand_LockReleasedOnSuccess(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	acquireRemoteApplyLock = func(_ *remote.Client) error { return nil }
+	acquireMutationLock = func(_ *remote.Client) error { return nil }
 	released := false
-	releaseRemoteApplyLock = func(_ *remote.Client) error {
+	releaseMutationLock = func(_ *remote.Client) error {
 		released = true
 		return nil
 	}
@@ -920,19 +886,22 @@ func TestApplyCommand_LockReleasedOnFailure(t *testing.T) {
 
 	newSSHClient = func(cfg connection.Config) (*remote.Client, error) { return nil, nil }
 	ensureApplySudo = func(_ *remote.Client) error { return nil }
-	acquireRemoteApplyLock = func(_ *remote.Client) error { return nil }
+	acquireMutationLock = func(_ *remote.Client) error { return nil }
 	released := false
-	releaseRemoteApplyLock = func(_ *remote.Client) error {
+	releaseMutationLock = func(_ *remote.Client) error {
 		released = true
 		return nil
 	}
 	versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 	compareSemVer = func(a, b string) (int, error) { return 0, nil }
-	manifestDigest = func(string) (string, error) { return "", errors.New("digest boom") }
+	saveRunnerJournal = func(_ *rollback.Journal) error { return nil }
+	runApplyProfile = func(context.Context, *remote.Client, *profile.Profile, *rollback.Journal) error {
+		return errors.New("apply boom")
+	}
 
 	err := applyWithBundle(context.Background(), c)
-	if err == nil || !strings.Contains(err.Error(), "digest boom") {
-		t.Fatalf("expected re-check error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "apply boom") {
+		t.Fatalf("expected apply error, got %v", err)
 	}
 	if !released {
 		t.Fatal("expected apply lock to be released after failure")
@@ -974,24 +943,25 @@ func mustLoadApplyFixtureProfile(t *testing.T, f applyProfileFixture) *profile.P
   "templates": [],
   "allowed_overrides": ` + string(allowedOverridesJSON) + `
 }`
-	if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte(body), 0o644); err != nil {
-		t.Fatalf("write profile fixture: %v", err)
-	}
-
-	p, err := profile.Load(dir)
+	p, err := profile.LoadFromBundle(dir, map[string][]byte{"profile.json": []byte(body)})
 	if err != nil {
 		t.Fatalf("load fixture profile failed: %v", err)
 	}
 	return p
 }
 
-// applyBundleProfile is the profile the stubbed verify phase hands to Apply.
-var applyBundleProfile *profile.Profile
+// applyBundleProfile and applyBundleOverrides are what the stubbed verify phase
+// hands to Apply.
+var (
+	applyBundleProfile   *profile.Profile
+	applyBundleOverrides map[string]json.RawMessage
+)
 
 func applyWithBundle(ctx context.Context, c cli.Command) error {
 	return Apply(ctx, c, &verify.VerifiedBundle{
 		ProfileDir:     c.Profile,
 		ManifestDigest: "digest",
 		Profile:        applyBundleProfile,
+		Overrides:      applyBundleOverrides,
 	})
 }

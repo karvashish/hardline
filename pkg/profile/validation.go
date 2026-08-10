@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
-	"os"
 	"path"
-	"path/filepath"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/karvashish/hardline/schema"
@@ -22,17 +20,24 @@ const (
 // in a fixture FS; nothing at runtime replaces it.
 var schemaFS fs.FS = schema.FS
 
+// Affirm schema-checks the profile against the same authenticated bytes the
+// profile was decoded from. It does not re-read the profile directory: a schema
+// pass over content other than what will be applied proves nothing.
 func (p *Profile) Affirm() error {
 	if p.profilePath == "" {
 		return fmt.Errorf("profile path is empty; load profile before validation")
 	}
 
-	profileJSONPath := filepath.Join(p.profilePath, "profile.json")
+	profileData, ok := p.files[profileFileName]
+	if !ok {
+		return fmt.Errorf("read profile json: %s is not covered by the signed manifest", profileFileName)
+	}
+
 	profileSchema, err := loadResolvedSchema(profileSchemaName)
 	if err != nil {
 		return err
 	}
-	profileData, profileInstance, err := readJSONInstance(profileJSONPath, "profile json")
+	profileInstance, err := jsonInstance(profileData, "profile json", profileFileName)
 	if err != nil {
 		return err
 	}
@@ -40,16 +45,12 @@ func (p *Profile) Affirm() error {
 		return fmt.Errorf("profile validation failed: %w", err)
 	}
 
-	var manifest Profile
-	if err := json.Unmarshal(profileData, &manifest); err != nil {
-		return fmt.Errorf("decode profile json %q: %w", profileJSONPath, err)
-	}
-	if err := manifest.validateAllowedOverrides(); err != nil {
+	if err := p.validateAllowedOverrides(); err != nil {
 		return err
 	}
 
 	var actionSchema *jsonschema.Resolved
-	for _, rel := range manifest.Actions {
+	for _, rel := range p.Actions {
 		if actionSchema == nil {
 			actionSchema, err = loadResolvedSchema(actionFileSchemaName)
 			if err != nil {
@@ -57,16 +58,16 @@ func (p *Profile) Affirm() error {
 			}
 		}
 
-		actionPath, err := p.resolve(rel)
+		content, err := p.signedBytes(rel)
 		if err != nil {
 			return fmt.Errorf("profile action %w", err)
 		}
-		_, actionInstance, err := readJSONInstance(actionPath, "action file")
+		actionInstance, err := jsonInstance(content, "action file", rel)
 		if err != nil {
 			return err
 		}
 		if err := actionSchema.Validate(actionInstance); err != nil {
-			return fmt.Errorf("action file validation failed for %q: %w", actionPath, err)
+			return fmt.Errorf("action file validation failed for %q: %w", rel, err)
 		}
 	}
 
@@ -102,15 +103,10 @@ func loadResolvedSchema(name string) (*jsonschema.Resolved, error) {
 	return resolved, nil
 }
 
-func readJSONInstance(file string, label string) ([]byte, any, error) {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read %s %q: %w", label, file, err)
-	}
-
+func jsonInstance(data []byte, label string, ref string) (any, error) {
 	var instance any
 	if err := json.Unmarshal(data, &instance); err != nil {
-		return nil, nil, fmt.Errorf("decode %s %q: %w", label, file, err)
+		return nil, fmt.Errorf("decode %s %q: %w", label, ref, err)
 	}
-	return data, instance, nil
+	return instance, nil
 }

@@ -40,13 +40,9 @@ func Apply(ctx pluginapi.Context, t *Spec) error {
 		return fmt.Errorf("load template %q: %w", t.Src, err)
 	}
 
-	mode := os.FileMode(0600)
-	if t.Mode != "" {
-		var parsed uint64
-		if _, err := fmt.Sscanf(t.Mode, "%o", &parsed); err != nil {
-			return fmt.Errorf("template %q: invalid mode %q (expected octal, e.g. 644): %w", t.Src, t.Mode, err)
-		}
-		mode = os.FileMode(parsed)
+	mode, err := pluginapi.ParseFileMode(t.Mode)
+	if err != nil {
+		return fmt.Errorf("template %q: %w", t.Src, err)
 	}
 
 	matches, err := templateDestinationMatches(ctx.Host, dest, data, mode)
@@ -111,16 +107,14 @@ func Plan(ctx pluginapi.Context, t *Spec) (pluginapi.PlanResult, error) {
 	var diff []string
 	var highlights []string
 
-	mode := os.FileMode(0600)
-	modeText := strings.TrimSpace(t.Mode)
-	if modeText == "" {
-		modeText = "0600 (default in executor)"
-	} else {
-		var parsed uint64
-		if _, err := fmt.Sscanf(modeText, "%o", &parsed); err == nil {
-			mode = os.FileMode(parsed)
-		}
+	// Plan parses the mode as strictly as apply does. Swallowing the error here
+	// showed the operator a plan for 0600 and then failed at apply, which is the
+	// one thing a plan must never do.
+	mode, err := pluginapi.ParseFileMode(t.Mode)
+	if err != nil {
+		return pluginapi.PlanResult{}, fmt.Errorf("template %q: %w", t.Src, err)
 	}
+	modeText := strings.TrimSpace(t.Mode)
 
 	exists := false
 	modeMatches := false
@@ -262,9 +256,21 @@ func templateCurrentSuffix(existed bool) string {
 	return " (absent)"
 }
 
+// templateDiffMaxLines bounds the inputs to the LCS diff so a malicious or
+// corrupt remote file can't trigger an O(n*m) DP table large enough to OOM the
+// local process. Beyond this, the diff degrades to a notice line.
+const templateDiffMaxLines = 2000
+
 func diffTemplateLines(current string, desired string) []templateDiffEdit {
 	currentLines := splitTemplateDiffLines(current)
 	desiredLines := splitTemplateDiffLines(desired)
+
+	if len(currentLines) > templateDiffMaxLines || len(desiredLines) > templateDiffMaxLines {
+		return []templateDiffEdit{{
+			kind: '!',
+			line: fmt.Sprintf("content too large to diff (%d/%d lines, max %d)", len(currentLines), len(desiredLines), templateDiffMaxLines),
+		}}
+	}
 
 	dp := make([][]int, len(currentLines)+1)
 	for i := range dp {

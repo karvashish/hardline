@@ -514,3 +514,65 @@ func TestValidateServiceSpecRejectsInjection(t *testing.T) {
 		t.Fatal("expected Apply to reject a hostile unit name")
 	}
 }
+
+// TestRestoreServiceState_RefusesInexpressibleStates covers E15: enable/disable
+// cannot put back a masked or static unit, and pretending otherwise leaves the
+// host in a state the journal never recorded.
+func TestRestoreServiceState_RefusesInexpressibleStates(t *testing.T) {
+	present := serviceRuntimeStub{
+		runRoot: func(string) error { return nil },
+		runRootWithOutput: func(string) (string, error) {
+			return "# /usr/lib/systemd/system/telnet.socket\n[Unit]\n", nil
+		},
+	}
+
+	for _, state := range []string{"masked", "static", "indirect", "generated"} {
+		t.Run(state, func(t *testing.T) {
+			err := restoreServiceState(present, pluginapi.ServiceState{
+				Unit: "telnet.socket", Known: true, EnabledState: state,
+			})
+			if err == nil || !strings.Contains(err.Error(), "cannot express") {
+				t.Fatalf("expected %s to be refused, got %v", state, err)
+			}
+		})
+	}
+
+	if err := restoreServiceState(present, pluginapi.ServiceState{
+		Unit: "ssh.service", Known: true, EnabledState: "enabled", Enabled: true, ActiveState: "active", Active: true,
+	}); err != nil {
+		t.Fatalf("expected an ordinary enabled unit to restore, got %v", err)
+	}
+
+	// A journal with no recorded unit-file state is one this hardline never
+	// wrote; guessing "disabled" from the boolean is not a restoration.
+	if err := restoreServiceState(present, pluginapi.ServiceState{
+		Unit: "ssh.service", Known: true, Enabled: true, Active: true,
+	}); err == nil || !strings.Contains(err.Error(), "no unit-file state") {
+		t.Fatalf("expected a state-free journal to be refused, got %v", err)
+	}
+}
+
+func TestSnapshotServiceState_CapturesExactStates(t *testing.T) {
+	host := serviceRuntimeStub{
+		runRootWithOutput: func(cmd string) (string, error) {
+			if strings.Contains(cmd, "is-enabled") {
+				return "masked\n", nil
+			}
+			return "failed\n", nil
+		},
+	}
+
+	state, err := snapshotServiceState(host, "telnet.socket")
+	if err != nil {
+		t.Fatalf("snapshotServiceState failed: %v", err)
+	}
+	if state.EnabledState != "masked" || state.ActiveState != "failed" {
+		t.Fatalf("expected exact states to be captured, got %+v", state)
+	}
+	if state.Enabled || state.Active {
+		t.Fatalf("masked/failed must not read as enabled/active, got %+v", state)
+	}
+	if !state.Known {
+		t.Fatal("a unit that reported states is known")
+	}
+}

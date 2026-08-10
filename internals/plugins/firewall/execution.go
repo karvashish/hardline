@@ -467,11 +467,9 @@ func restoreNftablesMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot)
 		return host.RunRoot("rm -f " + pluginapi.ShellArg(snap.Path))
 	}
 
-	mode := os.FileMode(0o600)
-	if trimmed := strings.TrimSpace(snap.Mode); trimmed != "" {
-		if parsed, err := strconv.ParseUint(trimmed, 8, 32); err == nil {
-			mode = os.FileMode(parsed)
-		}
+	mode, err := pluginapi.ParseFileMode(snap.Mode)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: restore %q: %w", snap.Path, err)
 	}
 
 	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)

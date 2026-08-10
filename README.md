@@ -30,7 +30,7 @@ Beyond the narrow vocabulary, three supporting properties worth knowing:
 
 - **Runtime signature verification.** The runner verifies the profile's signature against a trusted key before any step executes - not at git-clone time, not at CI time, at the moment of apply.
 - **Rollback journal with conflict detection.** Each step records before/after snapshots. Rollback restores the before state and refuses to proceed if the current remote state has drifted since apply (unless `--force-rollback` is passed).
-- **Apply lock on the target.** Only one apply per host at a time; concurrent runs would corrupt the journal.
+- **Mutation lock on the target.** Only one apply or rollback per host at a time; concurrent runs would corrupt the journal.
 
 The repo ships with:
 

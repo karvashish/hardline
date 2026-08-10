@@ -312,7 +312,7 @@ func TestRollbackStepsStrict(t *testing.T) {
 			"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
 		})
 
-		err := executeRollbackSteps(nil, []StepRecord{
+		_, err := executeRollbackSteps(nil, []StepRecord{
 			{
 				ID:           "pkg",
 				Type:         "packages",
@@ -331,7 +331,7 @@ func TestRollbackStepsStrict(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 
-		if err := executeRollbackSteps(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}}, false, true, false); err != nil {
+		if _, err := executeRollbackSteps(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}}, false, true, false); err != nil {
 			t.Fatalf("expected strict rollback success, got %v", err)
 		}
 	})
@@ -352,7 +352,7 @@ func TestRollbackStepModes(t *testing.T) {
 			RollbackMode: pluginapi.ModeBestEffort,
 			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{}}},
 		}
-		if err := rollbackStepWithMode(nil, step, false); err != nil {
+		if _, err := rollbackStepWithMode(nil, step, false); err != nil {
 			t.Fatalf("expected best-effort step to continue, got %v", err)
 		}
 	})
@@ -369,14 +369,14 @@ func TestRollbackStepModes(t *testing.T) {
 			RollbackMode: pluginapi.ModeDeterministic,
 			Before:       []pluginapi.ObjectRecord{fileObj},
 		}
-		if err := rollbackStepWithMode(nil, step, false); err == nil {
+		if _, err := rollbackStepWithMode(nil, step, false); err == nil {
 			t.Fatal("expected deterministic step error")
 		}
 	})
 
 	t.Run("noop", func(t *testing.T) {
 		step := StepRecord{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}
-		if err := rollbackStepWithMode(nil, step, false); err != nil {
+		if _, err := rollbackStepWithMode(nil, step, false); err != nil {
 			t.Fatalf("expected noop success, got %v", err)
 		}
 	})
@@ -394,7 +394,7 @@ func TestRollbackStepModes(t *testing.T) {
 			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectValidate, Message: "noop"}},
 			After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: nil}},
 		}
-		if err := rollbackStepWithMode(nil, step, false); err != nil {
+		if _, err := rollbackStepWithMode(nil, step, false); err != nil {
 			t.Fatalf("expected rollback to use before snapshots only, got %v", err)
 		}
 	})
@@ -409,7 +409,7 @@ func TestRollbackStepModes(t *testing.T) {
 			RollbackMode: pluginapi.ModeDeterministic,
 			Before:       []pluginapi.ObjectRecord{fileObj},
 		}
-		if err := rollbackStepWithMode(nil, step, false); err == nil || !strings.Contains(err.Error(), "not registered") {
+		if _, err := rollbackStepWithMode(nil, step, false); err == nil || !strings.Contains(err.Error(), "not registered") {
 			t.Fatalf("expected unregistered plugin error, got %v", err)
 		}
 	})
@@ -588,7 +588,7 @@ func TestExecuteRollbackSteps_Conflicts(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 		installPlugins(t, conflicting)
-		err := executeRollbackSteps(nil, []StepRecord{step}, false, false, false)
+		_, err := executeRollbackSteps(nil, []StepRecord{step}, false, false, false)
 		if err == nil || !strings.Contains(err.Error(), "force-rollback") {
 			t.Fatalf("expected force-rollback error, got %v", err)
 		}
@@ -598,7 +598,7 @@ func TestExecuteRollbackSteps_Conflicts(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 		installPlugins(t, conflicting)
-		if err := executeRollbackSteps(nil, []StepRecord{step}, false, false, true); err != nil {
+		if _, err := executeRollbackSteps(nil, []StepRecord{step}, false, false, true); err != nil {
 			t.Fatalf("expected force rollback to succeed, got %v", err)
 		}
 	})
@@ -667,15 +667,32 @@ func stubRollbackHooks() func() {
 	prevEnsureSudo := ensureRollbackSudo
 	prevLoadRemoteJournal := loadRemoteJournal
 	prevDeleteJournal := deleteJournal
+	prevLoadLocalJournal := loadLocalJournal
+	prevSaveLocalJournal := saveLocalJournal
+	prevRemoveLocalJournal := removeLocalJournal
+	prevSaveRemoteJournal := saveRemoteJournal
+	prevAcquireLock := acquireMutationLock
+	prevReleaseLock := releaseMutationLock
 
 	prevRunRollbackCommand := runRollbackCommand
 	prevExit := exitProcess
+
+	acquireMutationLock = func(*remote.Client) error { return nil }
+	releaseMutationLock = func(*remote.Client) error { return nil }
+	saveRemoteJournal = func(*remote.Client, *Journal) error { return nil }
+	saveLocalJournal = func(*Journal) error { return nil }
 
 	return func() {
 		newSSHClient = prevNewSSH
 		ensureRollbackSudo = prevEnsureSudo
 		loadRemoteJournal = prevLoadRemoteJournal
 		deleteJournal = prevDeleteJournal
+		loadLocalJournal = prevLoadLocalJournal
+		saveLocalJournal = prevSaveLocalJournal
+		removeLocalJournal = prevRemoveLocalJournal
+		saveRemoteJournal = prevSaveRemoteJournal
+		acquireMutationLock = prevAcquireLock
+		releaseMutationLock = prevReleaseLock
 
 		runRollbackCommand = prevRunRollbackCommand
 		exitProcess = prevExit
@@ -700,4 +717,358 @@ func rollbackWithBundle(c cli.Command) error {
 
 func rollbackWithBundleTop(c cli.Command) {
 	Rollback(c, rollbackBundle())
+}
+
+// TestRollbackCommand_TakesMutationLock pins that explicit rollback holds the
+// same host lock apply takes. Without it, a rollback can revert steps an apply
+// is concurrently writing.
+func TestRollbackCommand_TakesMutationLock(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	installPlugins(t, map[string]fakeBehavior{"template": {}})
+
+	acquired := false
+	released := false
+	acquireMutationLock = func(*remote.Client) error {
+		acquired = true
+		return nil
+	}
+	releaseMutationLock = func(*remote.Client) error {
+		released = true
+		return nil
+	}
+
+	j := successJournal()
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return j, nil }
+	deleteJournal = func(_ *remote.Client, _, _ string) error { return nil }
+
+	if err := rollbackWithBundle(baseRollbackCommand()); err != nil {
+		t.Fatalf("rollbackCommand failed: %v", err)
+	}
+	if !acquired || !released {
+		t.Fatalf("expected the mutation lock to be taken and released, acquired=%v released=%v", acquired, released)
+	}
+}
+
+func TestRollbackCommand_LockContentionAborts(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	loaded := false
+	acquireMutationLock = func(*remote.Client) error { return errors.New("lock held") }
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) {
+		loaded = true
+		return successJournal(), nil
+	}
+
+	err := rollbackWithBundle(baseRollbackCommand())
+	if err == nil || !strings.Contains(err.Error(), "lock held") {
+		t.Fatalf("expected lock contention error, got %v", err)
+	}
+	if loaded {
+		t.Fatal("expected rollback to abort before reading the journal")
+	}
+}
+
+// TestPreflightRollbackConflicts_ChecksEverythingFirst is the E07 regression:
+// a conflict on a step that is reverted late must be found before any step is
+// reverted, not after the earlier ones are already undone.
+func TestPreflightRollbackConflicts_ChecksEverythingFirst(t *testing.T) {
+	var reverted []string
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {
+			rollback: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) error {
+				reverted = append(reverted, obj.File.Path)
+				return nil
+			},
+			detectConflict: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) []string {
+				if obj.File != nil && obj.File.Path == "/etc/first.conf" {
+					return []string{"/etc/first.conf: changed since apply"}
+				}
+				return nil
+			},
+		},
+	})
+
+	// Steps revert in reverse order, so the conflicted first step is the last
+	// one that would be touched.
+	steps := []StepRecord{
+		changedFileStep("first", "/etc/first.conf"),
+		changedFileStep("second", "/etc/second.conf"),
+	}
+
+	_, err := executeRollbackSteps(nil, steps, false, false, false)
+	if err == nil || !strings.Contains(err.Error(), "--force-rollback") {
+		t.Fatalf("expected a conflict error, got %v", err)
+	}
+	if len(reverted) != 0 {
+		t.Fatalf("expected no step to be reverted before the conflict was reported, got %+v", reverted)
+	}
+}
+
+func TestPreflightRollbackConflicts_ForceReportsEveryConflict(t *testing.T) {
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {
+			detectConflict: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) []string {
+				return []string{obj.File.Path + ": changed since apply"}
+			},
+		},
+	})
+
+	steps := []StepRecord{
+		changedFileStep("first", "/etc/first.conf"),
+		changedFileStep("second", "/etc/second.conf"),
+	}
+
+	err := preflightRollbackConflicts(nil, steps, false)
+	if err == nil {
+		t.Fatal("expected a conflict error")
+	}
+	for _, want := range []string{"/etc/first.conf", "/etc/second.conf"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected every conflict reported, %q missing from %v", want, err)
+		}
+	}
+
+	if err := preflightRollbackConflicts(nil, steps, true); err != nil {
+		t.Fatalf("expected --force-rollback to proceed, got %v", err)
+	}
+}
+
+// TestExecuteRollbackSteps_ReportsDegradedRestoration pins E21: a best-effort
+// step that could not restore an object must say so rather than pass silently.
+func TestExecuteRollbackSteps_ReportsDegradedRestoration(t *testing.T) {
+	installPlugins(t, map[string]fakeBehavior{
+		"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error {
+			return errors.New("package no longer available")
+		}},
+	})
+
+	step := changedFileStep("pkg", "/etc/pkg.conf")
+	step.Type = "packages"
+	step.RollbackMode = pluginapi.ModeBestEffort
+
+	degraded, err := executeRollbackSteps(nil, []StepRecord{step}, false, false, false)
+	if err != nil {
+		t.Fatalf("expected best-effort failure to be absorbed, got %v", err)
+	}
+	if len(degraded) != 1 || !strings.Contains(degraded[0], "package no longer available") {
+		t.Fatalf("expected a degraded note, got %+v", degraded)
+	}
+
+	// The automatic rollback apply runs must surface the same degradation.
+	prevSudo := ensureRollbackSudo
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+	defer func() { ensureRollbackSudo = prevSudo }()
+	if err := RollbackSteps(nil, []StepRecord{step}); err == nil ||
+		!strings.Contains(err.Error(), "degraded restoration") {
+		t.Fatalf("expected RollbackSteps to report degraded restoration, got %v", err)
+	}
+}
+
+// TestRollbackCommand_LocalJournalRecovery covers E10: when apply could not
+// commit the target journal, the runner-side copy is what makes the run
+// recoverable.
+func TestRollbackCommand_LocalJournalRecovery(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	installPlugins(t, map[string]fakeBehavior{"template": {}})
+
+	removed := false
+	remoteRead := false
+	loadLocalJournal = func(host, profileID string) (*Journal, error) { return successJournal(), nil }
+	removeLocalJournal = func(*Journal) error {
+		removed = true
+		return nil
+	}
+	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) {
+		remoteRead = true
+		return nil, errors.New("no journal on target")
+	}
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+
+	c := baseRollbackCommand()
+	c.LocalJournal = true
+	if err := rollbackWithBundle(c); err != nil {
+		t.Fatalf("local-journal rollback failed: %v", err)
+	}
+	if remoteRead {
+		t.Fatal("expected --local-journal to skip the target journal entirely")
+	}
+	if !removed {
+		t.Fatal("expected the consumed runner-side journal to be deleted")
+	}
+}
+
+// TestRollbackCommand_LocalJournalRejectsForeignHost keeps a local journal from
+// being replayed against a machine it does not describe.
+func TestRollbackCommand_LocalJournalRejectsForeignHost(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	installPlugins(t, map[string]fakeBehavior{"template": {}})
+
+	loadLocalJournal = func(host, profileID string) (*Journal, error) {
+		j := successJournal()
+		j.Host = "other.example.com"
+		return j, nil
+	}
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+
+	c := baseRollbackCommand()
+	c.LocalJournal = true
+	err := rollbackWithBundle(c)
+	if err == nil || !strings.Contains(err.Error(), "written for host") {
+		t.Fatalf("expected a host mismatch error, got %v", err)
+	}
+}
+
+// TestConsumeJournal_DeleteFailureIsFatal pins that a journal surviving a
+// completed rollback is an error: it can otherwise be replayed against a host
+// whose state it no longer describes.
+func TestConsumeJournal_DeleteFailureIsFatal(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	deleteJournal = func(_ *remote.Client, _, _ string) error { return errors.New("read-only fs") }
+	err := consumeJournal(nil, baseRollbackCommand(), successJournal())
+	if err == nil || !strings.Contains(err.Error(), "delete remote journal") {
+		t.Fatalf("expected journal deletion failure to be fatal, got %v", err)
+	}
+}
+
+func baseRollbackCommand() cli.Command {
+	return cli.Command{
+		Profile: "starter-secure-ubuntu-24.04-lts",
+		Host:    "example.com",
+		User:    "root",
+		KeyPath: "/tmp/key",
+		Debug:   true,
+	}
+}
+
+func successJournal() *Journal {
+	j := NewJournal("example.com", "profile", "profile-dir")
+	j.Status = "success"
+	j.Steps = []StepRecord{changedFileStep("template-step", "/etc/ssh/sshd_config.d/99-hardline-ssh.conf")}
+	return j
+}
+
+// changedFileStep is a journalled step whose before/after differ, which is what
+// makes rollback treat it as having something to undo.
+func changedFileStep(id, path string) StepRecord {
+	return StepRecord{
+		ID:           id,
+		Type:         "template",
+		RollbackMode: pluginapi.ModeDeterministic,
+		Before: []pluginapi.ObjectRecord{
+			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: path, Existed: false}},
+		},
+		After: []pluginapi.ObjectRecord{
+			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: path, Existed: true, ContentB64: "eA=="}},
+		},
+	}
+}
+
+// TestPreflightRejectsUnregisteredPlugin closes the hole in the E07 preflight:
+// a step whose plugin is missing used to report "no conflict", pass preflight,
+// and then fail partway through leaving the host half-restored.
+func TestPreflightRejectsUnregisteredPlugin(t *testing.T) {
+	var reverted []string
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {rollback: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) error {
+			reverted = append(reverted, obj.File.Path)
+			return nil
+		}},
+	})
+
+	gone := changedFileStep("gone", "/etc/gone.conf")
+	gone.Type = "retired_plugin"
+
+	steps := []StepRecord{gone, changedFileStep("known", "/etc/known.conf")}
+
+	_, err := executeRollbackSteps(nil, steps, false, false, false)
+	if err == nil || !strings.Contains(err.Error(), "is not registered") {
+		t.Fatalf("expected an unregistered-plugin refusal, got %v", err)
+	}
+	if len(reverted) != 0 {
+		t.Fatalf("expected nothing to be reverted, got %+v", reverted)
+	}
+
+	// --force-rollback overrides drift, not a missing plugin: there is no way
+	// to revert a step whose plugin does not exist.
+	if _, err := executeRollbackSteps(nil, steps, false, false, true); err == nil {
+		t.Fatal("expected --force-rollback not to bypass a missing plugin")
+	}
+}
+
+// TestClaimJournalBeforeRevert covers the transactional half of E21: the
+// journal is marked consumed before the first restore, so an interrupted
+// rollback cannot be replayed against a host it has already half-reverted.
+func TestClaimJournalBeforeRevert(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	var order []string
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error {
+			order = append(order, "revert")
+			return nil
+		}},
+	})
+
+	var claimedStatus string
+	saveRemoteJournal = func(_ *remote.Client, j *Journal) error {
+		order = append(order, "claim")
+		claimedStatus = j.Status
+		return nil
+	}
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return successJournal(), nil }
+	deleteJournal = func(_ *remote.Client, _, _ string) error { return nil }
+
+	if err := rollbackWithBundle(baseRollbackCommand()); err != nil {
+		t.Fatalf("rollbackCommand failed: %v", err)
+	}
+	if len(order) < 2 || order[0] != "claim" {
+		t.Fatalf("expected the journal to be claimed before the first revert, got %v", order)
+	}
+	if claimedStatus != "rolling_back" {
+		t.Fatalf("expected the claim to mark the journal rolling_back, got %q", claimedStatus)
+	}
+}
+
+func TestClaimJournalFailureAbortsRollback(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	reverted := false
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error {
+			reverted = true
+			return nil
+		}},
+	})
+
+	saveRemoteJournal = func(*remote.Client, *Journal) error { return errors.New("read-only fs") }
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return successJournal(), nil }
+
+	err := rollbackWithBundle(baseRollbackCommand())
+	if err == nil || !strings.Contains(err.Error(), "claim journal") {
+		t.Fatalf("expected a claim failure, got %v", err)
+	}
+	if reverted {
+		t.Fatal("expected nothing to be reverted when the journal could not be claimed")
+	}
 }

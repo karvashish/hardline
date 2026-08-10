@@ -26,7 +26,7 @@ func TestValidateSpec(t *testing.T) {
 	}{
 		{name: "nil", spec: nil, wantErr: "config is required"},
 		{name: "bad path", spec: &Spec{Path: "rel", Mode: "0600"}, wantErr: "absolute"},
-		{name: "bad mode", spec: &Spec{Path: "/etc/shadow", Mode: "nope"}, wantErr: "invalid octal mode"},
+		{name: "bad mode", spec: &Spec{Path: "/etc/shadow", Mode: "nope"}, wantErr: "invalid file mode"},
 		{name: "no fields", spec: &Spec{Path: "/etc/shadow"}, wantErr: "at least one of"},
 	}
 	for _, tc := range cases {

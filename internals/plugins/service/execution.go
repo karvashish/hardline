@@ -277,9 +277,12 @@ func serviceReloadRecord(spec *Spec) *pluginapi.ServiceReload {
 	return reload
 }
 
+// restartPolicySuppressed reports whether an on_change policy has nothing to
+// act on. The enum is closed at validation, so only on_change reaches the
+// suppression logic: "always" and an absent policy both mean run it.
 func restartPolicySuppressed(s *Spec, stepChanges map[string]bool, unit string, host pluginapi.Host) bool {
 	p := s.RestartPolicy
-	if p == nil || p.Type == "always" {
+	if p == nil || strings.ToLower(strings.TrimSpace(p.Type)) != "on_change" {
 		return false
 	}
 
@@ -347,24 +350,46 @@ func snapshotServiceState(host pluginapi.Host, unit string) (pluginapi.ServiceSt
 		return pluginapi.ServiceState{}, fmt.Errorf("host is required")
 	}
 
-	enabledOut, err := host.RunRootWithOutput("systemctl is-enabled " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
+	enabledVal, err := unitStateWord(host, "is-enabled", unit)
 	if err != nil {
 		return pluginapi.ServiceState{}, err
 	}
 
-	activeOut, err := host.RunRootWithOutput("systemctl is-active " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
+	activeVal, err := unitStateWord(host, "is-active", unit)
 	if err != nil {
 		return pluginapi.ServiceState{}, err
 	}
 
-	enabledVal := strings.TrimSpace(enabledOut)
-	activeVal := strings.TrimSpace(activeOut)
 	return pluginapi.ServiceState{
-		Unit:    unit,
-		Enabled: enabledVal == "enabled",
-		Active:  activeVal == "active",
-		Known:   enabledVal != "" || activeVal != "",
+		Unit:         unit,
+		Enabled:      enabledVal == "enabled",
+		Active:       activeVal == "active",
+		EnabledState: enabledVal,
+		ActiveState:  activeVal,
+		Known:        enabledVal != "" || activeVal != "",
 	}, nil
+}
+
+// unitStateWord runs one systemctl query. `|| true` keeps a non-zero exit from
+// failing the command, because "disabled" and "inactive" are answers systemctl
+// reports through the exit status; a transport failure still returns an error
+// rather than an empty state that would journal as "unknown".
+func unitStateWord(host pluginapi.Host, verb, unit string) (string, error) {
+	out, err := host.RunRootWithOutput("systemctl " + verb + " " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// restorableUnitFileStates are the enablement states hardline can put back with
+// enable/disable. The rest describe a unit whose enablement is not hardline's
+// to set: masked needs unmask, static and generated have no enable symlink to
+// restore, and indirect is decided by another unit's WantedBy.
+var restorableUnitFileStates = map[string]struct{}{
+	"enabled":         {},
+	"enabled-runtime": {},
+	"disabled":        {},
 }
 
 func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) error {
@@ -381,6 +406,14 @@ func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) erro
 
 	if !serviceUnitPresent(host, unit) {
 		return nil
+	}
+
+	recorded := strings.TrimSpace(state.EnabledState)
+	if recorded == "" {
+		return fmt.Errorf("refusing to restore %q: the journal records no unit-file state", unit)
+	}
+	if _, ok := restorableUnitFileStates[recorded]; !ok {
+		return fmt.Errorf("refusing to restore %q: it was %s at apply time, which enable/disable cannot express", unit, recorded)
 	}
 
 	enableCmd := "systemctl disable " + pluginapi.ShellArg(unit)

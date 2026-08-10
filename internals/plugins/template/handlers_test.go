@@ -24,7 +24,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 			"mode": "bad",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "must be octal") {
+	if err == nil || !strings.Contains(err.Error(), "invalid file mode") {
 		t.Fatalf("expected template validation error, got %v", err)
 	}
 
@@ -37,7 +37,7 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 			"mode": "bad",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "must be octal") {
+	if err == nil || !strings.Contains(err.Error(), "invalid file mode") {
 		t.Fatalf("expected rollback template validation error, got %v", err)
 	}
 }
@@ -51,6 +51,7 @@ func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 		Config: map[string]any{
 			"src":  "x",
 			"dest": "y",
+			"mode": "0644",
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "profile context is required") {

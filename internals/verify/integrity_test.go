@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
@@ -8,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -397,10 +399,10 @@ func TestNormalizeManifestPath_InvalidCases(t *testing.T) {
 	}
 }
 
-func TestCollectProfileHashes_ErrorBranches(t *testing.T) {
+func TestCollectProfileFiles_ErrorBranches(t *testing.T) {
 	missingDir := filepath.Join(t.TempDir(), "missing")
-	if _, err := collectProfileHashes(missingDir); err == nil {
-		t.Fatal("expected collectProfileHashes to fail for missing directory")
+	if _, err := collectProfileFiles(missingDir); err == nil {
+		t.Fatal("expected collectProfileFiles to fail for missing directory")
 	}
 
 	tmp := t.TempDir()
@@ -410,8 +412,8 @@ func TestCollectProfileHashes_ErrorBranches(t *testing.T) {
 		t.Fatalf("chmod unreadable file: %v", err)
 	}
 	defer os.Chmod(unreadableFile, 0o644)
-	if _, err := collectProfileHashes(tmp); err == nil || !strings.Contains(err.Error(), "hash file") {
-		t.Fatalf("expected hash file error, got %v", err)
+	if _, err := collectProfileFiles(tmp); err == nil || !strings.Contains(err.Error(), "read file") {
+		t.Fatalf("expected read file error, got %v", err)
 	}
 
 	noAccess := filepath.Join(t.TempDir(), "no-access")
@@ -422,19 +424,66 @@ func TestCollectProfileHashes_ErrorBranches(t *testing.T) {
 		t.Fatalf("chmod no-access dir: %v", err)
 	}
 	defer os.Chmod(noAccess, 0o755)
-	if _, err := collectProfileHashes(noAccess); err == nil {
+	if _, err := collectProfileFiles(noAccess); err == nil {
 		t.Fatal("expected walk error for no-access directory")
 	}
 }
 
-func TestSha256File_ErrorBranches(t *testing.T) {
-	if _, err := sha256File(filepath.Join(t.TempDir(), "missing.txt")); err == nil {
-		t.Fatal("expected open error for missing file")
+// TestCollectProfileFiles_Bounds covers the limits that keep an unsigned
+// directory from being read into memory without a ceiling.
+func TestCollectProfileFiles_Bounds(t *testing.T) {
+	t.Run("single file over the per-file limit", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestFile(t, filepath.Join(dir, "big.txt"), make([]byte, maxProfileFileBytes+1))
+		if _, err := collectProfileFiles(dir); err == nil || !strings.Contains(err.Error(), "byte limit") {
+			t.Fatalf("expected per-file limit error, got %v", err)
+		}
+	})
+
+	t.Run("many files over the total limit", func(t *testing.T) {
+		dir := t.TempDir()
+		chunk := make([]byte, maxProfileFileBytes)
+		for i := 0; i <= maxProfileTotalBytes/maxProfileFileBytes; i++ {
+			writeTestFile(t, filepath.Join(dir, fmt.Sprintf("f%02d.txt", i)), chunk)
+		}
+		if _, err := collectProfileFiles(dir); err == nil || !strings.Contains(err.Error(), "total limit") {
+			t.Fatalf("expected total limit error, got %v", err)
+		}
+	})
+
+	t.Run("a symlink is not signable content", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestFile(t, filepath.Join(dir, "real.txt"), []byte("x"))
+		if err := os.Symlink(filepath.Join(dir, "real.txt"), filepath.Join(dir, "link.txt")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		if _, err := collectProfileFiles(dir); err == nil || !strings.Contains(err.Error(), "non-regular") {
+			t.Fatalf("expected non-regular file error, got %v", err)
+		}
+	})
+}
+
+// TestVerifyProfileIntegrity_ReturnsSignedBytes is what makes the snapshot
+// trustworthy: the map handed to later phases has to be the content that was
+// hashed, not a second read of the same paths.
+func TestVerifyProfileIntegrity_ReturnsSignedBytes(t *testing.T) {
+	profileDir := copySignedFixtureProfile(t)
+
+	manifest, err := VerifyProfileIntegrity(profileDir, false)
+	if err != nil {
+		t.Fatalf("VerifyProfileIntegrity failed: %v", err)
 	}
 
-	dir := t.TempDir()
-	if _, err := sha256File(dir); err == nil {
-		t.Fatal("expected read/copy error when hashing directory")
+	content, ok := manifest.Files["profile.json"]
+	if !ok {
+		t.Fatal("expected profile.json in the verified snapshot")
+	}
+	onDisk, err := os.ReadFile(filepath.Join(profileDir, "profile.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(content, onDisk) {
+		t.Fatal("verified snapshot does not match the bytes that were hashed")
 	}
 }
 
@@ -469,7 +518,7 @@ func TestVerifyProfile_MissingPluginFails(t *testing.T) {
 	}()
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
 		return &profile.Profile{
 			ActionFiles: []profile.ActionFile{
 				{Steps: []profile.Step{{ID: "s1", Plugin: "missing"}}},
@@ -734,15 +783,10 @@ func TestVerifyProfileIntegrity_WithLocalKey(t *testing.T) {
 	profileDir := t.TempDir()
 	writeTestFile(t, filepath.Join(profileDir, "a.txt"), []byte("hello"))
 
-	hash, err := sha256File(filepath.Join(profileDir, "a.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	manifest := profileManifest{
 		Version:   1,
 		Algorithm: "sha256",
-		Files:     []manifestEntry{{Path: "a.txt", SHA256: hash}},
+		Files:     []manifestEntry{{Path: "a.txt", SHA256: digestBytes([]byte("hello"))}},
 	}
 	writeSignedManifest(t, profileDir, manifest, priv)
 

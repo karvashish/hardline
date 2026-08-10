@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +20,7 @@ const (
 
 func TestApply(t *testing.T) {
 	t.Run("profile required", func(t *testing.T) {
-		err := Apply(pluginapi.Context{}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		err := Apply(pluginapi.Context{}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -36,7 +36,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("host required", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		err := Apply(pluginapi.Context{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		err := Apply(pluginapi.Context{Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err == nil || !strings.Contains(err.Error(), "host context is required") {
 			t.Fatalf("expected host context error, got %v", err)
 		}
@@ -52,7 +52,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("mkdir error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		err := Apply(pluginapi.Context{Host: templateExecHostStub{runRoot: func(string) error { return errors.New("boom") }}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		err := Apply(pluginapi.Context{Host: templateExecHostStub{runRoot: func(string) error { return errors.New("boom") }}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err == nil || !strings.Contains(err.Error(), "mkdir -p") {
 			t.Fatalf("expected mkdir error, got %v", err)
 		}
@@ -68,7 +68,7 @@ func TestApply(t *testing.T) {
 				return nil
 			},
 			writeRootFile: func(string, []byte, os.FileMode) error { return errors.New("boom") },
-		}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err == nil || !strings.Contains(err.Error(), "write root file") {
 			t.Fatalf("expected write error, got %v", err)
 		}
@@ -126,7 +126,7 @@ func TestApply(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for invalid mode, got nil")
 		}
-		if !strings.Contains(err.Error(), "invalid mode") {
+		if !strings.Contains(err.Error(), "invalid file mode") {
 			t.Fatalf("expected 'invalid mode' in error, got: %v", err)
 		}
 	})
@@ -134,7 +134,7 @@ func TestApply(t *testing.T) {
 
 func TestPlan(t *testing.T) {
 	t.Run("profile required", func(t *testing.T) {
-		_, err := Plan(pluginapi.Context{Host: templateRuntimeStub{}}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		_, err := Plan(pluginapi.Context{Host: templateRuntimeStub{}}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err == nil || !strings.Contains(err.Error(), "profile context is required") {
 			t.Fatalf("expected profile context error, got %v", err)
 		}
@@ -175,7 +175,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("missing and mismatched", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.Context{Host: templateRuntimeStub{statErr: errors.New("missing")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedNftDest})
+		res, err := Plan(pluginapi.Context{Host: templateRuntimeStub{statErr: errors.New("missing")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedNftDest, Mode: "0644"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -216,7 +216,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("read compare error", func(t *testing.T) {
 		p := mustLoadProfileForTemplateTests(t, map[string]string{"templates/t.tmpl": "hello"})
-		res, err := Plan(pluginapi.Context{Host: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o600, size: 4}, readErr: errors.New("boom")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		res, err := Plan(pluginapi.Context{Host: templateRuntimeStub{statInfo: fakeFileInfo{mode: 0o600, size: 4}, readErr: errors.New("boom")}, Profile: p}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -230,7 +230,7 @@ func TestPlan(t *testing.T) {
 		res, err := Plan(pluginapi.Context{
 			Host:    templateRuntimeHelperStub{runRootWithOutputErr: errors.New("boom")},
 			Profile: p,
-		}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest})
+		}, &Spec{Src: "templates/t.tmpl", Dest: templateManagedConfigDest, Mode: "0644"})
 		if err != nil {
 			t.Fatalf("Plan failed: %v", err)
 		}
@@ -299,7 +299,7 @@ func TestCapture(t *testing.T) {
 
 		rec, err := Capture(pluginapi.Context{Host: templateExecHostStub{
 			runRoot:           func(string) error { return nil },
-			runRootWithOutput: func(string) (string, error) { return "644", nil },
+			runRootWithOutput: func(string) (string, error) { return "regular file|644|root|root|7", nil },
 			readRootFile:      func(string) (string, error) { return "content", nil },
 		}}, "t", &Spec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"})
 		if err != nil {
@@ -313,21 +313,16 @@ func TestCapture(t *testing.T) {
 
 func mustLoadProfileForTemplateTests(t *testing.T, templates map[string]string) *profile.Profile {
 	t.Helper()
-	dir := t.TempDir()
 
+	files := make(map[string][]byte, len(templates)+1)
 	tplList := make([]string, 0, len(templates))
 	for rel, content := range templates {
 		tplList = append(tplList, rel)
-		path := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("mkdir for %q: %v", path, err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatalf("write template %q: %v", path, err)
-		}
+		files[rel] = []byte(content)
 	}
+	sort.Strings(tplList)
 
-	profileJSON := `{
+	files["profile.json"] = []byte(`{
   "id": "p",
   "display_name": "P",
   "version": "1.0.0",
@@ -337,14 +332,11 @@ func mustLoadProfileForTemplateTests(t *testing.T, templates map[string]string) 
   "actions": [],
   "templates": ["` + strings.Join(tplList, `","`) + `"],
   "allowed_overrides": []
-}`
-	if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte(profileJSON), 0o644); err != nil {
-		t.Fatalf("write profile.json: %v", err)
-	}
+}`)
 
-	p, err := profile.Load(dir)
+	p, err := profile.LoadFromBundle(t.TempDir(), files)
 	if err != nil {
-		t.Fatalf("profile.Load failed: %v", err)
+		t.Fatalf("profile.LoadFromBundle failed: %v", err)
 	}
 	return p
 }
@@ -378,14 +370,19 @@ func (s templateRuntimeStub) RunRoot(string) error {
 	return errors.New("missing")
 }
 
-func (s templateRuntimeStub) RunRootWithOutput(string) (string, error) {
+func (s templateRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 	if s.statErr != nil {
 		return "", s.statErr
 	}
-	if s.statInfo != nil {
-		return fmt.Sprintf("%o %d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+	if s.statInfo == nil {
+		return "", errors.New("missing")
 	}
-	return "", errors.New("missing")
+	// The snapshot helper asks for a typed stat line; the plugin's own
+	// destination check asks for mode and size only.
+	if strings.Contains(cmd, "%F|") {
+		return fmt.Sprintf("regular file|%o|root|root|%d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+	}
+	return fmt.Sprintf("%o %d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
 }
 
 func (s templateRuntimeStub) Stat(string) (os.FileInfo, error) {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/karvashish/hardline/pkg/logger"
@@ -46,17 +45,6 @@ func aligned(current pluginapi.FileSnapshot, rules []byte, mode os.FileMode) boo
 	return current.Existed &&
 		current.ContentB64 == base64.StdEncoding.EncodeToString(rules) &&
 		current.Mode == fmt.Sprintf("%o", mode.Perm())
-}
-
-func parseMode(raw string) (os.FileMode, error) {
-	if strings.TrimSpace(raw) == "" {
-		return os.FileMode(0o640), nil
-	}
-	parsed, err := strconv.ParseUint(strings.TrimSpace(raw), 8, 32)
-	if err != nil {
-		return 0, fmt.Errorf("invalid mode %q (expected octal, e.g. 640): %w", raw, err)
-	}
-	return os.FileMode(parsed), nil
 }
 
 // loadedKeys reports which keys the running kernel policy currently carries.
@@ -118,7 +106,7 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 	if err != nil {
 		return fmt.Errorf("load audit rules %q: %w", spec.Src, err)
 	}
-	mode, err := parseMode(spec.Mode)
+	mode, err := pluginapi.ParseFileMode(spec.Mode)
 	if err != nil {
 		return fmt.Errorf("audit step: %w", err)
 	}
@@ -169,7 +157,7 @@ func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 		return pluginapi.PlanResult{}, fmt.Errorf("load audit rules %q: %w", spec.Src, err)
 	}
 	want := RuleKeys(rules)
-	mode, err := parseMode(spec.Mode)
+	mode, err := pluginapi.ParseFileMode(spec.Mode)
 	if err != nil {
 		return pluginapi.PlanResult{}, fmt.Errorf("audit step: %w", err)
 	}

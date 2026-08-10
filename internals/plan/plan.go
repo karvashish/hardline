@@ -86,14 +86,7 @@ func Plan(c cli.Command, b *verify.VerifiedBundle) error {
 		return logger.Wrap(err, "required plugin validation failed")
 	}
 
-	overrides, err := cli.ResolveOverrides(c)
-	if err != nil {
-		return logger.Wrap(err, "resolve runtime overrides failed")
-	}
-	if err := p.ValidateOverrides(overrides); err != nil {
-		return logger.Wrap(err, "profile override validation failed")
-	}
-	p.SetRuntimeOverrides(overrides)
+	p.SetRuntimeOverrides(b.Overrides)
 
 	config := &connection.Config{
 		User:    c.User,

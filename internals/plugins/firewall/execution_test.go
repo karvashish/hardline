@@ -726,7 +726,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		}
 		rec, err := Capture(pluginapi.Context{Host: firewallExecHostStub{
 			runRoot:           func(string) error { return nil },
-			runRootWithOutput: func(string) (string, error) { return "644", nil },
+			runRootWithOutput: func(string) (string, error) { return "regular file|644|root|root|5", nil },
 			readRootFile:      func(string) (string, error) { return "abc", nil },
 		}}, "f", validDeterministicFirewallSpec())
 		if err != nil {
@@ -998,7 +998,19 @@ type firewallHelperRuntimeStub struct {
 
 func (s firewallHelperRuntimeStub) RunRoot(string) error { return s.runRootErr }
 
-func (s firewallHelperRuntimeStub) RunRootWithOutput(string) (string, error) {
+func (s firewallHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if s.runRootWithOutputErr != nil {
+		return "", s.runRootWithOutputErr
+	}
+	// The snapshot helper asks for a typed stat line; the plugin's own
+	// destination check asks for mode and size only.
+	if strings.Contains(cmd, "%F|") {
+		fields := strings.Fields(s.runRootWithOutput)
+		if len(fields) != 2 {
+			return s.runRootWithOutput, nil
+		}
+		return "regular file|" + fields[0] + "|root|root|" + fields[1], nil
+	}
 	return s.runRootWithOutput, s.runRootWithOutputErr
 }
 

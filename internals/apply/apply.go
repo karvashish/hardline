@@ -21,57 +21,22 @@ import (
 
 var applyNow = time.Now
 
-const remoteApplyLockDir = "/var/lib/hardline/.apply-lock.d"
-
 var (
-	newSSHClient           = connection.NewSSHClient
-	versionCmd             = cli.VersionCmd
-	compareSemVer          = cli.CompareSemVer
-	ensureApplySudo        = connection.EnsureNonInteractiveSudo
-	ensureApplyPlugins     = pluginapi.EnsureProfilePlugins
-	runApplyProfile        = applyProfile
-	runCaptureStepRecord   = captureStepRecordWithRegistry
-	runRollbackStep        = rollback.RollbackSteps
-	saveRunnerJournal      = (*rollback.Journal).SaveLast
-	removeRunnerJournal    = (*rollback.Journal).RemoveLast
-	saveTargetJournal      = rollback.SaveRemoteLast
-	runStep                = handleStepWithRegistry
-	acquireRemoteApplyLock = defaultAcquireRemoteApplyLock
-	releaseRemoteApplyLock = defaultReleaseRemoteApplyLock
-	manifestDigest         = verify.ManifestDigest
+	newSSHClient         = connection.NewSSHClient
+	versionCmd           = cli.VersionCmd
+	compareSemVer        = cli.CompareSemVer
+	ensureApplySudo      = connection.EnsureNonInteractiveSudo
+	ensureApplyPlugins   = pluginapi.EnsureProfilePlugins
+	runApplyProfile      = applyProfile
+	runCaptureStepRecord = captureStepRecordWithRegistry
+	runRollbackStep      = rollback.RollbackSteps
+	saveRunnerJournal    = (*rollback.Journal).SaveLast
+	removeRunnerJournal  = (*rollback.Journal).RemoveLast
+	saveTargetJournal    = rollback.SaveRemoteLast
+	runStep              = handleStepWithRegistry
+	acquireMutationLock  = remote.AcquireMutationLock
+	releaseMutationLock  = remote.ReleaseMutationLock
 )
-
-// reverifyManifestDigest closes the window between the verify phase and the
-// first write: anything that edited the profile directory since would otherwise
-// change what gets applied without ever being re-signed.
-func reverifyManifestDigest(b *verify.VerifiedBundle) error {
-	current, err := manifestDigest(b.ProfileDir)
-	if err != nil {
-		return logger.Wrap(err, "re-check profile integrity before apply")
-	}
-	if current != b.ManifestDigest {
-		return errors.New("profile " + b.ProfileDir + " changed after verification; re-run verify before applying")
-	}
-	return nil
-}
-
-func defaultAcquireRemoteApplyLock(client *remote.Client) error {
-	if client == nil {
-		return nil
-	}
-	cmd := "mkdir -p /var/lib/hardline && mkdir " + pluginapi.ShellArg(remoteApplyLockDir)
-	if err := client.RunRoot(cmd); err != nil {
-		return errors.New("another hardline apply is already running on this host; if stale, run: sudo rmdir " + remoteApplyLockDir)
-	}
-	return nil
-}
-
-func defaultReleaseRemoteApplyLock(client *remote.Client) error {
-	if client == nil {
-		return nil
-	}
-	return client.RunRoot("rmdir " + pluginapi.ShellArg(remoteApplyLockDir))
-}
 
 func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 	if !c.Debug {
@@ -106,12 +71,12 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 		return logger.Wrap(err, "sudo preflight failed")
 	}
 
-	if err := acquireRemoteApplyLock(sshClient); err != nil {
+	if err := acquireMutationLock(sshClient); err != nil {
 		return err
 	}
 	defer func() {
-		if releaseErr := releaseRemoteApplyLock(sshClient); releaseErr != nil {
-			logger.Warnf("release apply lock failed: %v\n", releaseErr)
+		if releaseErr := releaseMutationLock(sshClient); releaseErr != nil {
+			logger.Warnf("release mutation lock failed: %v\n", releaseErr)
 		}
 	}()
 
@@ -143,18 +108,7 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 		return logger.Wrap(err, "required plugin validation failed")
 	}
 
-	overrides, err := cli.ResolveOverrides(c)
-	if err != nil {
-		return logger.Wrap(err, "resolve runtime overrides failed")
-	}
-	if err := p.ValidateOverrides(overrides); err != nil {
-		return logger.Wrap(err, "profile override validation failed")
-	}
-	p.SetRuntimeOverrides(overrides)
-
-	if err := reverifyManifestDigest(b); err != nil {
-		return err
-	}
+	p.SetRuntimeOverrides(b.Overrides)
 
 	journal := rollback.NewJournal(c.Host, p.ID, c.Profile)
 	if err := saveRunnerJournal(journal); err != nil {
@@ -171,8 +125,17 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 
 	journal.Status = "success"
 	if err := saveTargetJournal(sshClient, journal); err != nil {
-		_ = saveRunnerJournal(journal)
-		return logger.Wrap(err, "persist target rollback journal failed")
+		// The host is already fully changed at this point, so the run is not
+		// undoable from the target. Keeping the runner-side copy and naming the
+		// command that consumes it is what keeps this recoverable.
+		if saveErr := saveRunnerJournal(journal); saveErr != nil {
+			return errors.New("persist target rollback journal failed: " + err.Error() +
+				"; the local fallback journal could not be written either: " + saveErr.Error() +
+				"; this run cannot be rolled back automatically")
+		}
+		return errors.New("persist target rollback journal failed: " + err.Error() +
+			"; the host was changed, so roll back from the runner-side journal with: hardline rollback " +
+			c.Profile + " --host " + c.Host + " --local-journal")
 	}
 	if c.KeepLocalRollback {
 		if err := saveRunnerJournal(journal); err != nil {
@@ -198,17 +161,8 @@ func applyProfile(ctx context.Context, client *remote.Client, p *profile.Profile
 
 	for _, af := range p.ActionFiles {
 		for _, step := range af.Steps {
-			select {
-			case <-ctx.Done():
-				if journal != nil {
-					journal.Status = "interrupted"
-					_ = saveRunnerJournal(journal)
-					if len(journal.Steps) > 0 {
-						_ = runRollbackStep(client, journal.Steps)
-					}
-				}
-				return logger.Wrap(ctx.Err(), "interrupted")
-			default:
+			if err := abortIfCancelled(ctx, client, journal); err != nil {
+				return err
 			}
 
 			currentStep++
@@ -242,11 +196,48 @@ func applyProfile(ctx context.Context, client *remote.Client, p *profile.Profile
 				alignedCount++
 				logger.Infof("%s✓ ALIGNED%s (%s)\n", logger.ColorGreen+logger.ColorBold, logger.ColorReset, formatShortDuration(duration))
 			}
+
+			// Also after the step, not only before it: a SIGINT that arrives
+			// while the last step is running would otherwise be discarded the
+			// moment that step succeeds, and the run would report completion
+			// for a cancellation the operator asked for.
+			if err := abortIfCancelled(ctx, client, journal); err != nil {
+				return err
+			}
 		}
 	}
 
 	writeApplyFooter(p, journal, totalSteps, changedCount, alignedCount, applyNow().Sub(runStart))
 	return nil
+}
+
+// abortIfCancelled reverts what the run has already done and reports the
+// cancellation. It returns nil when no cancellation is pending.
+func abortIfCancelled(ctx context.Context, client *remote.Client, journal *rollback.Journal) error {
+	select {
+	case <-ctx.Done():
+	default:
+		return nil
+	}
+
+	if journal == nil {
+		return logger.Wrap(ctx.Err(), "interrupted")
+	}
+
+	// What happened to the journal and to the revert is the operator's only
+	// account of what state the host was left in, so neither result is dropped.
+	msg := "interrupted: " + ctx.Err().Error()
+	journal.Status = "interrupted"
+	if err := saveRunnerJournal(journal); err != nil {
+		msg += "; persist local rollback journal failed: " + err.Error()
+	}
+	if len(journal.Steps) > 0 {
+		if err := runRollbackStep(client, journal.Steps); err != nil {
+			return errors.New(msg + "; automatic rollback failed: " + err.Error())
+		}
+		msg += "; automatic rollback completed"
+	}
+	return errors.New(msg)
 }
 
 func countApplySteps(p *profile.Profile) int {

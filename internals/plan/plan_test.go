@@ -643,30 +643,6 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 		ensurePlanPlugins = pluginapi.EnsureProfilePlugins
 	})
 
-	t.Run("override validation failure", func(t *testing.T) {
-		overridesDir := t.TempDir()
-		overridesPath := filepath.Join(overridesDir, "overrides.json")
-		if err := os.WriteFile(overridesPath, []byte(`{"smtp_port": 25}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		planBundleProfile = mustLoadFixtureProfile(t, profileFixture{
-			ID:               "ok",
-			DisplayName:      "OK",
-			MinHardline:      "0.1.0",
-			Schema:           1,
-			AllowedOverrides: []string{"ssh_port"},
-		})
-		err := planWithBundle(cli.Command{
-			Profile:       "x",
-			Debug:         true,
-			OverridesFile: overridesPath,
-		})
-		if err == nil || !strings.Contains(err.Error(), "profile override validation failed") {
-			t.Fatalf("expected override validation error, got %v", err)
-		}
-		planBundleProfile = goodProfile
-	})
-
 	t.Run("connect failure", func(t *testing.T) {
 		newPlanSSHClient = func(connection.Config) (*remote.Client, error) { return nil, errors.New("connect fail") }
 		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
@@ -692,11 +668,9 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 	})
 
 	t.Run("success with overrides", func(t *testing.T) {
-		overridesDir := t.TempDir()
-		overridesPath := filepath.Join(overridesDir, "overrides.json")
-		if err := os.WriteFile(overridesPath, []byte(`{"ssh_port": 2222}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		overridesPath := filepath.Join(t.TempDir(), "overrides.json")
+		planBundleOverrides = map[string]json.RawMessage{"ssh_port": json.RawMessage(`2222`)}
+		defer func() { planBundleOverrides = nil }()
 		planBundleProfile = mustLoadFixtureProfile(t, profileFixture{
 			ID:               "ok",
 			DisplayName:      "OK",
@@ -784,16 +758,28 @@ func writeProfileFixture(t *testing.T, f profileFixture) string {
 func mustLoadFixtureProfile(t *testing.T, f profileFixture) *profile.Profile {
 	t.Helper()
 	dir := writeProfileFixture(t, f)
-	p, err := profile.Load(dir)
+	body, err := os.ReadFile(filepath.Join(dir, "profile.json"))
+	if err != nil {
+		t.Fatalf("read profile fixture: %v", err)
+	}
+	p, err := profile.LoadFromBundle(dir, map[string][]byte{"profile.json": body})
 	if err != nil {
 		t.Fatalf("load fixture profile failed: %v", err)
 	}
 	return p
 }
 
-// planBundleProfile is the profile the stubbed verify phase hands to Plan.
-var planBundleProfile *profile.Profile
+// planBundleProfile and planBundleOverrides are what the stubbed verify phase
+// hands to Plan.
+var (
+	planBundleProfile   *profile.Profile
+	planBundleOverrides map[string]json.RawMessage
+)
 
 func planWithBundle(c cli.Command) error {
-	return Plan(c, &verify.VerifiedBundle{ProfileDir: c.Profile, Profile: planBundleProfile})
+	return Plan(c, &verify.VerifiedBundle{
+		ProfileDir: c.Profile,
+		Profile:    planBundleProfile,
+		Overrides:  planBundleOverrides,
+	})
 }

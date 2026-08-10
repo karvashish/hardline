@@ -84,7 +84,7 @@ func validateSpec(spec *Spec) error {
 	if !strings.HasPrefix(spec.Dest, "/etc/audit/rules.d/") {
 		return fmt.Errorf("audit dest %q must be under /etc/audit/rules.d/, which is what augenrules compiles", spec.Dest)
 	}
-	if _, err := parseMode(spec.Mode); err != nil {
+	if _, err := pluginapi.ParseFileMode(spec.Mode); err != nil {
 		return fmt.Errorf("audit step: %w", err)
 	}
 	return nil

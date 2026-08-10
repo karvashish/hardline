@@ -534,7 +534,7 @@ func TestRemoteJournalErrorPaths(t *testing.T) {
 		resolveRemoteStatePath = func(profileID, runID string) string {
 			return "/var/lib/hardline/runs/" + profileID + "/" + runID + ".json"
 		}
-		runRemoteRootWithOutput = func(_ *remote.Client, _ string) (string, error) { return "run.json\n", nil }
+		runRemoteRootWithOutput = func(_ *remote.Client, _ string) (string, error) { return "20260810T101500.000000000Z.json\n", nil }
 		readRemoteRootFile = func(_ *remote.Client, remotePath string) (string, error) { return "", errors.New("read boom") }
 		if _, err := LoadRemoteLast(nil, "p"); err == nil || !strings.Contains(err.Error(), "read boom") {
 			t.Fatalf("expected read error, got %v", err)
@@ -609,4 +609,42 @@ func stubJournalHooks() func() {
 		readRemoteRootFile = prevReadRemoteRootFile
 		writeRemoteRootFile = prevWriteRemoteRootFile
 	}
+}
+
+// TestLoadRemoteLast_IgnoresForeignFilenames pins that only names this hardline
+// wrote are considered. The selected file is read back as the instruction set
+// for a root-level restore, so a stray or planted name must not be picked.
+func TestLoadRemoteLast_IgnoresForeignFilenames(t *testing.T) {
+	restore := stubJournalHooks()
+	defer restore()
+
+	resolveRemoteStatePath = func(profileID, runID string) string {
+		return "/var/lib/hardline/runs/" + profileID + "/" + runID + ".json"
+	}
+
+	t.Run("sorts past a lexically larger foreign name", func(t *testing.T) {
+		runRemoteRootWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "20260810T101500.000000000Z.json\nzz-attacker.json\nnotes.txt\n", nil
+		}
+		var readPath string
+		readRemoteRootFile = func(_ *remote.Client, p string) (string, error) {
+			readPath = p
+			return "", errors.New("stop here")
+		}
+		if _, err := LoadRemoteLast(nil, "p"); err == nil {
+			t.Fatal("expected the stubbed read to fail")
+		}
+		if !strings.HasSuffix(readPath, "20260810T101500.000000000Z.json") {
+			t.Fatalf("expected the well-formed journal to be selected, got %q", readPath)
+		}
+	})
+
+	t.Run("no well-formed name is no journal", func(t *testing.T) {
+		runRemoteRootWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "run.json\nbackup.json.bak\n", nil
+		}
+		if _, err := LoadRemoteLast(nil, "p"); err == nil || !strings.Contains(err.Error(), "no journal found") {
+			t.Fatalf("expected no journal found, got %v", err)
+		}
+	})
 }

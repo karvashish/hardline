@@ -1,10 +1,8 @@
 package verify
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
 
 	"github.com/karvashish/hardline/internals/cli"
 	"github.com/karvashish/hardline/internals/registry"
@@ -15,20 +13,25 @@ import (
 
 var (
 	verifyIntegrity     = VerifyProfileIntegrity
-	loadVerifyProfile   = profile.Load
+	loadVerifyProfile   = profile.LoadFromBundle
 	ensureVerifyPlugins = pluginapi.EnsureProfilePlugins
 	affirmProfile       = func(p *profile.Profile) error { return p.Affirm() }
-	statFile            = os.Stat
+	resolveOverrides    = cli.ResolveOverrides
 )
 
 // VerifiedBundle is the immutable result of a passed verify phase. Plan, apply
 // and rollback take this instead of a directory path so they operate on the
 // profile whose signature was checked, rather than re-reading a directory that
 // may have changed since.
+//
+// Overrides are carried here for the same reason, even though they are
+// deliberately unsigned: resolving them separately in each phase lets apply act
+// on values the plan never displayed.
 type VerifiedBundle struct {
 	ProfileDir     string
 	ManifestDigest string
 	Profile        *profile.Profile
+	Overrides      map[string]json.RawMessage
 }
 
 func Verify(c cli.Command) (*VerifiedBundle, error) {
@@ -39,7 +42,7 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, err
 	}
 
-	p, err := loadVerifyProfile(c.Profile)
+	p, err := loadVerifyProfile(c.Profile, manifest.Files)
 	if err != nil {
 		return nil, logger.Wrap(err, "profile load failed")
 	}
@@ -48,7 +51,7 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, logger.Wrap(err, "profile schema validation failed")
 	}
 
-	overrides, err := cli.ResolveOverrides(c)
+	overrides, err := resolveOverrides(c)
 	if err != nil {
 		return nil, logger.Wrap(err, "resolve runtime overrides")
 	}
@@ -60,8 +63,10 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, logger.Wrap(err, "required plugin validation failed")
 	}
 
-	// Coverage first: it rejects any reference that points outside the signed
-	// tree, so the stat below never touches a path the signature did not cover.
+	// A reference outside the signed tree is unsigned content reached through a
+	// signed pointer. The profile is already loaded from the snapshot, so an
+	// uncovered action would have failed above; templates are loaded lazily and
+	// this is where they are proven covered.
 	if err := assertManifestCoverage(manifest, "action", p.Actions); err != nil {
 		return nil, err
 	}
@@ -69,17 +74,11 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, err
 	}
 
-	for _, tmpl := range p.Templates {
-		tmplPath := filepath.Join(c.Profile, tmpl)
-		if _, err := statFile(tmplPath); err != nil {
-			return nil, logger.Wrap(err, "template "+strconv.Quote(tmpl)+" declared in profile.json but missing on disk")
-		}
-	}
-
 	return &VerifiedBundle{
 		ProfileDir:     c.Profile,
 		ManifestDigest: manifest.Digest,
 		Profile:        p,
+		Overrides:      overrides,
 	}, nil
 }
 

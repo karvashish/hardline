@@ -31,7 +31,14 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.File == nil || a.File == nil {
 				return b.File != a.File
 			}
-			if b.File.Existed != a.File.Existed || b.File.ContentB64 != a.File.ContentB64 {
+			// Mode, owner and group count as much as content: a step that only
+			// tightened permissions changed the host, and reporting it ALIGNED
+			// also withholds the trigger from restart_policy: on_change.
+			if b.File.Existed != a.File.Existed ||
+				b.File.ContentB64 != a.File.ContentB64 ||
+				b.File.Mode != a.File.Mode ||
+				b.File.Owner != a.File.Owner ||
+				b.File.Group != a.File.Group {
 				return true
 			}
 		case ObjectFileMeta:
@@ -49,14 +56,23 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.Service == nil || a.Service == nil {
 				return b.Service != a.Service
 			}
-			if b.Service.Active != a.Service.Active || b.Service.Enabled != a.Service.Enabled {
+			// Compare the exact states, not only the booleans: static -> enabled
+			// and failed -> inactive are both changes the booleans cannot see.
+			if b.Service.Active != a.Service.Active ||
+				b.Service.Enabled != a.Service.Enabled ||
+				b.Service.EnabledState != a.Service.EnabledState ||
+				b.Service.ActiveState != a.Service.ActiveState {
 				return true
 			}
 		case ObjectPackage:
 			if b.Package == nil || a.Package == nil {
 				return b.Package != a.Package
 			}
-			if b.Package.WasInstalled != a.Package.WasInstalled {
+			// An upgrade leaves WasInstalled true on both sides, so comparing
+			// only that reports a whole upgrade transaction as ALIGNED.
+			if b.Package.WasInstalled != a.Package.WasInstalled ||
+				b.Package.Version != a.Package.Version ||
+				b.Package.PinSpec != a.Package.PinSpec {
 				return true
 			}
 		}
@@ -107,6 +123,30 @@ func EnforceManagedPath(dest string) error {
 	}
 }
 
+// MaxSnapshotBytes bounds a single journalled file. The journal is held in
+// memory, written to the runner and written again to the target, so a managed
+// drop-in that is suddenly enormous is a reason to stop rather than something
+// to read three more times. Real /etc drop-ins are kilobytes.
+const MaxSnapshotBytes = 1 << 20
+
+// ParseFileMode turns a journalled octal mode into a FileMode. There is no
+// default: a record that cannot say what mode a file had cannot be used to
+// restore it, and quietly substituting 0600 invents a state the host never had.
+func ParseFileMode(raw string) (os.FileMode, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, fmt.Errorf("no file mode recorded")
+	}
+	parsed, err := strconv.ParseUint(trimmed, 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid file mode %q (expected octal, e.g. 640): %w", raw, err)
+	}
+	if parsed > 0o7777 {
+		return 0, fmt.Errorf("invalid file mode %q: out of range", raw)
+	}
+	return os.FileMode(parsed), nil
+}
+
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if host == nil {
 		return FileSnapshot{}, fmt.Errorf("host is required")
@@ -114,23 +154,52 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	testCmd := "test -e " + ShellArg(remotePath)
-	if err := host.RunRoot(testCmd); err != nil {
+	// One stat, with -c and no dereference: test -e follows symlinks, so a
+	// compromised host could point a managed path at /dev/zero or at a file
+	// outside the managed scope and have hardline read and later rewrite it.
+	statOut, err := host.RunRootWithOutput("stat -L -c '%F|%a|%U|%G|%s' " + ShellArg(remotePath) + " 2>/dev/null || true")
+	if err != nil {
+		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
+	}
+	statLine := strings.TrimSpace(statOut)
+	if statLine == "" {
 		snap.Existed = false
 		return snap, nil
 	}
-	snap.Existed = true
 
-	modeCmd := "stat -c %a " + ShellArg(remotePath)
-	modeOut, err := host.RunRootWithOutput(modeCmd)
-	if err != nil {
-		return snap, err
+	fields := strings.Split(statLine, "|")
+	if len(fields) != 5 {
+		return snap, fmt.Errorf("parse stat output for %q: unexpected format %q", remotePath, statLine)
 	}
-	snap.Mode = strings.TrimSpace(modeOut)
+	if fields[0] != "regular file" && fields[0] != "regular empty file" {
+		return snap, fmt.Errorf("refusing to snapshot %q: it is a %s, not a regular file", remotePath, fields[0])
+	}
+	size, err := strconv.ParseInt(fields[4], 10, 64)
+	if err != nil {
+		return snap, fmt.Errorf("parse stat size for %q: %w", remotePath, err)
+	}
+	if size > MaxSnapshotBytes {
+		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, size, MaxSnapshotBytes)
+	}
+
+	// A symlink whose target is a regular file still passes the check above, so
+	// the link itself is rejected separately: restoring it would replace the
+	// link with a file and silently unmanage whatever it pointed at.
+	if err := host.RunRoot("test ! -L " + ShellArg(remotePath)); err != nil {
+		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)
+	}
+
+	snap.Existed = true
+	snap.Mode = fields[1]
+	snap.Owner = fields[2]
+	snap.Group = fields[3]
 
 	content, err := host.ReadRootFile(remotePath)
 	if err != nil {
 		return snap, err
+	}
+	if len(content) > MaxSnapshotBytes {
+		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, len(content), MaxSnapshotBytes)
 	}
 	snap.ContentB64 = base64.StdEncoding.EncodeToString([]byte(content))
 	return snap, nil
@@ -149,11 +218,9 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 		return host.RunRoot("rm -f " + ShellArg(snap.Path))
 	}
 
-	mode := os.FileMode(0o600)
-	if strings.TrimSpace(snap.Mode) != "" {
-		if parsed, err := strconv.ParseUint(strings.TrimSpace(snap.Mode), 8, 32); err == nil {
-			mode = os.FileMode(parsed)
-		}
+	mode, err := ParseFileMode(snap.Mode)
+	if err != nil {
+		return fmt.Errorf("restore file %q: %w", snap.Path, err)
 	}
 
 	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
@@ -171,25 +238,47 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 	if err := host.WriteRootFile(snap.Path, content, mode); err != nil {
 		return fmt.Errorf("restore file %q: %w", snap.Path, err)
 	}
+
+	if snap.Owner == "" || snap.Group == "" {
+		return fmt.Errorf("restore file %q: the journal records no owner or group", snap.Path)
+	}
+	if err := host.RunRoot("chown " + ShellArg(snap.Owner+":"+snap.Group) + " " + ShellArg(snap.Path)); err != nil {
+		return fmt.Errorf("restore ownership of %q: %w", snap.Path, err)
+	}
 	return nil
 }
 
 // FileSnapshotConflict reports whether the remote file drifted from the
-// post-apply content recorded in snap. An empty result means no conflict.
+// post-apply state recorded in snap. An empty result means no conflict.
 func FileSnapshotConflict(host Host, snap FileSnapshot) []string {
+	current, err := SnapshotRemoteFile(host, snap.Path)
+	if err != nil {
+		return []string{fmt.Sprintf("%s: cannot be inspected (%v)", snap.Path, err)}
+	}
+
+	// "The journal says this file was absent and it now exists" is drift, not
+	// the absence of drift: rollback would delete a file someone else created.
 	if !snap.Existed {
+		if current.Existed {
+			return []string{fmt.Sprintf("%s: journal recorded no file here but one exists now (created since apply); rolling back deletes it", snap.Path)}
+		}
 		return nil
 	}
-	expectedContent, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-	if err != nil {
-		return nil
+
+	if !current.Existed {
+		return []string{fmt.Sprintf("%s: journal expects this file to exist but it is now absent (removed since apply)", snap.Path)}
 	}
-	current, err := host.ReadRootFile(snap.Path)
-	if err != nil {
-		return []string{fmt.Sprintf("%s: journal expects file to exist but it cannot be read (%v)", snap.Path, err)}
+
+	var conflicts []string
+	if current.ContentB64 != snap.ContentB64 {
+		conflicts = append(conflicts, fmt.Sprintf("%s: current content differs from what this profile wrote (modified since apply)", snap.Path))
 	}
-	if current != string(expectedContent) {
-		return []string{fmt.Sprintf("%s: current content differs from what this profile wrote (modified since apply)", snap.Path)}
+	if current.Mode != snap.Mode {
+		conflicts = append(conflicts, fmt.Sprintf("%s: mode is %s but this profile left it %s (changed since apply)", snap.Path, current.Mode, snap.Mode))
 	}
-	return nil
+	if current.Owner != snap.Owner || current.Group != snap.Group {
+		conflicts = append(conflicts, fmt.Sprintf("%s: owner is %s:%s but this profile left it %s:%s (changed since apply)",
+			snap.Path, current.Owner, current.Group, snap.Owner, snap.Group))
+	}
+	return conflicts
 }

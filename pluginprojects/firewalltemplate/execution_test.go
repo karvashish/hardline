@@ -7,7 +7,7 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -204,7 +204,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 
 	host := fwTemplateExecHostStub{
 		runRoot:           func(string) error { return nil },
-		runRootWithOutput: func(string) (string, error) { return "644", nil },
+		runRootWithOutput: func(string) (string, error) { return "regular file|644|root|root|5", nil },
 		readRootFile:      func(string) (string, error) { return "abc", nil },
 	}
 
@@ -394,21 +394,16 @@ func TestDestinationHelpersAndPlugin(t *testing.T) {
 
 func mustLoadProfileForFirewallTemplateTests(t *testing.T, templates map[string]string) *profile.Profile {
 	t.Helper()
-	dir := t.TempDir()
 
+	files := make(map[string][]byte, len(templates)+1)
 	tplList := make([]string, 0, len(templates))
 	for rel, content := range templates {
 		tplList = append(tplList, rel)
-		path := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("mkdir for %q: %v", path, err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatalf("write template %q: %v", path, err)
-		}
+		files[rel] = []byte(content)
 	}
+	sort.Strings(tplList)
 
-	profileJSON := `{
+	files["profile.json"] = []byte(`{
   "id": "p",
   "display_name": "P",
   "version": "1.0.0",
@@ -418,14 +413,11 @@ func mustLoadProfileForFirewallTemplateTests(t *testing.T, templates map[string]
   "actions": [],
   "templates": ["` + strings.Join(tplList, `","`) + `"],
   "allowed_overrides": []
-}`
-	if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte(profileJSON), 0o644); err != nil {
-		t.Fatalf("write profile.json: %v", err)
-	}
+}`)
 
-	p, err := profile.Load(dir)
+	p, err := profile.LoadFromBundle(t.TempDir(), files)
 	if err != nil {
-		t.Fatalf("profile.Load failed: %v", err)
+		t.Fatalf("profile.LoadFromBundle failed: %v", err)
 	}
 	return p
 }

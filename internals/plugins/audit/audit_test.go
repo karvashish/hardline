@@ -3,6 +3,7 @@ package audit
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -66,12 +67,33 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 		return s.loaded, nil
 	}
 	if strings.HasPrefix(cmd, "stat ") {
-		if s.mode != "" {
-			return s.mode, nil
+		path := statPathFromCmd(cmd)
+		content, ok := s.files[path]
+		if !ok {
+			return "", nil
 		}
-		return "640", nil
+		mode := s.mode
+		if mode == "" {
+			mode = "640"
+		}
+		return fmt.Sprintf("regular file|%s|root|root|%d", mode, len(content)), nil
 	}
 	return "", nil
+}
+
+// statPathFromCmd pulls the quoted path back out of the stat command the
+// snapshot helper builds. The path is the last quoted word; the format string
+// is quoted too, so scanning from the left finds the wrong one.
+func statPathFromCmd(cmd string) string {
+	end := strings.LastIndex(cmd, "'")
+	if end < 0 {
+		return ""
+	}
+	start := strings.LastIndex(cmd[:end], "'")
+	if start < 0 {
+		return ""
+	}
+	return cmd[start+1 : end]
 }
 
 func (s hostStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("not found") }
@@ -95,22 +117,15 @@ const dest = "/etc/audit/rules.d/99-hardline.rules"
 
 func testProfile(t *testing.T, rules string) *profile.Profile {
 	t.Helper()
-	dir := t.TempDir()
-	if err := os.MkdirAll(dir+"/templates", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dir+"/templates/audit.rules", []byte(rules), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dir+"/profile.json", []byte(`{
+	p, err := profile.LoadFromBundle(t.TempDir(), map[string][]byte{
+		"profile.json": []byte(`{
   "id": "audit-test", "display_name": "Audit Test", "version": "1.0.0",
   "os": {"family": "rocky", "version": "9", "variant": "server"},
   "profile_schema": 1, "min_hardline": "0.0.1",
   "actions": [], "templates": ["templates/audit.rules"]
-}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p, err := profile.Load(dir)
+}`),
+		"templates/audit.rules": []byte(rules),
+	})
 	if err != nil {
 		t.Fatalf("load profile: %v", err)
 	}
@@ -388,6 +403,8 @@ func TestRestoreReloadsAfterPuttingTheFileBack(t *testing.T) {
 		Path:       dest,
 		Existed:    true,
 		Mode:       "640",
+		Owner:      "root",
+		Group:      "root",
 		ContentB64: base64.StdEncoding.EncodeToString([]byte("-w /etc/passwd -p wa -k old\n")),
 	}
 	if err := Restore(host, snap); err != nil {

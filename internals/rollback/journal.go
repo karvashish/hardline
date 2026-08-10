@@ -14,7 +14,12 @@ import (
 )
 
 const (
-	journalVersion = 2
+	// journalVersion 3 added exact unit states and file ownership to the
+	// recorded objects. A version 2 journal cannot be replayed: it records
+	// enablement as a bare boolean and no owner at all, so restoring from it
+	// would put back a unit configuration and an ownership the host never had.
+	// Such a journal is rejected rather than half-honoured.
+	journalVersion = 3
 )
 
 type Journal struct {
@@ -225,22 +230,29 @@ func decodeJournal(data []byte, source string) (*Journal, error) {
 	}
 
 	if j.Version != journalVersion {
-		return nil, fmt.Errorf("unsupported rollback state version %d", j.Version)
+		return nil, fmt.Errorf(
+			"unsupported rollback state version %d (this hardline writes and reads version %d); a journal from an older hardline cannot be replayed safely, roll back with the version that wrote it or discard it",
+			j.Version, journalVersion)
 	}
 
-	if j.Checksum != "" {
-		saved := j.Checksum
-		j.Checksum = ""
-		clean, err := json.MarshalIndent(&j, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("verify rollback journal checksum: %w", err)
-		}
-		sum := sha256.Sum256(clean)
-		if hex.EncodeToString(sum[:]) != saved {
-			return nil, fmt.Errorf("rollback journal %q checksum mismatch: file may be corrupted", source)
-		}
-		j.Checksum = saved
+	// The checksum is required, not merely checked when present: a journal
+	// drives root-level restoration, and an optional integrity field is one an
+	// attacker removes rather than forges.
+	if j.Checksum == "" {
+		return nil, fmt.Errorf("rollback journal %q carries no checksum: refusing to trust it", source)
 	}
+
+	saved := j.Checksum
+	j.Checksum = ""
+	clean, err := json.MarshalIndent(&j, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("verify rollback journal checksum: %w", err)
+	}
+	sum := sha256.Sum256(clean)
+	if hex.EncodeToString(sum[:]) != saved {
+		return nil, fmt.Errorf("rollback journal %q checksum mismatch: file may be corrupted", source)
+	}
+	j.Checksum = saved
 
 	return &j, nil
 }

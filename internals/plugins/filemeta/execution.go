@@ -303,16 +303,18 @@ func chownArg(s *Spec) string {
 
 // normalizeMode reformats an octal mode to the form `stat -c %a` emits, so
 // "0640" compares equal to the host's "640".
+// An empty mode means "leave the mode alone", which is a real file_meta
+// option; anything present is parsed strictly, so an out-of-range value is
+// rejected rather than truncated into some other permission set.
 func normalizeMode(mode string) (string, error) {
-	t := strings.TrimSpace(mode)
-	if t == "" {
+	if strings.TrimSpace(mode) == "" {
 		return "", nil
 	}
-	parsed, err := strconv.ParseUint(t, 8, 32)
+	parsed, err := pluginapi.ParseFileMode(mode)
 	if err != nil {
-		return "", fmt.Errorf("invalid octal mode %q", mode)
+		return "", err
 	}
-	return strconv.FormatUint(parsed, 8), nil
+	return strconv.FormatUint(uint64(parsed), 8), nil
 }
 
 // snapshotFileMeta records mode/owner/group/managed-attrs for a path. A missing

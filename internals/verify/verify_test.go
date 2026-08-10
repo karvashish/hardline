@@ -17,14 +17,14 @@ func stubVerifyHooks() func() {
 	prevLoad := loadVerifyProfile
 	prevEnsure := ensureVerifyPlugins
 	prevAffirm := affirmProfile
-	prevStat := statFile
+	prevOverrides := resolveOverrides
 
 	return func() {
 		verifyIntegrity = prevIntegrity
 		loadVerifyProfile = prevLoad
 		ensureVerifyPlugins = prevEnsure
 		affirmProfile = prevAffirm
-		statFile = prevStat
+		resolveOverrides = prevOverrides
 	}
 }
 
@@ -45,7 +45,7 @@ func TestVerifyProfile_LoadError(t *testing.T) {
 	defer restore()
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
-	loadVerifyProfile = func(string) (*profile.Profile, error) { return nil, errors.New("load boom") }
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) { return nil, errors.New("load boom") }
 
 	err := verifyErr(cli.Command{Profile: "p"})
 	if err == nil || !strings.Contains(err.Error(), "profile load failed") {
@@ -58,7 +58,7 @@ func TestVerifyProfile_AffirmError(t *testing.T) {
 	defer restore()
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
 		return &profile.Profile{}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return errors.New("schema invalid") }
@@ -74,7 +74,7 @@ func TestVerifyProfile_PluginError(t *testing.T) {
 	defer restore()
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
 		return &profile.Profile{}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
@@ -88,56 +88,63 @@ func TestVerifyProfile_PluginError(t *testing.T) {
 	}
 }
 
-func TestVerifyProfile_MissingTemplate(t *testing.T) {
+func TestVerifyProfile_TemplateCoveredBySnapshot(t *testing.T) {
 	restore := stubVerifyHooks()
 	defer restore()
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) {
-		return &VerifiedManifest{Files: map[string]struct{}{"templates/missing.tmpl": {}}}, nil
+		return &VerifiedManifest{Files: map[string][]byte{"templates/ok.tmpl": []byte("x")}}, nil
 	}
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
-		return &profile.Profile{
-			Templates: []string{"templates/missing.tmpl"},
-		}, nil
-	}
-	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
-	statFile = os.Stat
-
-	err := verifyErr(cli.Command{Profile: t.TempDir()})
-	if err == nil || !strings.Contains(err.Error(), "missing on disk") {
-		t.Fatalf("expected missing template error, got %v", err)
-	}
-}
-
-func TestVerifyProfile_TemplateExists(t *testing.T) {
-	restore := stubVerifyHooks()
-	defer restore()
-
-	dir := t.TempDir()
-	tmplDir := filepath.Join(dir, "templates")
-	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmplDir, "ok.tmpl"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) {
-		return &VerifiedManifest{Files: map[string]struct{}{"templates/ok.tmpl": {}}}, nil
-	}
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
 		return &profile.Profile{
 			Templates: []string{"templates/ok.tmpl"},
 		}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
 	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
-	statFile = os.Stat
 
-	err := verifyErr(cli.Command{Profile: dir})
+	// The profile directory does not exist at all: a passed verify depends on
+	// the snapshot alone, never on a path still being readable.
+	err := verifyErr(cli.Command{Profile: filepath.Join(t.TempDir(), "gone")})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
+	}
+}
+
+// TestVerifyProfile_CarriesOverrideSnapshot pins that the bundle is what later
+// phases read: resolving the overrides file again in plan or apply is what let
+// apply act on values the plan never displayed.
+func TestVerifyProfile_CarriesOverrideSnapshot(t *testing.T) {
+	restore := stubVerifyHooks()
+	defer restore()
+
+	dir := t.TempDir()
+	overridesPath := filepath.Join(dir, "overrides.json")
+	if err := os.WriteFile(overridesPath, []byte(`{"ssh_port": 2222}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
+		return &profile.Profile{AllowedOverrides: []string{"ssh_port"}}, nil
+	}
+	affirmProfile = func(*profile.Profile) error { return nil }
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
+
+	bundle, err := Verify(cli.Command{Profile: dir, OverridesFile: overridesPath})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if got := string(bundle.Overrides["ssh_port"]); got != "2222" {
+		t.Fatalf("expected the resolved override on the bundle, got %q", got)
+	}
+
+	// Rewriting the file afterwards must not change what the bundle carries.
+	if err := os.WriteFile(overridesPath, []byte(`{"ssh_port": 23}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(bundle.Overrides["ssh_port"]); got != "2222" {
+		t.Fatalf("bundle override changed to %q after the file was edited", got)
 	}
 }
 
@@ -152,7 +159,7 @@ func TestVerifyProfile_OverrideValidation(t *testing.T) {
 	}
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
 		return &profile.Profile{
 			AllowedOverrides: []string{"ssh_port"},
 		}, nil
@@ -174,7 +181,7 @@ func TestVerifyProfile_Success(t *testing.T) {
 	defer restore()
 
 	verifyIntegrity = func(string, bool) (*VerifiedManifest, error) { return emptyManifest(), nil }
-	loadVerifyProfile = func(string) (*profile.Profile, error) {
+	loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) {
 		return &profile.Profile{}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
@@ -195,7 +202,7 @@ func verifyErr(c cli.Command) error {
 // emptyManifest stands in for a passed integrity check in tests that stub it
 // out; coverage assertions treat an empty file set as "nothing is signed".
 func emptyManifest() *VerifiedManifest {
-	return &VerifiedManifest{Files: map[string]struct{}{}}
+	return &VerifiedManifest{Files: map[string][]byte{}}
 }
 
 // TestVerifyProfile_ManifestCoverage pins the property that makes "signed" mean
@@ -215,42 +222,41 @@ func TestVerifyProfile_ManifestCoverage(t *testing.T) {
 
 	affirmProfile = func(*profile.Profile) error { return nil }
 	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
-	statFile = os.Stat
 
 	cases := []struct {
 		name    string
 		p       *profile.Profile
-		signed  map[string]struct{}
+		signed  map[string][]byte
 		wantErr string
 	}{
 		{
 			name:    "declared action not in manifest",
 			p:       &profile.Profile{Actions: []string{"actions/a.json"}},
-			signed:  map[string]struct{}{"profile.json": {}},
+			signed:  map[string][]byte{"profile.json": nil},
 			wantErr: `action "actions/a.json" declared in profile.json is not covered`,
 		},
 		{
 			name:    "declared template not in manifest",
 			p:       &profile.Profile{Templates: []string{"templates/t.tmpl"}},
-			signed:  map[string]struct{}{"profile.json": {}},
+			signed:  map[string][]byte{"profile.json": nil},
 			wantErr: `template "templates/t.tmpl" declared in profile.json is not covered`,
 		},
 		{
 			name:    "escaping action reference",
 			p:       &profile.Profile{Actions: []string{"../shared/x.json"}},
-			signed:  map[string]struct{}{"profile.json": {}},
+			signed:  map[string][]byte{"profile.json": nil},
 			wantErr: "not a valid profile-relative path",
 		},
 		{
 			name:    "absolute action reference",
 			p:       &profile.Profile{Actions: []string{"/etc/hardline/x.json"}},
-			signed:  map[string]struct{}{"profile.json": {}},
+			signed:  map[string][]byte{"profile.json": nil},
 			wantErr: "not a valid profile-relative path",
 		},
 		{
 			name:    "fully covered profile passes",
 			p:       &profile.Profile{Actions: []string{"actions/a.json"}, Templates: []string{"templates/t.tmpl"}},
-			signed:  map[string]struct{}{"actions/a.json": {}, "templates/t.tmpl": {}},
+			signed:  map[string][]byte{"actions/a.json": nil, "templates/t.tmpl": nil},
 			wantErr: "",
 		},
 	}
@@ -260,7 +266,7 @@ func TestVerifyProfile_ManifestCoverage(t *testing.T) {
 			verifyIntegrity = func(string, bool) (*VerifiedManifest, error) {
 				return &VerifiedManifest{Digest: "d", Files: tc.signed}, nil
 			}
-			loadVerifyProfile = func(string) (*profile.Profile, error) { return tc.p, nil }
+			loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) { return tc.p, nil }
 
 			err := verifyErr(cli.Command{Profile: dir})
 			if tc.wantErr == "" {

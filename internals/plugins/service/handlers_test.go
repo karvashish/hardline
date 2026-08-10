@@ -95,3 +95,42 @@ func TestPlugin_DecodeErrors(t *testing.T) {
 		t.Fatal("expected rollback decode error")
 	}
 }
+
+// TestValidateRestartPolicy closes the enum. Before this, anything that was not
+// "always" behaved roughly like "on_change", so a typo silently bought the
+// weaker behaviour: a profile asking to restart unconditionally would skip it.
+func TestValidateRestartPolicy(t *testing.T) {
+	spec := func(state string, p *RestartPolicy) *Spec {
+		return &Spec{Name: "ssh.service", State: state, RestartPolicy: p}
+	}
+
+	rejects := map[string]*Spec{
+		"unknown type":         spec("restarted", &RestartPolicy{Type: "on-change"}),
+		"empty type":           spec("restarted", &RestartPolicy{Type: ""}),
+		"always with steps":    spec("restarted", &RestartPolicy{Type: "always", Steps: []string{"a"}}),
+		"on_change no steps":   spec("restarted", &RestartPolicy{Type: "on_change"}),
+		"empty step id":        spec("restarted", &RestartPolicy{Type: "on_change", Steps: []string{" "}}),
+		"duplicate step id":    spec("restarted", &RestartPolicy{Type: "on_change", Steps: []string{"a", "a"}}),
+		"policy without state": spec("", &RestartPolicy{Type: "always"}),
+	}
+	for name, s := range rejects {
+		t.Run(name, func(t *testing.T) {
+			if err := validateServiceSpec(s); err == nil {
+				t.Fatal("expected rejection")
+			}
+		})
+	}
+
+	accepts := map[string]*Spec{
+		"always":    spec("restarted", &RestartPolicy{Type: "always"}),
+		"on_change": spec("reloaded", &RestartPolicy{Type: "on_change", Steps: []string{"drop-in"}}),
+		"absent":    spec("started", nil),
+	}
+	for name, s := range accepts {
+		t.Run(name, func(t *testing.T) {
+			if err := validateServiceSpec(s); err != nil {
+				t.Fatalf("expected acceptance, got %v", err)
+			}
+		})
+	}
+}

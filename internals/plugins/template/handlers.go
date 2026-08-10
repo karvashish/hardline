@@ -92,11 +92,11 @@ func validateTemplateSpec(spec *Spec) error {
 	if strings.TrimSpace(spec.Dest) == "" {
 		return fmt.Errorf("template dest is required")
 	}
-	if mode := strings.TrimSpace(spec.Mode); mode != "" {
-		var parsed uint64
-		if _, err := fmt.Sscanf(mode, "%o", &parsed); err != nil {
-			return fmt.Errorf("template mode %q must be octal", spec.Mode)
-		}
+	// Mode is required rather than defaulted. Sscanf used to accept "644xyz"
+	// and out-of-range values, and an implicit 0600 meant a profile that forgot
+	// the field silently got a mode nobody declared.
+	if _, err := pluginapi.ParseFileMode(spec.Mode); err != nil {
+		return fmt.Errorf("template dest %q: %w", spec.Dest, err)
 	}
 	return nil
 }

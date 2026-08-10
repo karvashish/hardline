@@ -90,7 +90,7 @@ func TestApply(t *testing.T) {
 	t.Run("bad mode", func(t *testing.T) {
 		h := &fakeHost{exists: true, stat: "640 root root", lsattr: "---- /etc/shadow"}
 		err := Apply(pluginapi.Context{Host: h}, &Spec{Path: "/etc/shadow", Mode: "nope"})
-		if err == nil || !strings.Contains(err.Error(), "invalid octal mode") {
+		if err == nil || !strings.Contains(err.Error(), "invalid file mode") {
 			t.Fatalf("expected mode error, got %v", err)
 		}
 	})

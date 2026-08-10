@@ -500,8 +500,7 @@ func copySignedFixtureProfile(t *testing.T) string {
 		t.Fatal("runtime.Caller failed")
 	}
 
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
-	src := filepath.Join(repoRoot, "integration-tests", "profiles", "ssh-reload-success")
+	src := filepath.Join(filepath.Dir(thisFile), "testdata", "signed-profile")
 	dst := filepath.Join(t.TempDir(), "profile")
 
 	if err := copyDir(src, dst); err != nil {

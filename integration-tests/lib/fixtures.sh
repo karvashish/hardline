@@ -286,9 +286,13 @@ EOJSON
   echo "${dir}"
 }
 
-# Package install + restart of the unit that package provides, in one profile.
+# Package install + start of the unit that package provides, in one profile.
 # On rollback the package step purges the package (its 'before' has it absent),
 # removing the unit file before the deferred service-restore runs.
+#
+# The state is "started" rather than "restarted" because this fixture runs on
+# every target: auditd.service sets RefuseManualStop on RHEL-family hosts, so a
+# restart is refused there and the run would fail before it reached rollback.
 make_profile_package_service() {
   local name="$1" pkg="$2" unit="$3"
   local dir="${DYNAMIC_PROFILES_DIR}/${name}"
@@ -306,8 +310,8 @@ EOJSON
   "steps": [
     { "id": "install-${pkg}", "plugin": "${PKG_PLUGIN}",
       "config": { "update": "once", "install": ["${pkg}"] } },
-    { "id": "restart-${unit}", "plugin": "service",
-      "config": { "name": "${unit}", "enabled": true, "state": "restarted" } }
+    { "id": "start-${unit}", "plugin": "service",
+      "config": { "name": "${unit}", "enabled": true, "state": "started" } }
   ]
 }
 EOJSON

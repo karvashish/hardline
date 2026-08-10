@@ -21,7 +21,7 @@ scenario_service_state_matrix() {
   ssh_cmd "sudo systemctl stop ${CRON_UNIT}" >/dev/null 2>&1 || true
   local p; p=$(make_profile_service "svc-started" "${CRON_UNIT}" "started" "true")
   must_hl "${dir}/started.log" "apply started" -- apply "${p}" "${remote_args[@]}"
-  must_remote "${CRON_UNIT} active+enabled after started" <<'EOF'
+  must_remote "${CRON_UNIT} active+enabled after started" <<EOF
 systemctl is-active ${CRON_UNIT} >/dev/null 2>&1
 systemctl is-enabled ${CRON_UNIT} >/dev/null 2>&1
 EOF
@@ -30,14 +30,14 @@ EOF
   ssh_cmd "sudo systemctl start ${CRON_UNIT}" >/dev/null 2>&1 || true
   p=$(make_profile_service "svc-stopped" "${CRON_UNIT}" "stopped" "true")
   must_hl "${dir}/stopped.log" "apply stopped" -- apply "${p}" "${remote_args[@]}"
-  must_remote "${CRON_UNIT} inactive after stopped" <<'EOF'
+  must_remote "${CRON_UNIT} inactive after stopped" <<EOF
 if systemctl is-active ${CRON_UNIT} >/dev/null 2>&1; then exit 1; fi
 EOF
 
   # enabled:false -> disabled.
   p=$(make_profile_service "svc-disabled" "${CRON_UNIT}" "stopped" "false")
   must_hl "${dir}/disabled.log" "apply enabled:false" -- apply "${p}" "${remote_args[@]}"
-  must_remote "${CRON_UNIT} disabled after enabled:false" <<'EOF'
+  must_remote "${CRON_UNIT} disabled after enabled:false" <<EOF
 if systemctl is-enabled ${CRON_UNIT} >/dev/null 2>&1; then exit 1; fi
 EOF
 
@@ -176,7 +176,7 @@ scenario_service_purged_unit_rollback() {
   pkg_purge "${AUDIT_PKG}" || true
   local p; p=$(make_profile_package_service "svc-purged-unit-rb" "${AUDIT_PKG}" "auditd")
 
-  must_hl "${dir}/apply.log" "apply (install auditd + restart)" -- apply "${p}" "${remote_args[@]}" --keep-local-rollback || { pkg_purge "${AUDIT_PKG}" || true; scenario_end; return; }
+  must_hl "${dir}/apply.log" "apply (install auditd + start)" -- apply "${p}" "${remote_args[@]}" --keep-local-rollback || { pkg_purge "${AUDIT_PKG}" || true; scenario_end; return; }
   pkg_installed "${AUDIT_PKG}" || note_fail "${AUDIT_PKG} not installed by apply"
 
   must_hl "${dir}/rollback.log" "rollback (restore of purged unit must no-op)" -- rollback "${p}" "${remote_args[@]}"
@@ -198,12 +198,12 @@ scenario_service_state_rollback() {
   _cron_restore
   local p; p=$(make_profile_service "svc-state-rb" "${CRON_UNIT}" "stopped" "false")
   must_hl "${dir}/apply.log" "apply stop+disable" -- apply "${p}" "${remote_args[@]}" --keep-local-rollback || { _cron_restore; scenario_end; return; }
-  must_remote "${CRON_UNIT} stopped+disabled after apply" <<'EOF'
+  must_remote "${CRON_UNIT} stopped+disabled after apply" <<EOF
 if systemctl is-active ${CRON_UNIT} >/dev/null 2>&1; then exit 1; fi
 if systemctl is-enabled ${CRON_UNIT} >/dev/null 2>&1; then exit 1; fi
 EOF
   must_hl "${dir}/rollback.log" "rollback" -- rollback "${p}" "${remote_args[@]}"
-  must_remote "${CRON_UNIT} active+enabled after rollback" <<'EOF'
+  must_remote "${CRON_UNIT} active+enabled after rollback" <<EOF
 systemctl is-active ${CRON_UNIT} >/dev/null 2>&1
 systemctl is-enabled ${CRON_UNIT} >/dev/null 2>&1
 EOF

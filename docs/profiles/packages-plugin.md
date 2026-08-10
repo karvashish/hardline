@@ -45,6 +45,13 @@ different transaction tables and dnf5 renamed `check-update` to `check-upgrade`.
 | `packages_dnf4` | RHEL 9, Rocky 9, Alma 9 | `rpm -q` | `dnf -y install` | `dnf -y remove` |
 | `packages_dnf5` | Fedora 41+, RHEL 10 | `rpm -q` | `dnf -y install` | `dnf -y remove` |
 
+The rpm query asks by name and then by provide (`rpm -q --whatprovides`). A dnf
+package spec is not always an rpm name: dnf resolves it through `Provides` and
+obsoletes too, so a name that no installed rpm carries can still be satisfied.
+Recording such a request as absent would leave the journal wrong, rollback with
+nothing to undo, and conflict detection reporting drift that is only the query
+looking in the wrong place.
+
 `purge` is not identical across them. On apt it is `apt-get purge`, which
 removes configuration files too. On rpm there is no purge: `dnf remove` leaves
 modified config files behind as `.rpmsave`. Hardline does not emulate the
@@ -96,6 +103,13 @@ beneath it. `dnf upgrade` installs those replacements, so plan counts them.
 Rollback runs from the journal alone, with no profile in hand. The journalled
 step type names the plugin that captured each record, which is what tells
 rollback how to undo it.
+
+Rollback of an install removes the package again. On the dnf plugins that
+removal is previewed first and refused if the transaction reaches past the
+package being undone: dnf resolves a removal outwards, so an unguarded undo
+would also take whatever came to depend on the package after apply. The removal
+itself runs with `clean_requirements_on_remove=False`, because undoing one
+install must not also collect dependencies the run never installed.
 
 Rollback of a purge reinstalls the package, preferring the exact version
 captured before the purge and falling back to an unpinned install if that

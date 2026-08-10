@@ -42,6 +42,10 @@ var (
 	installCmd    = packages.TimeoutCmd("dnf -y install")
 	purgeCmd      = packages.TimeoutCmd("dnf -y remove")
 	autoremoveCmd = packages.TimeoutCmd("dnf -y autoremove")
+
+	// The rollback removal is the purge with dnf's dependency cleanup off, so
+	// that it matches the transaction restore previews and refuses.
+	rollbackRemoveCmd = packages.TimeoutCmd("dnf -y " + removeOpts + "remove")
 )
 
 // checkLock is a var so tests can inject a held lock.
@@ -285,7 +289,19 @@ func restore(host pluginapi.Host, p pluginapi.PackageState) error {
 	}
 
 	if p.RequestedInstall && !p.WasInstalled {
-		if err := host.RunRoot(packages.AppendPackages(purgeCmd, []string{name})); err != nil {
+		// dnf resolves a removal outwards, so an unguarded undo takes whatever
+		// came to depend on the package since apply along with it. Read the
+		// transaction back first and stop rather than remove more than one
+		// install's worth.
+		preview, err := removePreview(host, []string{name})
+		if err != nil {
+			return fmt.Errorf("preview removal of package %q: %w", name, err)
+		}
+		if extra := packages.UnexpectedRemovals(name, preview); len(extra) > 0 {
+			return fmt.Errorf("refusing to remove package %q: the transaction would also remove %s",
+				name, strings.Join(extra, ", "))
+		}
+		if err := host.RunRoot(packages.AppendPackages(rollbackRemoveCmd, []string{name})); err != nil {
 			return fmt.Errorf("purge package %q: %w", name, err)
 		}
 	}

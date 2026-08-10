@@ -62,6 +62,21 @@ func autoremovePreview(host pluginapi.Host) ([]string, error) {
 	return parseTransaction(out, removeSections)
 }
 
+// removeOpts turns off the dependency cleanup dnf does by default. It belongs
+// on a rollback removal only: undoing an install must not also collect
+// dependencies this run never installed.
+const removeOpts = "--setopt=clean_requirements_on_remove=False "
+
+// removePreview lists everything a removal would actually take, so rollback can
+// refuse one that reaches past the package it is undoing.
+func removePreview(host pluginapi.Host, pkgs []string) ([]string, error) {
+	out, err := host.RunRootWithOutput(packages.AppendPackages(assumeNo+removeOpts+"remove", pkgs) + assumeNoTail)
+	if err != nil {
+		return nil, err
+	}
+	return parseTransaction(out, removeSections)
+}
+
 // parseCheckUpgrade reads the "<name>.<arch> <evr> <repo>" lines of
 // dnf check-upgrade. dnf5 prints obsoletes in the same flat listing, so unlike
 // dnf4 there is no trailing section to treat separately.

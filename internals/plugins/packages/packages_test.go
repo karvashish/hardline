@@ -444,12 +444,47 @@ func TestRPMQuery(t *testing.T) {
 		}
 	})
 
+	t.Run("a spec satisfied by a provide is not absent", func(t *testing.T) {
+		// dnf resolves a spec through Provides and obsoletes, so a name that no
+		// rpm carries can still be installed. Recording it as absent would leave
+		// rollback nothing to undo.
+		var cmd string
+		host := hostStub{runRootWithOutput: func(c string) (string, error) {
+			cmd = c
+			return "package java-21-headless is not installed\n" +
+				"HL:1:21.0.5-2.el9\tjava-21-openjdk-headless-1:21.0.5-2.el9.x86_64\n", nil
+		}}
+		installed, version, pin, err := RPMQuery(host, "java-21-headless")
+		if err != nil || !installed || version != "1:21.0.5-2.el9" {
+			t.Fatalf("got installed=%v version=%q err=%v", installed, version, err)
+		}
+		if pin != "java-21-openjdk-headless-1:21.0.5-2.el9.x86_64" {
+			t.Fatalf("pin must name the provider: %q", pin)
+		}
+		if !strings.Contains(cmd, "--whatprovides") {
+			t.Fatalf("the name miss must be asked again as a provide: %s", cmd)
+		}
+	})
+
 	t.Run("transport error", func(t *testing.T) {
 		host := hostStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}
 		if _, _, _, err := RPMQuery(host, "tree"); err == nil {
 			t.Fatal("expected the transport error to surface")
 		}
 	})
+}
+
+func TestUnexpectedRemovals(t *testing.T) {
+	if got := UnexpectedRemovals("tree", []string{"tree"}); got != nil {
+		t.Fatalf("an undo of exactly its own install is expected, got %v", got)
+	}
+	if got := UnexpectedRemovals("glibc.i686", []string{"glibc"}); got != nil {
+		t.Fatalf("the transaction table drops the arch the request carried, got %v", got)
+	}
+	got := UnexpectedRemovals("tree", []string{"tree", "treeview", "libtree"})
+	if len(got) != 2 || got[0] != "treeview" || got[1] != "libtree" {
+		t.Fatalf("got %v", got)
+	}
 }
 
 func TestRPMPatterns(t *testing.T) {

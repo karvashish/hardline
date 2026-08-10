@@ -13,6 +13,7 @@ import (
 
 type hostStub struct {
 	installed map[string]bool
+	provided  map[string]bool
 	cmds      *[]string
 	output    map[string]string
 
@@ -33,8 +34,10 @@ func (s hostStub) RunRoot(cmd string) error {
 		return s.runRoot(cmd)
 	}
 	if strings.HasPrefix(cmd, "rpm -q ") {
-		name := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(cmd, "rpm -q "), " >/dev/null 2>&1"), "'\"")
-		if s.installed[name] {
+		// The probe asks by name and then by provide, so the name is the first
+		// quoted word rather than the whole tail.
+		name := strings.Trim(strings.Fields(strings.TrimPrefix(cmd, "rpm -q "))[0], "'\"")
+		if s.installed[name] || (strings.Contains(cmd, "--whatprovides") && s.provided[name]) {
 			return nil
 		}
 		return errors.New("not installed")
@@ -99,6 +102,28 @@ Removing:
  oldpkg           x86_64  1.0-1.el9            @baseos           10 k
 Removing unused dependencies:
  oldlib           noarch  2.0-1.el9            @baseos            5 k
+
+Transaction Summary
+Operation aborted.
+`
+
+// The rollback preview of an undo that stays inside its own install.
+const soloRemoveOutput = `Dependencies resolved.
+================================================================================
+Removing:
+ tree             x86_64  1.8.0-10.el9         @appstream        55 k
+
+Transaction Summary
+Operation aborted.
+`
+
+// The same undo on a host where something came to depend on the package.
+const widerRemoveOutput = `Dependencies resolved.
+================================================================================
+Removing:
+ tree             x86_64  1.8.0-10.el9         @appstream        55 k
+Removing dependent packages:
+ treeview         x86_64  3.1-1.el9            @local            80 k
 
 Transaction Summary
 Operation aborted.
@@ -392,12 +417,34 @@ func TestCaptureAndRestore(t *testing.T) {
 func TestRestore(t *testing.T) {
 	t.Run("removes what apply installed", func(t *testing.T) {
 		var cmds []string
-		host := hostStub{cmds: &cmds}
+		host := hostStub{cmds: &cmds, output: map[string]string{"remove 'tree'": soloRemoveOutput}}
 		if err := restore(host, pluginapi.PackageState{Name: "tree", RequestedInstall: true}); err != nil {
 			t.Fatalf("restore failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), "dnf -y remove 'tree'") {
-			t.Fatalf("got %v", cmds)
+		joined := strings.Join(cmds, "\n")
+		if !strings.Contains(joined, "clean_requirements_on_remove=False remove 'tree'") {
+			t.Fatalf("an undo must not collect dependencies: %v", cmds)
+		}
+	})
+
+	t.Run("refuses an undo that would take more than it installed", func(t *testing.T) {
+		var cmds []string
+		host := hostStub{cmds: &cmds, output: map[string]string{"remove 'tree'": widerRemoveOutput}}
+		err := restore(host, pluginapi.PackageState{Name: "tree", RequestedInstall: true})
+		if err == nil || !strings.Contains(err.Error(), "treeview") {
+			t.Fatalf("expected the collateral removal to be refused by name, got %v", err)
+		}
+		for _, cmd := range cmds {
+			if strings.Contains(cmd, "-y") && strings.Contains(cmd, "remove") {
+				t.Fatalf("the refused transaction still ran: %v", cmds)
+			}
+		}
+	})
+
+	t.Run("an unreadable preview stops the undo", func(t *testing.T) {
+		host := hostStub{runRootWithOutput: func(string) (string, error) { return "", errors.New("boom") }}
+		if err := restore(host, pluginapi.PackageState{Name: "tree", RequestedInstall: true}); err == nil {
+			t.Fatal("expected the preview failure to surface")
 		}
 	})
 
@@ -465,7 +512,10 @@ func TestRestore(t *testing.T) {
 	})
 
 	t.Run("failures surface", func(t *testing.T) {
-		host := hostStub{runRoot: func(string) error { return errors.New("boom") }}
+		host := hostStub{
+			output:  map[string]string{"remove 'tree'": soloRemoveOutput},
+			runRoot: func(string) error { return errors.New("boom") },
+		}
 		if err := restore(host, pluginapi.PackageState{Name: "tree", RequestedInstall: true}); err == nil {
 			t.Fatal("expected the remove failure to surface")
 		}

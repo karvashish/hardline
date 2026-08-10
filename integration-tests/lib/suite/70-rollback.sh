@@ -116,7 +116,9 @@ scenario_ssh_reload_rollback() {
   guard_can_sign || return
 
   must_hl "${dir}/apply.log" "apply ssh-reload profile" -- apply "${SSH_RELOAD_PROFILE}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
-  ssh_cmd "test -f ${SSH_RELOAD_DEST}" || { note_fail "ssh drop-in not deployed by apply"; scenario_end; return; }
+  # sudo: RHEL-family ships /etc/ssh/sshd_config.d at 0700 root:root, so an
+  # unprivileged test misses a correctly deployed drop-in.
+  ssh_cmd "sudo test -f ${SSH_RELOAD_DEST}" || { note_fail "ssh drop-in not deployed by apply"; scenario_end; return; }
 
   # Observe sshd directly across the rollback rather than reading hardline's log.
   local mark0 cur; mark0="$(svc_actmark "${SSH_UNIT}")"; cur="$(journal_cursor)"

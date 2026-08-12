@@ -17,6 +17,7 @@ func TestRegisterPluginAndPlanStep(t *testing.T) {
 	err := reg.Register(pluginapi.Plugin{
 		Name:               "fake",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(ctx pluginapi.Context, s profile.Step) (pluginapi.PlanResult, error) {
 			called = true

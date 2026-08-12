@@ -17,6 +17,7 @@ func TestHandleStepDispatch(t *testing.T) {
 	err := reg.Register(pluginapi.Plugin{
 		Name:               "fake",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply: func(ctx pluginapi.Context, s profile.Step) error {
 			called = true
 			if ctx.Profile == nil || ctx.Profile.ID != "p1" {
@@ -128,6 +129,7 @@ func TestRegisterPlugin(t *testing.T) {
 	err := reg.Register(pluginapi.Plugin{
 		Name:               "rb",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil

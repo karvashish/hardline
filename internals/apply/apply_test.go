@@ -125,11 +125,13 @@ func TestApply_ErrorPaths(t *testing.T) {
 		applyBundleProfile = mustLoadApplyFixtureProfile(t, applyProfileFixture{MinHardline: "1.0.0", Schema: 1})
 		versionCmd = func() (cli.SemVer, int, error) { return cli.SemVer{Major: 1, Minor: 0, Patch: 0}, 1, nil }
 		compareSemVer = func(a, b string) (int, error) { return 0, nil }
-		ensureApplyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return errors.New("required plugin missing") }
+		ensureApplyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error {
+			return errors.New("required plugin missing")
+		}
 
 		err := applyWithBundle(context.Background(), c)
-		if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
-			t.Fatalf("expected required plugin validation error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "step validation failed") {
+			t.Fatalf("expected step validation error, got %v", err)
 		}
 	})
 
@@ -693,6 +695,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 		if err := registry.Register(pluginapi.Plugin{
 			Name:               "failing",
 			InternalValidation: true,
+			Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 			Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 			Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, nil

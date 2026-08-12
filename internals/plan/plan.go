@@ -24,7 +24,7 @@ var (
 	newPlanSSHClient  = connection.NewSSHClient
 	runPlanForProfile = planProfile
 	runPlanStep       = planStepWithRegistry
-	ensurePlanPlugins = pluginapi.EnsureProfilePlugins
+	ensurePlanPlugins = pluginapi.ValidateProfileSteps
 )
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -82,8 +82,8 @@ func Plan(c cli.Command, b *verify.VerifiedBundle) error {
 		return errors.New("profile schema " + strconv.Itoa(p.ProfileSchema) + " is newer than supported " + strconv.Itoa(schemaVer) + "; please upgrade hardline")
 	}
 
-	if err := ensurePlanPlugins(registry.Shared(), p); err != nil {
-		return logger.Wrap(err, "required plugin validation failed")
+	if err := ensurePlanPlugins(registry.Shared(), p, b.Overrides); err != nil {
+		return logger.Wrap(err, "step validation failed")
 	}
 
 	p.SetRuntimeOverrides(b.Overrides)

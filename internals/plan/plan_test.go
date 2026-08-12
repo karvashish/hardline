@@ -61,6 +61,7 @@ func TestPlanProfile(t *testing.T) {
 		if err := registry.Register(pluginapi.Plugin{
 			Name:               "boom",
 			InternalValidation: true,
+			Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 			Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 			Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, errors.New("plan boom")
@@ -635,12 +636,14 @@ func TestPlan_WithStubbedDependencies(t *testing.T) {
 	})
 
 	t.Run("required plugin missing", func(t *testing.T) {
-		ensurePlanPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return errors.New("required plugin missing") }
-		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
-		if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
-			t.Fatalf("expected required plugin error, got %v", err)
+		ensurePlanPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error {
+			return errors.New("required plugin missing")
 		}
-		ensurePlanPlugins = pluginapi.EnsureProfilePlugins
+		err := planWithBundle(cli.Command{Profile: "x", Debug: true})
+		if err == nil || !strings.Contains(err.Error(), "step validation failed") {
+			t.Fatalf("expected step validation error, got %v", err)
+		}
+		ensurePlanPlugins = pluginapi.ValidateProfileSteps
 	})
 
 	t.Run("connect failure", func(t *testing.T) {

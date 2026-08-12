@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -59,8 +60,8 @@ func TestNewDefaultRegistryPanicsOnRegisterError(t *testing.T) {
 	orig := defaultPlugins
 	defaultPlugins = func() []pluginapi.Plugin {
 		return []pluginapi.Plugin{
-			{Name: "dup", InternalValidation: true, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
-			{Name: "dup", InternalValidation: true, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
+			{Name: "dup", InternalValidation: true, Validate: func(profile.Step, map[string]json.RawMessage) error { return nil }, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
+			{Name: "dup", InternalValidation: true, Validate: func(profile.Step, map[string]json.RawMessage) error { return nil }, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
 		}
 	}
 	defer func() { defaultPlugins = orig }()

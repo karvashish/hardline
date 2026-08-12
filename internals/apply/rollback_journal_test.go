@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 	err := registry.Register(pluginapi.Plugin{
 		Name:               "fake",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
@@ -56,6 +58,7 @@ func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 	err := registry.Register(pluginapi.Plugin{
 		Name:               "fake",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil

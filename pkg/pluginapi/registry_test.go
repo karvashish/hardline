@@ -1,6 +1,8 @@
 package pluginapi
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +15,7 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 	err := r.Register(Plugin{
 		Name:               "  TEMPLATE  ",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(Context, profile.Step) error { return nil },
 		Plan: func(Context, profile.Step) (PlanResult, error) {
 			return PlanResult{Summary: "ok"}, nil
@@ -54,6 +57,7 @@ func TestRegistryRegisterErrors(t *testing.T) {
 	err = r.Register(Plugin{
 		Name:               "x",
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Plan: func(Context, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},
@@ -163,7 +167,7 @@ func TestRequireStepPlugin(t *testing.T) {
 	}
 }
 
-func TestEnsureProfilePlugins(t *testing.T) {
+func TestValidateProfileSteps(t *testing.T) {
 	r := NewRegistry()
 	if err := r.Register(validPlugin("template")); err != nil {
 		t.Fatalf("register plugin failed: %v", err)
@@ -172,28 +176,57 @@ func TestEnsureProfilePlugins(t *testing.T) {
 		t.Fatalf("register plugin failed: %v", err)
 	}
 
-	err := EnsureProfilePlugins(r, &profile.Profile{
+	err := ValidateProfileSteps(r, &profile.Profile{
 		ActionFiles: []profile.ActionFile{
 			{Steps: []profile.Step{{ID: "s1", Plugin: "template"}}},
 			{Steps: []profile.Step{{ID: "s2", Plugin: "service"}}},
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("expected profile plugin validation success, got %v", err)
 	}
 
-	err = EnsureProfilePlugins(r, &profile.Profile{
+	err = ValidateProfileSteps(r, &profile.Profile{
 		ActionFiles: []profile.ActionFile{
 			{Steps: []profile.Step{{ID: "bad", Plugin: "missing"}}},
 		},
-	})
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "required plugin \"missing\" is not registered") {
 		t.Fatalf("expected missing plugin error, got %v", err)
 	}
 
-	err = EnsureProfilePlugins(r, nil)
+	err = ValidateProfileSteps(r, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "profile is nil") {
 		t.Fatalf("expected nil profile error, got %v", err)
+	}
+}
+
+// TestValidateProfileSteps_RunsPluginValidator is the point of the pass: the
+// step is rejected before any host is touched, and with the overrides the run
+// would have used.
+func TestValidateProfileSteps_RunsPluginValidator(t *testing.T) {
+	r := NewRegistry()
+	plugin := validPlugin("template")
+	var seen map[string]json.RawMessage
+	plugin.Validate = func(step profile.Step, overrides map[string]json.RawMessage) error {
+		seen = overrides
+		return fmt.Errorf("dest %q is not a drop-in", step.ID)
+	}
+	if err := r.Register(plugin); err != nil {
+		t.Fatalf("register plugin failed: %v", err)
+	}
+
+	overrides := map[string]json.RawMessage{"allow_tcp_ports": json.RawMessage("[22]")}
+	err := ValidateProfileSteps(r, &profile.Profile{
+		ActionFiles: []profile.ActionFile{
+			{Steps: []profile.Step{{ID: "s1", Plugin: "template"}}},
+		},
+	}, overrides)
+	if err == nil || !strings.Contains(err.Error(), `step "s1" (template): dest "s1" is not a drop-in`) {
+		t.Fatalf("expected the plugin validator error, got %v", err)
+	}
+	if string(seen["allow_tcp_ports"]) != "[22]" {
+		t.Fatalf("expected the resolved overrides to reach the validator, got %v", seen)
 	}
 }
 
@@ -211,6 +244,7 @@ func validPlugin(name string) Plugin {
 	return Plugin{
 		Name:               name,
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(Context, profile.Step) error { return nil },
 		Plan: func(Context, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil

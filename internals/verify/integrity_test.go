@@ -526,11 +526,11 @@ func TestVerifyProfile_MissingPluginFails(t *testing.T) {
 		}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = pluginapi.EnsureProfilePlugins
+	ensureVerifyPlugins = pluginapi.ValidateProfileSteps
 
 	err := verifyErr(cli.Command{Profile: "profile", Debug: true})
-	if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
-		t.Fatalf("expected required plugin validation error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "step validation failed") {
+		t.Fatalf("expected step validation error, got %v", err)
 	}
 }
 

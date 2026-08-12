@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,12 +79,12 @@ func TestVerifyProfile_PluginError(t *testing.T) {
 		return &profile.Profile{}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error {
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error {
 		return errors.New("missing plugin")
 	}
 
 	err := verifyErr(cli.Command{Profile: "p"})
-	if err == nil || !strings.Contains(err.Error(), "required plugin validation failed") {
+	if err == nil || !strings.Contains(err.Error(), "step validation failed") {
 		t.Fatalf("expected plugin error, got %v", err)
 	}
 }
@@ -101,7 +102,7 @@ func TestVerifyProfile_TemplateCoveredBySnapshot(t *testing.T) {
 		}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error { return nil }
 
 	// The profile directory does not exist at all: a passed verify depends on
 	// the snapshot alone, never on a path still being readable.
@@ -129,7 +130,7 @@ func TestVerifyProfile_CarriesOverrideSnapshot(t *testing.T) {
 		return &profile.Profile{AllowedOverrides: []string{"ssh_port"}}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error { return nil }
 
 	bundle, err := Verify(cli.Command{Profile: dir, OverridesFile: overridesPath})
 	if err != nil {
@@ -165,7 +166,7 @@ func TestVerifyProfile_OverrideValidation(t *testing.T) {
 		}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error { return nil }
 
 	err := verifyErr(cli.Command{
 		Profile:       "p",
@@ -185,7 +186,7 @@ func TestVerifyProfile_Success(t *testing.T) {
 		return &profile.Profile{}, nil
 	}
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error { return nil }
 
 	err := verifyErr(cli.Command{Profile: "p"})
 	if err != nil {
@@ -221,7 +222,7 @@ func TestVerifyProfile_ManifestCoverage(t *testing.T) {
 	}
 
 	affirmProfile = func(*profile.Profile) error { return nil }
-	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile) error { return nil }
+	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error { return nil }
 
 	cases := []struct {
 		name    string

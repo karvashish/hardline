@@ -26,7 +26,7 @@ var (
 	versionCmd           = cli.VersionCmd
 	compareSemVer        = cli.CompareSemVer
 	ensureApplySudo      = connection.EnsureNonInteractiveSudo
-	ensureApplyPlugins   = pluginapi.EnsureProfilePlugins
+	ensureApplyPlugins   = pluginapi.ValidateProfileSteps
 	runApplyProfile      = applyProfile
 	runCaptureStepRecord = captureStepRecordWithRegistry
 	runRollbackStep      = rollback.RollbackSteps
@@ -104,8 +104,8 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 		return errors.New("profile schema " + strconv.Itoa(p.ProfileSchema) + " is newer than supported " + strconv.Itoa(schemaVer) + "; please upgrade hardline")
 	}
 
-	if err := ensureApplyPlugins(registry.Shared(), p); err != nil {
-		return logger.Wrap(err, "required plugin validation failed")
+	if err := ensureApplyPlugins(registry.Shared(), p, b.Overrides); err != nil {
+		return logger.Wrap(err, "step validation failed")
 	}
 
 	p.SetRuntimeOverrides(b.Overrides)

@@ -14,7 +14,7 @@ import (
 var (
 	verifyIntegrity     = VerifyProfileIntegrity
 	loadVerifyProfile   = profile.LoadFromBundle
-	ensureVerifyPlugins = pluginapi.EnsureProfilePlugins
+	ensureVerifyPlugins = pluginapi.ValidateProfileSteps
 	affirmProfile       = func(p *profile.Profile) error { return p.Affirm() }
 	resolveOverrides    = cli.ResolveOverrides
 )
@@ -59,8 +59,8 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, logger.Wrap(err, "profile override validation failed")
 	}
 
-	if err := ensureVerifyPlugins(registry.Shared(), p); err != nil {
-		return nil, logger.Wrap(err, "required plugin validation failed")
+	if err := ensureVerifyPlugins(registry.Shared(), p, overrides); err != nil {
+		return nil, logger.Wrap(err, "step validation failed")
 	}
 
 	// A reference outside the signed tree is unsigned content reached through a

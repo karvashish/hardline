@@ -106,18 +106,12 @@
       }
     },
     {
-      "id": "firewall-service-restart",
+      "id": "firewall-service-enabled",
       "plugin": "service",
       "config": {
         "name": "nftables",
         "enabled": true,
-        "state": "restarted",
-        "restart_policy": {
-          "type": "on_change",
-          "steps": [
-            "firewall-default-deny"
-          ]
-        }
+        "state": "started"
       }
     }
   ]

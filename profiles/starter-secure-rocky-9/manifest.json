@@ -24,7 +24,7 @@
     },
     {
       "path": "actions/30-firewall.json",
-      "sha256": "2cf8a1d4ca8bc6766a5086e5e8c92547327b02c505e360b6a2e2264f2d064ca5"
+      "sha256": "01df3b5f9666cd016e9ad5b6d0902123eebbccc17a7593483159509c25c800da"
     },
     {
       "path": "actions/40-audit.json",

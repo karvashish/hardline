@@ -205,7 +205,7 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 						len(purgeDepsWillChange), strings.Join(purgeDepsWillChange, ", "))+logger.ColorReset,
 				)
 			}
-			want := make([]string, 0, len(in.PurgeInfos)+len(in.PurgeAlsoRemoves))
+			var want []string
 			for _, info := range in.PurgeInfos {
 				want = append(want, info.Name)
 			}

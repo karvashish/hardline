@@ -97,7 +97,7 @@ func CheckLock(host pluginapi.Host, lockCheck, lockHint string) error {
 // honest way to run one is to read the transaction back first and stop when it
 // contains a package nobody signed off on.
 func GuardPurgeTransaction(purge, alsoRemoves, preview []string) error {
-	want := make([]string, 0, len(purge)+len(alsoRemoves))
+	var want []string
 	want = append(want, purge...)
 	want = append(want, alsoRemoves...)
 

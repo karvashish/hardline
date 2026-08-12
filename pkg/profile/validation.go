@@ -72,7 +72,10 @@ func (p *Profile) Affirm() error {
 		}
 	}
 
-	return p.validateStepGraph()
+	if err := p.validateStepGraph(); err != nil {
+		return err
+	}
+	return p.validateCoverageLedger()
 }
 
 // validateStepGraph checks the step list the run will execute: action files in

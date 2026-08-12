@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/karvashish/hardline/pkg/profile/coverage-ledger",
+  "$ref": "#/$defs/CoverageLedger",
+  "$defs": {
+    "CoverageLedger": {
+      "properties": {
+        "controls": {
+          "items": {
+            "$ref": "#/$defs/LedgerControl"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "controls"
+      ]
+    },
+    "LedgerControl": {
+      "properties": {
+        "hardline_id": {
+          "type": "string"
+        },
+        "desired_state": {
+          "type": "string"
+        },
+        "source_title": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string"
+        },
+        "source_version_or_commit": {
+          "type": "string"
+        },
+        "retrieved_at": {
+          "type": "string"
+        },
+        "implementation_actions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tests": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "copied_code": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "hardline_id",
+        "desired_state",
+        "source_title",
+        "source_url",
+        "source_version_or_commit",
+        "retrieved_at",
+        "implementation_actions",
+        "status",
+        "tests",
+        "copied_code"
+      ]
+    }
+  }
+}

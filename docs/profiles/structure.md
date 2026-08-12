@@ -62,6 +62,7 @@ Field reference:
 | `os` | yes | Target OS. All three subfields — `family`, `version`, `variant` — are required. `family` must match `^[a-z][a-z0-9._-]*$`; `version` must match `^[0-9]+(\.[0-9]+)*$` |
 | `profile_schema` | yes | Schema version supported by Hardline |
 | `min_hardline` | yes | Minimum Hardline version allowed to run the profile |
+| `coverage_ledger` | no | Profile-relative path to a signed [coverage ledger](coverage-ledger.md): what each control wants, where it came from, and which steps produce it |
 | `actions` | yes | Ordered list of action file paths, relative to the profile root |
 | `templates` | yes | Declared template files that plugins may load |
 | `allowed_overrides` | no | Allowed runtime override keys |

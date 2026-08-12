@@ -47,11 +47,16 @@ func writeSchema(path string, v any, transform func(map[string]any)) {
 	}
 }
 
-func generateSchemas(profileSchemaPath, actionSchemaPath string) {
+func generateSchemas(profileSchemaPath, actionSchemaPath, ledgerSchemaPath string) {
 	writeSchema(profileSchemaPath, &profile.Profile{}, nil)
 	writeSchema(actionSchemaPath, &profile.ActionFile{}, applyPluginConfigConstraints)
+	writeSchema(ledgerSchemaPath, &profile.CoverageLedger{}, nil)
 }
 
 func main() {
-	generateSchemas("schema/profile.schema.json", "schema/action-file.schema.json")
+	generateSchemas(
+		"schema/profile.schema.json",
+		"schema/action-file.schema.json",
+		"schema/coverage-ledger.schema.json",
+	)
 }

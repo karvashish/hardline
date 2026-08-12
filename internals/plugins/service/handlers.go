@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,13 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "service",
 		InternalValidation: true,
+		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
+			spec, err := decodeServiceSpec(step)
+			if err != nil {
+				return err
+			}
+			return validateServiceSpec(spec)
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decodeServiceSpec(step)
 			if err != nil {

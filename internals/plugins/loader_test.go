@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -332,6 +333,7 @@ func validLoaderPlugin(name string) pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               name,
 		InternalValidation: true,
+		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil

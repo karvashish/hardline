@@ -3,8 +3,6 @@ package firewall
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
 const (
@@ -16,16 +14,16 @@ const (
 	OverrideKeyAllowUDPPorts = "allow_udp_ports"
 )
 
-func applyFirewallOverrides(ctx pluginapi.Context, spec *Spec) error {
-	if spec == nil || len(ctx.Overrides) == 0 {
+func applyFirewallOverrides(overrides map[string]json.RawMessage, spec *Spec) error {
+	if spec == nil || len(overrides) == 0 {
 		return nil
 	}
 
-	tcpPorts, err := decodeOverridePortList(ctx.Overrides, OverrideKeyAllowTCPPorts)
+	tcpPorts, err := decodeOverridePortList(overrides, OverrideKeyAllowTCPPorts)
 	if err != nil {
 		return err
 	}
-	udpPorts, err := decodeOverridePortList(ctx.Overrides, OverrideKeyAllowUDPPorts)
+	udpPorts, err := decodeOverridePortList(overrides, OverrideKeyAllowUDPPorts)
 	if err != nil {
 		return err
 	}

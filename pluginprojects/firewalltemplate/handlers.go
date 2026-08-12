@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,13 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "firewall_template",
 		InternalValidation: true,
+		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
+			spec, err := decodeFirewallTemplateSpec(step)
+			if err != nil {
+				return err
+			}
+			return validateFirewallTemplateSpec(spec)
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decodeFirewallTemplateSpec(step)
 			if err != nil {

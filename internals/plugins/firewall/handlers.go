@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,12 +13,22 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "firewall",
 		InternalValidation: true,
+		Validate: func(step profile.Step, overrides map[string]json.RawMessage) error {
+			spec, err := decodeFirewallSpec(step)
+			if err != nil {
+				return err
+			}
+			if err := applyFirewallOverrides(overrides, spec); err != nil {
+				return err
+			}
+			return validateFirewallSpec(spec)
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decodeFirewallSpec(step)
 			if err != nil {
 				return err
 			}
-			if err := applyFirewallOverrides(ctx, spec); err != nil {
+			if err := applyFirewallOverrides(ctx.Overrides, spec); err != nil {
 				return err
 			}
 			if err := validateFirewallSpec(spec); err != nil {
@@ -33,7 +44,7 @@ func Plugin() pluginapi.Plugin {
 			if err != nil {
 				return pluginapi.PlanResult{}, err
 			}
-			if err := applyFirewallOverrides(ctx, spec); err != nil {
+			if err := applyFirewallOverrides(ctx.Overrides, spec); err != nil {
 				return pluginapi.PlanResult{}, err
 			}
 			if err := validateFirewallSpec(spec); err != nil {
@@ -46,7 +57,7 @@ func Plugin() pluginapi.Plugin {
 			if err != nil {
 				return pluginapi.CaptureResult{}, err
 			}
-			if err := applyFirewallOverrides(ctx, spec); err != nil {
+			if err := applyFirewallOverrides(ctx.Overrides, spec); err != nil {
 				return pluginapi.CaptureResult{}, err
 			}
 			if err := validateFirewallSpec(spec); err != nil {

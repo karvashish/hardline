@@ -1,6 +1,7 @@
 package template
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,13 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "template",
 		InternalValidation: true,
+		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
+			spec, err := decodeTemplateSpec(step)
+			if err != nil {
+				return err
+			}
+			return validateTemplateSpec(spec)
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decodeTemplateSpec(step)
 			if err != nil {

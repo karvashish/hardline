@@ -1,6 +1,7 @@
 package filemeta
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,13 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "file_meta",
 		InternalValidation: true,
+		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
+			spec, err := decodeSpec(step)
+			if err != nil {
+				return err
+			}
+			return validateSpec(spec)
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decodeSpec(step)
 			if err != nil {

@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,10 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               "audit",
 		InternalValidation: true,
+		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
+			_, err := decodeSpec(step)
+			return err
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decodeSpec(step)
 			if err != nil {

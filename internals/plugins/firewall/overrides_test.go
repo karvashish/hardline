@@ -18,7 +18,7 @@ func TestApplyFirewallOverrides_AppendsTCPAndUDPRules(t *testing.T) {
 		},
 	}
 
-	if err := applyFirewallOverrides(ctx, spec); err != nil {
+	if err := applyFirewallOverrides(ctx.Overrides, spec); err != nil {
 		t.Fatalf("applyFirewallOverrides: %v", err)
 	}
 
@@ -45,7 +45,7 @@ func TestApplyFirewallOverrides_NoOverridesIsNoop(t *testing.T) {
 	spec := &Spec{Rules: []Rule{{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"}}}
 	ctx := pluginapi.Context{}
 
-	if err := applyFirewallOverrides(ctx, spec); err != nil {
+	if err := applyFirewallOverrides(ctx.Overrides, spec); err != nil {
 		t.Fatalf("applyFirewallOverrides: %v", err)
 	}
 	if len(spec.Rules) != 1 {
@@ -57,7 +57,7 @@ func TestApplyFirewallOverrides_NilSpecIsNoop(t *testing.T) {
 	ctx := pluginapi.Context{
 		Overrides: map[string]json.RawMessage{OverrideKeyAllowTCPPorts: json.RawMessage(`[80]`)},
 	}
-	if err := applyFirewallOverrides(ctx, nil); err != nil {
+	if err := applyFirewallOverrides(ctx.Overrides, nil); err != nil {
 		t.Fatalf("applyFirewallOverrides on nil spec: %v", err)
 	}
 }
@@ -79,7 +79,7 @@ func TestApplyFirewallOverrides_RejectsInvalidPort(t *testing.T) {
 					OverrideKeyAllowTCPPorts: json.RawMessage(tc.payload),
 				},
 			}
-			err := applyFirewallOverrides(ctx, spec)
+			err := applyFirewallOverrides(ctx.Overrides, spec)
 			if err == nil || !strings.Contains(err.Error(), "invalid port") {
 				t.Fatalf("expected invalid port error, got %v", err)
 			}
@@ -94,7 +94,7 @@ func TestApplyFirewallOverrides_RejectsNonArrayPayload(t *testing.T) {
 			OverrideKeyAllowUDPPorts: json.RawMessage(`"53"`),
 		},
 	}
-	err := applyFirewallOverrides(ctx, spec)
+	err := applyFirewallOverrides(ctx.Overrides, spec)
 	if err == nil || !strings.Contains(err.Error(), "must be a JSON array") {
 		t.Fatalf("expected JSON array error, got %v", err)
 	}

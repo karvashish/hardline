@@ -5,6 +5,7 @@
 package dnf5
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -62,6 +63,10 @@ func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
 		Name:               pluginName,
 		InternalValidation: true,
+		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
+			_, err := decode(step)
+			return err
+		},
 		Apply: func(ctx pluginapi.Context, step profile.Step) error {
 			spec, err := decode(step)
 			if err != nil {

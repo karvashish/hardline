@@ -13,8 +13,9 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
+// No -D: a 99- file that clears the ruleset deletes rules this profile does not
+// own, and the preflight refuses it.
 const sampleRules = `## hardline audit rules
--D
 -b 8192
 -w /etc/passwd -p wa -k identity
 -a always,exit -F arch=b64 -S adjtimex -k time_change
@@ -22,7 +23,17 @@ const sampleRules = `## hardline audit rules
 -e 1
 `
 
+// loadedSample is what auditctl -l prints for sampleRules: a syscall rule's key
+// comes back as an ordinary field, which is one of the two spellings the rule
+// comparison has to reconcile.
+const loadedSample = `-w /etc/passwd -p wa -k identity
+-a always,exit -F arch=b64 -S adjtimex -F key=time_change
+-w /etc/audit/ -p wa -k audit_config
+`
+
 type hostStub struct {
+	absent  map[string]bool
+	status  string
 	cmds    *[]string
 	loaded  string
 	files   map[string]string
@@ -46,10 +57,10 @@ func (s hostStub) RunRoot(cmd string) error {
 	}
 	if strings.HasPrefix(cmd, "test -e ") {
 		path := strings.Trim(strings.TrimPrefix(cmd, "test -e "), "'\"")
-		if _, ok := s.files[path]; ok {
-			return nil
+		if s.absent[path] {
+			return errors.New("missing")
 		}
-		return errors.New("missing")
+		return nil
 	}
 	return nil
 }
@@ -62,6 +73,9 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 	s.record(cmd)
 	if s.outErr != nil {
 		return "", s.outErr
+	}
+	if strings.Contains(cmd, statusCmd) {
+		return s.status, nil
 	}
 	if strings.Contains(cmd, listCmd) {
 		return s.loaded, nil
@@ -136,33 +150,6 @@ func spec() *Spec {
 	return &Spec{Src: "templates/audit.rules", Dest: dest, Mode: "0640"}
 }
 
-func TestRuleKeys(t *testing.T) {
-	got := RuleKeys([]byte(sampleRules))
-	want := []string{"audit_config", "identity", "time_change"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v, want %v (sorted, deduplicated)", got, want)
-		}
-	}
-	if keys := RuleKeys([]byte("-w /etc/passwd -p wa\n")); len(keys) != 0 {
-		t.Fatalf("a rules file with no keys has no keys, got %v", keys)
-	}
-	// auditctl prints the keys back in its own -k=value form.
-	if keys := RuleKeys([]byte("-w /etc/passwd -p wa -k=identity\n")); len(keys) != 1 || keys[0] != "identity" {
-		t.Fatalf("got %v", keys)
-	}
-	// auditctl -l keeps -k only for watches; a syscall rule's key comes back as
-	// the field it is. Missing that spelling reports every syscall key as
-	// unloaded no matter how well the load went.
-	listed := "-a always,exit -F arch=b64 -S init_module -F auid>=1000 -F key=kernel_modules\n"
-	if keys := RuleKeys([]byte(listed)); len(keys) != 1 || keys[0] != "kernel_modules" {
-		t.Fatalf("got %v", keys)
-	}
-}
-
 func TestValidateSpec(t *testing.T) {
 	cases := map[string]*Spec{
 		"nil":            nil,
@@ -188,7 +175,7 @@ func TestApplyWritesAndLoads(t *testing.T) {
 	var cmds []string
 	writes := map[string]string{}
 	host := hostStub{cmds: &cmds, writes: writes, files: map[string]string{},
-		loaded: "-w /etc/passwd -p wa -k identity\n-a always,exit -k time_change\n-w /etc/audit/ -k audit_config\n"}
+		loaded: loadedSample}
 
 	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
 	if err != nil {
@@ -222,7 +209,7 @@ func TestApplyLoadsWhenTheFileIsAlreadyCorrectButUnloaded(t *testing.T) {
 func TestApplyIsANoOpWhenLoaded(t *testing.T) {
 	var cmds []string
 	host := hostStub{cmds: &cmds, files: map[string]string{dest: sampleRules},
-		loaded: "-k identity\n-k time_change\n-k audit_config\n"}
+		loaded: loadedSample}
 	if err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec()); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
@@ -240,7 +227,7 @@ func TestApplyRewritesCorrectContentAtTheWrongMode(t *testing.T) {
 	// drift is drift even when the content and the loaded policy both match.
 	var cmds []string
 	host := hostStub{cmds: &cmds, files: map[string]string{dest: sampleRules}, mode: "666",
-		loaded: "-k identity\n-k time_change\n-k audit_config\n"}
+		loaded: loadedSample}
 	if err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec()); err != nil {
 		t.Fatalf("apply failed: %v", err)
 	}
@@ -257,22 +244,72 @@ func TestApplyRewritesCorrectContentAtTheWrongMode(t *testing.T) {
 	}
 }
 
-func TestApplyRejectsRulesWithNoKeys(t *testing.T) {
+func TestApplyRejectsAFileWithNoRules(t *testing.T) {
 	host := hostStub{files: map[string]string{}}
-	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, "-w /etc/passwd -p wa\n")}, spec())
-	if err == nil || !strings.Contains(err.Error(), "no -k keys") {
-		t.Fatalf("expected keyless rules to be refused, got %v", err)
+	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, "## nothing but comments\n-b 8192\n")}, spec())
+	if err == nil || !strings.Contains(err.Error(), "declare no rules") {
+		t.Fatalf("expected a ruleless file to be refused, got %v", err)
 	}
 }
 
 func TestApplyReportsAnUnverifiedLoad(t *testing.T) {
-	host := hostStub{files: map[string]string{}, loaded: "-k identity\n"}
+	host := hostStub{files: map[string]string{}, loaded: "-w /etc/passwd -p wa -k identity\n"}
 	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
 	if err == nil || !strings.Contains(err.Error(), "did not take effect") {
-		t.Fatalf("expected the missing keys to be reported, got %v", err)
+		t.Fatalf("expected the missing rules to be reported, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "time_change") {
 		t.Fatalf("the error must name what is missing, got %v", err)
+	}
+}
+
+// TestApplyRefusesARuleThatOnlyShareTheKey is what key-based verification could
+// not see: the kernel is running a different rule under the same label.
+func TestApplyRefusesARuleThatOnlySharesTheKey(t *testing.T) {
+	host := hostStub{files: map[string]string{}, loaded: `-w /etc/shadow -p wa -k identity
+-a always,exit -F arch=b64 -S adjtimex -F key=time_change
+-w /etc/audit/ -p wa -k audit_config
+`}
+	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
+	if err == nil || !strings.Contains(err.Error(), "did not take effect") {
+		t.Fatalf("expected a same-key different-body rule to be caught, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "/etc/passwd") {
+		t.Fatalf("the error must name the rule that is really missing, got %v", err)
+	}
+}
+
+func TestApplyRefusesADestructiveOrLockingPolicy(t *testing.T) {
+	host := hostStub{files: map[string]string{}, loaded: loadedSample}
+
+	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, "-D\n"+sampleRules)}, spec())
+	if err == nil || !strings.Contains(err.Error(), "deletes every rule on the host") {
+		t.Fatalf("expected -D to be refused, got %v", err)
+	}
+
+	err = Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules+"-e 2\n")}, spec())
+	if err == nil || !strings.Contains(err.Error(), "locks the policy") {
+		t.Fatalf("expected -e 2 to be refused, got %v", err)
+	}
+}
+
+func TestApplyRefusesAnAbsentWatchPath(t *testing.T) {
+	host := hostStub{files: map[string]string{}, loaded: loadedSample,
+		absent: map[string]bool{"/etc/audit/": true}}
+	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
+	if err == nil || !strings.Contains(err.Error(), "do not exist on this host") {
+		t.Fatalf("expected the absent watch path to be named, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "/etc/audit/") {
+		t.Fatalf("the error must name the path, got %v", err)
+	}
+}
+
+func TestApplyRefusesALockedPolicy(t *testing.T) {
+	host := hostStub{files: map[string]string{}, loaded: loadedSample, status: "enabled 2 failure 1 pid 900"}
+	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
+	if err == nil || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("expected a locked policy to be refused, got %v", err)
 	}
 }
 
@@ -319,7 +356,7 @@ func TestPlan(t *testing.T) {
 
 	t.Run("aligned", func(t *testing.T) {
 		host := hostStub{files: map[string]string{dest: sampleRules},
-			loaded: "-k identity\n-k time_change\n-k audit_config\n"}
+			loaded: loadedSample}
 		res, err := Plan(pluginapi.Context{Host: host, Profile: p}, spec())
 		if err != nil {
 			t.Fatalf("plan failed: %v", err)
@@ -339,7 +376,7 @@ func TestPlan(t *testing.T) {
 			t.Fatal("rules on disk that are not loaded are a change")
 		}
 		joined := strings.Join(res.Details, "\n")
-		if !strings.Contains(joined, "already matches") || !strings.Contains(joined, "missing 3 rule key") {
+		if !strings.Contains(joined, "already matches") || !strings.Contains(joined, "missing 3 rule(s)") {
 			t.Fatalf("details do not explain the state: %s", joined)
 		}
 	})
@@ -473,5 +510,185 @@ func TestPluginWiring(t *testing.T) {
 	}
 	if got := p.DetectConflict(hostStub{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectPackage}); got != nil {
 		t.Fatalf("expected no conflicts for a foreign kind, got %v", got)
+	}
+}
+
+func TestParseRulesReconcilesBothSpellings(t *testing.T) {
+	// The same rule as a file writes it, and as auditctl prints it back.
+	fileForm, err := ParseRules([]byte("-a always,exit -F arch=b64 -S adjtimex,settimeofday -k time_change\n"))
+	if err != nil {
+		t.Fatalf("parse file form: %v", err)
+	}
+	listForm, err := ParseRules([]byte("-a always,exit -F arch=b64 -S adjtimex -S settimeofday -F key=time_change\n"))
+	if err != nil {
+		t.Fatalf("parse auditctl form: %v", err)
+	}
+	if fileForm[0].Canonical() != listForm[0].Canonical() {
+		t.Fatalf("the same rule must compare equal:\n file: %s\n list: %s", fileForm[0].Canonical(), listForm[0].Canonical())
+	}
+
+	// Permission order is not a difference either.
+	a, err := ParseRules([]byte("-w /etc/passwd -p wa -k identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b, err := ParseRules([]byte("-w /etc/passwd -p aw -k identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if a[0].Canonical() != b[0].Canonical() {
+		t.Fatalf("permission order must not matter: %s vs %s", a[0].Canonical(), b[0].Canonical())
+	}
+}
+
+func TestParseRulesDistinguishesDifferentBodies(t *testing.T) {
+	rules, err := ParseRules([]byte(`-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-a always,exit -F arch=b64 -S adjtimex -k time_change
+-a always,exit -F arch=b32 -S adjtimex -k time_change
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	seen := map[string]struct{}{}
+	for _, rule := range rules {
+		seen[rule.Canonical()] = struct{}{}
+	}
+	if len(seen) != 4 {
+		t.Fatalf("four different rules must not collapse, got %d: %v", len(seen), seen)
+	}
+}
+
+func TestParseRulesSkipsControlLinesAndComments(t *testing.T) {
+	rules, err := ParseRules([]byte("# a comment\n\n-D\n-b 8192\n-f 1\n-e 1\n-w /etc/passwd -p wa -k identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(rules) != 1 || rules[0].Watch != "/etc/passwd" {
+		t.Fatalf("expected only the watch rule, got %+v", rules)
+	}
+}
+
+func TestParseRulesRefusesWhatItCannotRead(t *testing.T) {
+	for _, line := range []string{
+		"-w",
+		"-p wa -k identity",
+		"-a always,exit -S",
+		"-z something",
+		"-k orphan",
+	} {
+		if _, err := ParseRules([]byte(line + "\n")); err == nil {
+			t.Fatalf("expected %q to be refused rather than silently skipped", line)
+		}
+	}
+}
+
+func TestMissingRulesIgnoresRulesThisProfileDoesNotOwn(t *testing.T) {
+	want, err := ParseRules([]byte("-w /etc/passwd -p wa -k identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	loaded, err := ParseRules([]byte("-w /var/log/sudo.log -p wa -k sudo_log\n-w /etc/passwd -p wa -k identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if missing := MissingRules(loaded, want); len(missing) != 0 {
+		t.Fatalf("another owner's extra rules are not drift, got %v", missing)
+	}
+}
+
+func TestAuditEnabledLockedReadsTheStatusLine(t *testing.T) {
+	cases := map[string]bool{
+		"enabled 2 failure 1 pid 900 rate_limit 0": true,
+		"enabled 1 failure 1 pid 900":              false,
+		"enabled 0":                                false,
+		"":                                         false,
+		"enabled":                                  false,
+	}
+	for status, want := range cases {
+		if got := auditEnabledLocked(status); got != want {
+			t.Fatalf("auditEnabledLocked(%q) = %v, want %v", status, got, want)
+		}
+	}
+}
+
+func TestLoadedRulesTreatsNoRulesAsEmpty(t *testing.T) {
+	host := hostStub{loaded: "No rules\n"}
+	rules, err := loadedRules(host)
+	if err != nil {
+		t.Fatalf("loadedRules failed: %v", err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("expected an empty policy, got %v", rules)
+	}
+}
+
+func TestRuleStringRendersBothKinds(t *testing.T) {
+	rules, err := ParseRules([]byte("-w /etc/passwd -p wa -k identity\n-a always,exit -F arch=b64 -S adjtimex -k time_change\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := rules[0].String(); got != "-w /etc/passwd -p aw -k identity" {
+		t.Fatalf("unexpected watch rendering: %q", got)
+	}
+	if got := rules[1].String(); got != "-a always,exit -F arch=b64 -S adjtimex -k time_change" {
+		t.Fatalf("unexpected syscall rendering: %q", got)
+	}
+}
+
+func TestLoadedRulesSurfacesUnreadablePolicy(t *testing.T) {
+	host := hostStub{loaded: "-z nonsense\n"}
+	if _, err := loadedRules(host); err == nil {
+		t.Fatal("a policy that cannot be parsed must not read as an empty one")
+	}
+
+	failing := hostStub{outErr: errors.New("auditctl boom")}
+	if _, err := loadedRules(failing); err == nil {
+		t.Fatal("expected the read failure to surface")
+	}
+}
+
+func TestLoadReportsAFailedAugenrules(t *testing.T) {
+	want, err := ParseRules([]byte(sampleRules))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	host := hostStub{runRoot: func(cmd string) error {
+		if cmd == loadCmd {
+			return errors.New("augenrules exited 1")
+		}
+		return nil
+	}}
+	if err := load(host, want); err == nil || !strings.Contains(err.Error(), loadCmd) {
+		t.Fatalf("expected the load failure to name the command, got %v", err)
+	}
+}
+
+func TestPlanSurfacesThePreflightRefusals(t *testing.T) {
+	host := hostStub{files: map[string]string{}, loaded: loadedSample,
+		status: "enabled 2 failure 1", absent: map[string]bool{"/etc/audit/": true}}
+	res, err := Plan(pluginapi.Context{Host: host, Profile: testProfile(t, "-D\n"+sampleRules)}, spec())
+	if err != nil {
+		t.Fatalf("plan failed: %v", err)
+	}
+
+	joined := strings.Join(res.Highlights, "\n")
+	for _, want := range []string{"deletes every rule", "locked", "do not exist on this host"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("plan must warn about %q before apply refuses it, got %v", want, res.Highlights)
+		}
+	}
+}
+
+func TestControlLineCoversTheSubsystemSettings(t *testing.T) {
+	for _, line := range []string{"-D", "-e 1", "-b 8192", "-f 1", "-r 60", "--loginuid-immutable"} {
+		if !ControlLine(strings.Fields(line)) {
+			t.Fatalf("%q is a control line", line)
+		}
+	}
+	for _, line := range []string{"-w /etc/passwd -p wa -k identity", ""} {
+		if ControlLine(strings.Fields(line)) {
+			t.Fatalf("%q is not a control line", line)
+		}
 	}
 }

@@ -43,18 +43,31 @@ already carry the rules. A host that is already aligned gets no write and no
 load. Mode counts as much as content: the right rules at `0666` are an audit
 policy any unprivileged user can rewrite.
 
-The load is then **verified against the kernel, not against the file**: the
-plugin extracts every `-k` key from the rules it wrote and requires each one to
-appear in `auditctl -l`. `auditctl` keeps `-k` only for watches and prints a
-syscall rule's key as the field it is, `-F key=name`, so both spellings are
-read back. If a key is missing, apply fails and names it. Rules that declare no
-`-k` keys are refused at apply, because a load with nothing to check would
-report success without proving anything.
+The load is then **verified against the kernel, not against the file**, and by
+rule body rather than by label: every rule written is parsed and must appear in
+`auditctl -l` with the same watch path and permissions, or the same list,
+syscalls and field comparisons. A key alone proves nothing, because two rules
+can carry the same `-k` and watch entirely different things. The two spellings
+are reconciled: a file writes `-S a,b` and `-k name` where `auditctl` prints
+`-S a -S b` and, for a syscall rule, `-F key=name`. A rule the kernel is not
+running is named in the failure. A file that declares no rules at all is
+refused, because a load with nothing to check reports success without proving
+anything.
 
-Every `-w` path in the rules must exist on the target. `auditctl` rejects a
-watch on a missing path and `augenrules --load` then fails for the whole rule
-set, so a rules file cannot carry watches for paths that only some releases
-ship.
+Before anything is written, apply refuses three states it cannot honestly act
+on:
+
+- `-D` in the managed rules. This file is loaded after the distribution's base
+  config and anything else that owns part of the policy, so clearing the ruleset
+  from it would delete rules the profile does not own.
+- `-e 2`, in the file or already set on the host (`auditctl -s` reporting
+  `enabled 2`). The policy is locked until reboot: a load is accepted and then
+  ignored, and the run could not undo itself.
+- A `-w` path that does not exist on the target. `auditctl` rejects that watch
+  and `augenrules --load` then fails for the whole rule set, so the missing
+  paths are named up front rather than surfacing as one opaque load failure.
+
+Plan reports each of these as a highlight before apply refuses it.
 
 Plan reports the two states separately, so "the file matches but the policy is
 not loaded" is visible before you apply.
@@ -68,7 +81,7 @@ reverse, so a separate load step would have run before the file it depends on
 had been put back, leaving the kernel enforcing rules that are no longer on
 disk.
 
-The reload after a restore is not key-verified. The previous rules are whatever
+The reload after a restore is not verified against the rules. The previous rules are whatever
 they were, and their keys are not known from the snapshot; a failure to reload
 is still reported.
 

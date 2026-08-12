@@ -1,5 +1,7 @@
-## Clear any existing rules
--D
+## No -D here: this file is loaded after the distribution's own base config and
+## anything else that owns part of the policy, so clearing the ruleset from a
+## 99- file would delete rules this profile does not own. These rules are
+## additive.
 
 ## Buffer size (keep modest)
 -b 8192

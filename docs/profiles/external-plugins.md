@@ -46,4 +46,4 @@ Trust model:
 
 - external plugins are not signature-verified
 - they execute with root privileges through Hardline
-- Hardline refuses to load them from a world-writable plugin directory
+- Hardline refuses to load them from a directory or file that is writable by group or others, owned by a third party, or reached through a symlink

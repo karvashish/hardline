@@ -86,6 +86,6 @@ Important facts:
 - they are loaded from a `plugins/` directory next to the binary
 - they are not signature-verified
 - they execute with the same root-capable process context as Hardline
-- Hardline refuses to load them from a world-writable plugin directory
+- Hardline refuses to load them from a directory or file that is writable by group or others, owned by a third party, or reached through a symlink
 
 In practice, that means external plugins should be treated like trusted release artifacts, not like user-provided extensions in a multi-tenant environment.

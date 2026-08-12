@@ -38,3 +38,6 @@ go.work.sum
 .plan.md
 # MkDocs build output
 site/
+
+# Working notes that are not shipped documentation
+docs/os-hardening-capability-gap-report.md

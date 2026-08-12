@@ -444,6 +444,14 @@ func TestPluginWiring(t *testing.T) {
 	}
 
 	bad := profile.Step{ID: "a", Plugin: "audit", Config: map[string]any{"src": "x"}}
+	if err := p.Validate(bad, nil); err == nil {
+		t.Fatal("Validate must reject an invalid config with no host in sight")
+	}
+	good := profile.Step{ID: "a", Plugin: "audit", Config: map[string]any{
+		"src": "rules/hardline.rules", "dest": "/etc/audit/rules.d/99-hardline.rules", "mode": "0640"}}
+	if err := p.Validate(good, nil); err != nil {
+		t.Fatalf("Validate must accept a well-formed step: %v", err)
+	}
 	if err := p.Apply(pluginapi.Context{}, bad); err == nil {
 		t.Fatal("Apply must reject an invalid config")
 	}

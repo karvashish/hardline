@@ -189,6 +189,9 @@ func preparePlugin(p Plugin) (Plugin, error) {
 	if p.DetectConflict == nil {
 		return Plugin{}, fmt.Errorf("plugin %q is missing DetectConflict func", name)
 	}
+	if p.InternalValidation && p.Validate == nil {
+		return Plugin{}, fmt.Errorf("plugin %q claims internal validation but is missing Validate func", name)
+	}
 	p.Name = name
 	return p, nil
 }

@@ -90,6 +90,19 @@ func TestRegistryRegisterErrors(t *testing.T) {
 		t.Fatalf("expected missing detect-conflict error, got %v", err)
 	}
 
+	err = r.Register(Plugin{
+		Name:               "x",
+		InternalValidation: true,
+		Apply:              func(Context, profile.Step) error { return nil },
+		Plan:               func(Context, profile.Step) (PlanResult, error) { return PlanResult{}, nil },
+		Capture:            func(Context, profile.Step) (CaptureResult, error) { return CaptureResult{}, nil },
+		Rollback:           func(Host, ObjectRecord) error { return nil },
+		DetectConflict:     func(Host, ObjectRecord) []string { return nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing Validate func") {
+		t.Fatalf("expected missing validate error, got %v", err)
+	}
+
 	err = r.Register(validPlugin("x"))
 	if err != nil {
 		t.Fatalf("register plugin failed: %v", err)

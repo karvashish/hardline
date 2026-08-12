@@ -750,15 +750,19 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 2 {
+		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 3 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
 		// Rollback walks the objects in reverse, and an include naming a file
 		// that is gone breaks every nftables load, so the include has to be
 		// recorded last to be removed first.
-		include := rec.Objects[1].ConfigLine
-		if rec.Objects[1].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
-			t.Fatalf("expected the %s include captured last, got %+v", MainConfigDebian, rec.Objects[1])
+		include := rec.Objects[2].ConfigLine
+		if rec.Objects[2].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
+			t.Fatalf("expected the %s include captured last, got %+v", MainConfigDebian, rec.Objects[2])
+		}
+		flush := rec.Objects[1].ConfigLine
+		if rec.Objects[1].Kind != pluginapi.ObjectConfigLine || flush == nil || flush.Line != FlushLine {
+			t.Fatalf("expected the flush header captured with the include, got %+v", rec.Objects[1])
 		}
 		if include.Line != `include "/etc/nftables.d/99-hardline-firewall.nft"` {
 			t.Fatalf("expected the exact managed file to be included, got %q", include.Line)
@@ -1596,5 +1600,171 @@ func TestFirstNftLinesBoundsTheComplaint(t *testing.T) {
 	}
 	if got := firstNftLines("only", 5); got != "only" {
 		t.Fatalf("unexpected single line: %q", got)
+	}
+}
+
+// TestEnsureNftablesFlushPutsTheHeaderFirst covers the RHEL-family case: the
+// shipped config carries no flush, so a load would add to the running ruleset
+// instead of replacing it.
+func TestEnsureNftablesFlushPutsTheHeaderFirst(t *testing.T) {
+	const existing = "# managed by the distribution\ninclude \"/etc/nftables.d/50-other.nft\"\n"
+
+	var wrote string
+	var wroteMode os.FileMode
+	present := false
+	host := firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			if cmd == flushCheckCmd(MainConfigRHEL) && !present {
+				return errors.New("absent")
+			}
+			return nil
+		},
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|600|root|root|%d", len(existing)), nil
+		},
+		readRootFile: func(string) (string, error) { return existing, nil },
+		writeRootFile: func(_ string, data []byte, mode os.FileMode) error {
+			wrote, wroteMode = string(data), mode
+			present = true
+			return nil
+		},
+	}
+
+	if err := EnsureNftablesFlush(host, MainConfigRHEL); err != nil {
+		t.Fatalf("EnsureNftablesFlush failed: %v", err)
+	}
+	if !strings.HasPrefix(wrote, FlushLine+"\n") {
+		t.Fatalf("the flush header must be the first line, got %q", wrote)
+	}
+	if !strings.Contains(wrote, `include "/etc/nftables.d/50-other.nft"`) {
+		t.Fatalf("expected the existing content to survive, got %q", wrote)
+	}
+	if wroteMode.Perm() != 0o600 {
+		t.Fatalf("expected the file's own mode to be preserved, got %v", wroteMode)
+	}
+}
+
+func TestEnsureNftablesFlushIsANoOpWhenPresent(t *testing.T) {
+	host := firewallExecHostStub{
+		runRoot: func(string) error { return nil },
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			t.Fatal("a config that already flushes must not be rewritten")
+			return nil
+		},
+	}
+	if err := EnsureNftablesFlush(host, MainConfigDebian); err != nil {
+		t.Fatalf("EnsureNftablesFlush failed: %v", err)
+	}
+}
+
+func TestEnsureNftablesFlushGuards(t *testing.T) {
+	if err := EnsureNftablesFlush(nil, MainConfigDebian); err == nil {
+		t.Fatal("expected a host to be required")
+	}
+	if err := EnsureNftablesFlush(firewallExecHostStub{}, "/etc/evil.conf"); err == nil {
+		t.Fatal("expected a foreign main config to be refused")
+	}
+}
+
+func TestRollbackRemovesOnlyTheFlushLineItAdded(t *testing.T) {
+	const other = `include "/etc/nftables.d/50-other.nft"`
+	current := FlushLine + "\n\n" + other + "\n"
+
+	var wrote string
+	host := firewallExecHostStub{
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile: func(string) (string, error) { return current, nil },
+		writeRootFile: func(_ string, data []byte, _ os.FileMode) error {
+			wrote = string(data)
+			return nil
+		},
+	}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        MainConfigDebian,
+		Line:        FlushLine,
+		FileExisted: true,
+		Added:       true,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if strings.Contains(wrote, FlushLine) {
+		t.Fatalf("expected the flush header to be gone, got %q", wrote)
+	}
+	if !strings.Contains(wrote, other) {
+		t.Fatalf("expected the other profile's include to survive, got %q", wrote)
+	}
+}
+
+func TestRollbackKeepsAFlushLineItDidNotAdd(t *testing.T) {
+	host := firewallExecHostStub{writeRootFile: func(string, []byte, os.FileMode) error {
+		t.Fatal("a flush line this run did not add must not be removed")
+		return nil
+	}}
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        MainConfigDebian,
+		Line:        FlushLine,
+		FileExisted: true,
+		Added:       false,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+}
+
+func TestFlushLineConflictIsReported(t *testing.T) {
+	rec := pluginapi.ConfigLineSnapshot{
+		Path:        MainConfigDebian,
+		Line:        FlushLine,
+		FileExisted: true,
+		Added:       true,
+	}
+	gone := firewallExecHostStub{runRoot: func(cmd string) error {
+		if cmd == flushCheckCmd(MainConfigDebian) {
+			return errors.New("absent")
+		}
+		return nil
+	}}
+	conflicts := includeLineConflict(gone, rec)
+	if len(conflicts) != 1 || !strings.Contains(conflicts[0], FlushLine) {
+		t.Fatalf("expected a removed-flush conflict, got %v", conflicts)
+	}
+	if got := includeLineConflict(firewallExecHostStub{}, rec); got != nil {
+		t.Fatalf("expected no conflict while the flush header is present, got %v", got)
+	}
+}
+
+func TestRemoveNftablesFlushEdgeCases(t *testing.T) {
+	if err := RemoveNftablesFlush(nil, MainConfigDebian); err == nil {
+		t.Fatal("expected a host to be required")
+	}
+	if err := RemoveNftablesFlush(firewallExecHostStub{}, "/etc/evil.conf"); err == nil {
+		t.Fatal("expected a foreign main config to be refused")
+	}
+	if flushPresent(nil, MainConfigDebian) {
+		t.Fatal("no host means nothing can be confirmed present")
+	}
+
+	absent := firewallExecHostStub{runRootWithOutput: func(string) (string, error) { return "", nil }}
+	if err := RemoveNftablesFlush(absent, MainConfigDebian); err != nil {
+		t.Fatalf("expected an absent main config to be a no-op, got %v", err)
+	}
+
+	const content = "include \"/etc/nftables.d/50-other.nft\"\n"
+	untouched := firewallExecHostStub{
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(content)), nil
+		},
+		readRootFile: func(string) (string, error) { return content, nil },
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			t.Fatal("a config with no flush header must not be rewritten")
+			return nil
+		},
+	}
+	if err := RemoveNftablesFlush(untouched, MainConfigDebian); err != nil {
+		t.Fatalf("expected a no-op, got %v", err)
 	}
 }

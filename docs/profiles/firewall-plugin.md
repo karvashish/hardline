@@ -81,6 +81,7 @@ Behavior:
 
 - Hardline normalizes and deduplicates the desired ruleset into a deterministic file, so the same config always renders byte-identically. Rules keep the order the profile declared them in, because that is the order the kernel evaluates them: a `drop` written before an `accept` stays before it
 - Hardline ensures `main_config` contains `include "<managed_dest>"` — the exact file this step manages — appending the line when absent. Several profiles can own files in one drop-in directory without loading each other's rules, and rollback removes only its own line. A directory-wide `include "<dir>/*.nft"` left by an older hardline is refused, because keeping both would load the same file twice in one transaction
+- Hardline ensures the main config starts with `flush ruleset`, so one load produces exactly the ruleset the file describes rather than adding to whatever the kernel already holds. Debian-family configs ship the line; on RHEL-family hosts hardline writes it, and rollback removes it again only if this run added it
 - the rendered ruleset is staged as `<managed_dest>.hardline-candidate` and parsed there with `nft -c -f` before it is moved into place, so a file the host cannot load never reaches the path the host loads from; the include is added only after the file exists
 - validation runs `nft -c -f <main_config>` on the target
 - plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`, and reports a chain whose rules match but evaluate in a different order

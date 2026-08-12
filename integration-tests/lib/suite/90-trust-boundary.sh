@@ -145,9 +145,11 @@ EOF
 
   # Prove apply really mutated the file, otherwise the post-rollback hash match
   # below would hold trivially.
-  must_remote "apply added an include naming this file, not its directory" <<EOF
+  must_remote "apply added an include naming this file, not its directory, and a flush header" <<EOF
 $(nft_include_test "${dest}")
 grep -F -q 'include "${dest}"' ${NFT_MAIN_CONFIG}
+$(nft_flush_test)
+test "\$(grep -E -v '^[[:space:]]*(#|\$)' ${NFT_MAIN_CONFIG} | head -n 1 | tr -s ' ')" = "flush ruleset"
 EOF
   local after; after="$(remote_value "sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1")"
   [ "${after}" != "${before}" ] || note_fail "${NFT_MAIN_CONFIG} hash unchanged by apply (${before})"

@@ -152,9 +152,13 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 		logger.Debugf("handleFirewall: destination %q already matches, skipping write\n", destPath)
 	}
 
-	// The include goes in after the file it names exists. An include pointing at
-	// a missing file fails every nft load on the host, including the one this
-	// step is about to ask for.
+	// The flush header comes first so a load produces exactly what the file
+	// says, then the include, which goes in only after the file it names
+	// exists: an include pointing at a missing file fails every nft load on the
+	// host, including the one this step is about to ask for.
+	if err := EnsureNftablesFlush(ctx.Host, fw.MainConfig); err != nil {
+		return err
+	}
 	return EnsureNftablesInclude(ctx.Host, fw.MainConfig, destPath)
 }
 
@@ -533,13 +537,21 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		FileExisted: mainSnap.Existed,
 		Added:       !firewallIncludePresent(ctx.Host, mainConfig, dest),
 	}
+	flush := pluginapi.ConfigLineSnapshot{
+		Path:        mainConfig,
+		Line:        FlushLine,
+		FileExisted: mainSnap.Existed,
+		Added:       !flushPresent(ctx.Host, mainConfig),
+	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
-	// Rollback walks Before in reverse, so the include is listed last to be
-	// taken back first. An include naming a file that is no longer there fails
-	// every nftables load, so the pointer has to go before what it points at.
+	// Rollback walks Before in reverse, so the main-config lines are listed
+	// last to be taken back first. An include naming a file that is no longer
+	// there fails every nftables load, so the pointer has to go before what it
+	// points at, and the flush header goes with it.
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &snap},
+		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &flush},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &include},
 	}
 	return record, nil
@@ -552,6 +564,12 @@ func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) 
 	if host == nil || !rec.Added {
 		return nil
 	}
+	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
+		if flushPresent(host, rec.Path) {
+			return nil
+		}
+		return []string{fmt.Sprintf("%s no longer contains %s", rec.Path, rec.Line)}
+	}
 	dest := normalizeIncludeLine(rec.Line)
 	if dest == "" {
 		return nil
@@ -563,7 +581,8 @@ func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) 
 }
 
 // RestoreNftablesInclude undoes what apply did to the main config: the file if
-// this run created it, otherwise the one line it appended.
+// this run created it, otherwise the one line it added, whether that was the
+// include or the flush header.
 func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
@@ -576,6 +595,9 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 	}
 	if !rec.FileExisted {
 		return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
+	}
+	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
+		return RemoveNftablesFlush(host, rec.Path)
 	}
 	return RemoveNftablesInclude(host, rec.Path, rec.Line)
 }
@@ -620,6 +642,117 @@ func ManagedDestination(fw *Spec) string {
 		return p
 	}
 	return ""
+}
+
+// FlushLine is the first line of a managed main config. Without it, loading the
+// file adds to whatever the kernel already has, so a rule the profile deleted
+// stays in force until the next reboot. With it, one load produces exactly the
+// ruleset the file describes, the same way on Debian-family hosts, which ship
+// it, and RHEL-family hosts, which do not.
+const FlushLine = "flush ruleset"
+
+func flushCheckCmd(mainConfig string) string {
+	return fmt.Sprintf(`grep -E -q '^[[:space:]]*flush[[:space:]]+ruleset[[:space:]]*$' %s 2>/dev/null`,
+		pluginapi.ShellArg(mainConfig))
+}
+
+func flushPresent(host pluginapi.Host, mainConfig string) bool {
+	if host == nil {
+		return false
+	}
+	return host.RunRoot(flushCheckCmd(mainConfig)) == nil
+}
+
+// EnsureNftablesFlush puts "flush ruleset" at the top of the main config. It
+// has to be the first line: nft applies the file in order, so a flush after an
+// include would discard the very tables the include just defined.
+func EnsureNftablesFlush(host pluginapi.Host, mainConfig string) error {
+	if host == nil {
+		return fmt.Errorf("firewall step: host context is required")
+	}
+	if !ValidMainConfig(mainConfig) {
+		return fmt.Errorf("unsupported firewall main_config %q", mainConfig)
+	}
+	if flushPresent(host, mainConfig) {
+		return nil
+	}
+
+	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", mainConfig, err)
+	}
+	mode := os.FileMode(0o644)
+	var current []byte
+	if snap.Existed {
+		if mode, err = pluginapi.ParseFileMode(snap.Mode); err != nil {
+			return fmt.Errorf("%s: %w", mainConfig, err)
+		}
+		if current, err = base64.StdEncoding.DecodeString(snap.ContentB64); err != nil {
+			return fmt.Errorf("decode %s: %w", mainConfig, err)
+		}
+	}
+
+	next := FlushLine + "\n"
+	if len(current) > 0 {
+		next += string(current)
+	}
+	if err := host.WriteRootFile(mainConfig, []byte(next), mode); err != nil {
+		return fmt.Errorf("ensure %q in %s: %w", FlushLine, mainConfig, err)
+	}
+	if !flushPresent(host, mainConfig) {
+		return fmt.Errorf("verify %q in %s: line is still absent", FlushLine, mainConfig)
+	}
+	return nil
+}
+
+// RemoveNftablesFlush takes back the flush line this run added, leaving the
+// rest of the file, including other profiles' includes, untouched.
+func RemoveNftablesFlush(host pluginapi.Host, mainConfig string) error {
+	if host == nil {
+		return fmt.Errorf("firewall rollback: host is required")
+	}
+	if !ValidMainConfig(mainConfig) {
+		return fmt.Errorf("firewall rollback: unexpected main config path %q", mainConfig)
+	}
+
+	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
+	}
+	if !snap.Existed {
+		return nil
+	}
+	mode, err := pluginapi.ParseFileMode(snap.Mode)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: %s: %w", mainConfig, err)
+	}
+	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
+	}
+
+	next, removed := withoutFlushLine(string(current))
+	if !removed {
+		return nil
+	}
+	if err := host.WriteRootFile(mainConfig, []byte(next), mode); err != nil {
+		return fmt.Errorf("firewall rollback: rewrite %s: %w", mainConfig, err)
+	}
+	return nil
+}
+
+func withoutFlushLine(content string) (string, bool) {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	removed := false
+	for _, line := range lines {
+		if strings.Join(strings.Fields(line), " ") == FlushLine {
+			removed = true
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n"), removed
 }
 
 func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {

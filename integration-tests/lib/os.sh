@@ -133,6 +133,13 @@ nft_include_test() {
   printf "grep -E -q '^[[:space:]]*include[[:space:]]+\"?%s\"?[[:space:]]*\$' %s" "${escaped}" "${NFT_MAIN_CONFIG}"
 }
 
+# nft_flush_test prints the remote check that the main config starts from a
+# clean ruleset. Debian-family configs ship the line; RHEL-family ones do not,
+# so on those hosts apply is what puts it there.
+nft_flush_test() {
+  printf "grep -E -q '^[[:space:]]*flush[[:space:]]+ruleset[[:space:]]*\$' %s" "${NFT_MAIN_CONFIG}"
+}
+
 # nft_forget_managed prints the remote commands that take a managed firewall
 # file out of service: the include first, then the file. Removing the file while
 # its include survives makes every later nft load fail on the missing path.

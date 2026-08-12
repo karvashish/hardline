@@ -364,7 +364,7 @@ ID_LIKE=debian
 
 func TestCheckRemoteOS(t *testing.T) {
 	t.Run("nil client always passes", func(t *testing.T) {
-		if err := CheckRemoteOS(nil, "ubuntu", "24.04"); err != nil {
+		if err := CheckRemoteOS(nil, "ubuntu", "24.04", ""); err != nil {
 			t.Fatalf("expected nil client to pass, got %v", err)
 		}
 	})
@@ -372,7 +372,7 @@ func TestCheckRemoteOS(t *testing.T) {
 	c := remote.New(&ssh.Client{})
 
 	t.Run("empty family skips check", func(t *testing.T) {
-		if err := CheckRemoteOS(c, "", "24.04"); err != nil {
+		if err := CheckRemoteOS(c, "", "24.04", ""); err != nil {
 			t.Fatalf("expected empty family to skip check, got %v", err)
 		}
 	})
@@ -384,7 +384,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		err := CheckRemoteOS(c, "ubuntu", "24.04")
+		err := CheckRemoteOS(c, "ubuntu", "24.04", "")
 		if err == nil || !strings.Contains(err.Error(), "read remote OS info") {
 			t.Fatalf("expected read error, got %v", err)
 		}
@@ -397,7 +397,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		err := CheckRemoteOS(c, "ubuntu", "24.04")
+		err := CheckRemoteOS(c, "ubuntu", "24.04", "")
 		if err == nil || !strings.Contains(err.Error(), "OS family mismatch") {
 			t.Fatalf("expected family mismatch error, got %v", err)
 		}
@@ -410,7 +410,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		err := CheckRemoteOS(c, "ubuntu", "24.04")
+		err := CheckRemoteOS(c, "ubuntu", "24.04", "")
 		if err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
 			t.Fatalf("expected version mismatch error, got %v", err)
 		}
@@ -423,7 +423,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		if err := CheckRemoteOS(c, "ubuntu", "24.04"); err != nil {
+		if err := CheckRemoteOS(c, "ubuntu", "24.04", ""); err != nil {
 			t.Fatalf("expected success, got %v", err)
 		}
 	})
@@ -435,8 +435,47 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		if err := CheckRemoteOS(c, "ubuntu", ""); err != nil {
+		if err := CheckRemoteOS(c, "ubuntu", "", ""); err != nil {
 			t.Fatalf("expected success with no version requirement, got %v", err)
+		}
+	})
+
+	t.Run("variant mismatch", func(t *testing.T) {
+		prev := runWithOutput
+		runWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "ID=fedora\nVERSION_ID=\"44\"\nVARIANT_ID=workstation\n", nil
+		}
+		t.Cleanup(func() { runWithOutput = prev })
+
+		err := CheckRemoteOS(c, "fedora", "44", "cloud")
+		if err == nil || !strings.Contains(err.Error(), "OS variant mismatch") {
+			t.Fatalf("expected variant mismatch error, got %v", err)
+		}
+	})
+
+	t.Run("variant match is case-insensitive", func(t *testing.T) {
+		prev := runWithOutput
+		runWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "ID=fedora\nVERSION_ID=\"44\"\nVARIANT_ID=\"Cloud\"\n", nil
+		}
+		t.Cleanup(func() { runWithOutput = prev })
+
+		if err := CheckRemoteOS(c, "fedora", "44", "cloud"); err != nil {
+			t.Fatalf("expected case-insensitive variant match, got %v", err)
+		}
+	})
+
+	// A host that publishes no VARIANT_ID - the whole RHEL family, and Ubuntu -
+	// cannot contradict the profile, so it must not be refused on a guess.
+	t.Run("host without VARIANT_ID passes", func(t *testing.T) {
+		prev := runWithOutput
+		runWithOutput = func(_ *remote.Client, _ string) (string, error) {
+			return "ID=rocky\nVERSION_ID=\"9.5\"\n", nil
+		}
+		t.Cleanup(func() { runWithOutput = prev })
+
+		if err := CheckRemoteOS(c, "rocky", "9", "server"); err != nil {
+			t.Fatalf("expected an unpublished variant to pass, got %v", err)
 		}
 	})
 
@@ -447,7 +486,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		if err := CheckRemoteOS(c, "ubuntu", "24.04"); err != nil {
+		if err := CheckRemoteOS(c, "ubuntu", "24.04", ""); err != nil {
 			t.Fatalf("expected case-insensitive match, got %v", err)
 		}
 	})
@@ -459,7 +498,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		if err := CheckRemoteOS(c, "rocky", "9"); err != nil {
+		if err := CheckRemoteOS(c, "rocky", "9", ""); err != nil {
 			t.Fatalf("expected 9 to match 9.6, got %v", err)
 		}
 	})
@@ -471,7 +510,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		if err := CheckRemoteOS(c, "rocky", "9"); err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
+		if err := CheckRemoteOS(c, "rocky", "9", ""); err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
 			t.Fatalf("expected version mismatch, got %v", err)
 		}
 	})
@@ -483,7 +522,7 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 		t.Cleanup(func() { runWithOutput = prev })
 
-		if err := CheckRemoteOS(c, "ubuntu", "24.04"); err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
+		if err := CheckRemoteOS(c, "ubuntu", "24.04", ""); err == nil || !strings.Contains(err.Error(), "OS version mismatch") {
 			t.Fatalf("expected 24.04 to reject 24.10, got %v", err)
 		}
 	})

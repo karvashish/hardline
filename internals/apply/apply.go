@@ -80,7 +80,7 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 		}
 	}()
 
-	if err := connection.CheckRemoteOS(sshClient, p.OS.Family, p.OS.Version); err != nil {
+	if err := connection.CheckRemoteOS(sshClient, p.OS.Family, p.OS.Version, p.OS.Variant); err != nil {
 		return logger.Wrap(err, "OS compatibility check failed")
 	}
 

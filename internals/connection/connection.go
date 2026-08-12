@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/karvashish/hardline/internals/remote"
+	"github.com/karvashish/hardline/pkg/logger"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -139,10 +140,10 @@ func EnsureNonInteractiveSudo(client *remote.Client) error {
 }
 
 // CheckRemoteOS reads /etc/os-release from the remote host and verifies that
-// the OS family and version match the profile declaration. The schema requires
-// both, so the empty-value skips below are a defence for callers that build an
-// OSInfo in code rather than a path a signed profile can take.
-func CheckRemoteOS(client *remote.Client, family, version string) error {
+// the OS family, version and variant match the profile declaration. The schema
+// requires all three, so the empty-value skips below are a defence for callers
+// that build an OSInfo in code rather than a path a signed profile can take.
+func CheckRemoteOS(client *remote.Client, family, version, variant string) error {
 	if client == nil || strings.TrimSpace(family) == "" {
 		return nil
 	}
@@ -162,6 +163,31 @@ func CheckRemoteOS(client *remote.Client, family, version string) error {
 		return fmt.Errorf(
 			"OS version mismatch: profile requires %q, remote reports %q",
 			version, remoteVersion,
+		)
+	}
+	return checkRemoteVariant(out, variant)
+}
+
+// checkRemoteVariant holds a signed profile to the edition it was written for.
+// VARIANT_ID is the only authoritative statement a host makes about its
+// edition, and the families that publish it - Fedora above all - are exactly
+// the ones where a server profile landing on a workstation matters. Hosts that
+// publish nothing cannot contradict the profile, so they are not refused on a
+// guess: what is enforced is that the host never says something different.
+func checkRemoteVariant(osRelease, variant string) error {
+	declared := strings.TrimSpace(variant)
+	if declared == "" {
+		return nil
+	}
+	remoteVariant := parseOSReleaseField(osRelease, "VARIANT_ID")
+	if remoteVariant == "" {
+		logger.Debugf("connection: host publishes no VARIANT_ID; profile variant %q is unverified\n", declared)
+		return nil
+	}
+	if !strings.EqualFold(remoteVariant, declared) {
+		return fmt.Errorf(
+			"OS variant mismatch: profile requires %q, remote reports %q",
+			declared, remoteVariant,
 		)
 	}
 	return nil

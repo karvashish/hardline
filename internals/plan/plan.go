@@ -105,7 +105,7 @@ func Plan(c cli.Command, b *verify.VerifiedBundle) error {
 
 	logger.Debugf("ssh connection established\n")
 
-	if err := connection.CheckRemoteOS(sshClient, p.OS.Family, p.OS.Version); err != nil {
+	if err := connection.CheckRemoteOS(sshClient, p.OS.Family, p.OS.Version, p.OS.Variant); err != nil {
 		return logger.Wrap(err, "OS compatibility check failed")
 	}
 

@@ -74,7 +74,7 @@ Override key names must match:
 
 Duplicates are rejected. `additionalProperties` is `false`, so any field not in the table above fails schema validation.
 
-At run time Hardline compares only `os.family` against the target's `/etc/os-release` `ID`, and `os.version` against `VERSION_ID`. Version matching uses the components declared by the profile: `9` accepts `9` and any `9.x` value, while `24.04` accepts `24.04` and any `24.04.x` value but rejects `24.10`. `os.variant` is required by the schema and carried in the profile, but nothing on the host is checked against it.
+At run time Hardline compares `os.family` against the target's `/etc/os-release` `ID`, `os.version` against `VERSION_ID`, and `os.variant` against `VARIANT_ID`. Version matching uses the components declared by the profile: `9` accepts `9` and any `9.x` value, while `24.04` accepts `24.04` and any `24.04.x` value but rejects `24.10`. Variant matching is case-insensitive and only refuses a host that publishes a different `VARIANT_ID`: a host that publishes none (the RHEL family, Ubuntu) cannot contradict the profile and is not refused on a guess.
 
 ## One Managed File, One Profile
 

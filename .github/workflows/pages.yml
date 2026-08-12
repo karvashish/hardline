@@ -4,15 +4,12 @@ on:
   push:
     branches:
       - main
-    paths:
-      - docs/**
-      - mkdocs.yml
-      - .github/workflows/pages.yml
   pull_request:
     paths:
       - docs/**
       - mkdocs.yml
       - .github/workflows/pages.yml
+      - .github/scripts/build-docs-site.sh
   workflow_dispatch:
 
 permissions:
@@ -23,8 +20,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  check:
     name: Build Docs
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,8 +41,37 @@ jobs:
       - name: Build site
         run: mkdocs build --strict
 
+  # Every version is built from its own release branch, so a push to main can
+  # change only the "dev" copy. The push trigger carries no paths filter: a
+  # release lands on main touching version.json and the changelog alone, and
+  # that push is what has to promote the new release branch onto the site.
+  build:
+    name: Build Versioned Site
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch release branches
+        run: git fetch --no-tags origin '+refs/heads/release/*:refs/remotes/origin/release/*'
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r docs/requirements.txt
+
+      - name: Build site
+        run: .github/scripts/build-docs-site.sh
+
       - name: Upload artifact
-        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site

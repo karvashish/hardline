@@ -5,7 +5,7 @@ Releases are cut via a pull request to `main`. There is no manual `git tag` step
 ## Cutting a release
 
 1. Decide the next version (e.g. `0.1.2`).
-2. Create a branch and a single commit that:
+2. Create a branch named `release/v<version>` and a single commit that:
    - Updates `internals/cli/version.json`'s `version` field to the new value.
    - Adds `changelog/v<version>.md` with the release notes.
    - Updates the top-level `CHANGELOG.md` index to point at the new entry.
@@ -13,6 +13,54 @@ Releases are cut via a pull request to `main`. There is no manual `git tag` step
 4. Wait for CI to go green, then rebase-merge. Squash merge is disabled on the repository so the squashed `(#N)` suffix never enters the release commit subject, which `tag-release.yml` parses.
 
 That's it — the rest is automatic.
+
+## Release branches are permanent
+
+`Delete branch on merge` is on for the repository, so a merged head branch is
+normally removed. Release branches are the exception: the **Release branches**
+ruleset denies `deletion` and `non_fast_forward` on `refs/heads/release/**` and
+`refs/heads/release-*`, which both stops the automatic delete and stops a merged
+release branch being rewritten afterwards.
+
+They have to survive because the documentation site builds each published
+version from its release branch. A deleted branch takes that version's docs off
+the site.
+
+The name has not been consistent historically — `release/v0.1.2`, `release/0.2.0`
+and `release-0.2.0-rc1` all exist. The site accepts `release/v<version>` and
+`release/<version>`; use the first form.
+
+## Documentation site versions
+
+[`pages.yml`](https://github.com/karvashish/hardline/blob/main/.github/workflows/pages.yml)
+runs [`build-docs-site.sh`](https://github.com/karvashish/hardline/blob/main/.github/scripts/build-docs-site.sh),
+which builds one copy of the site per version:
+
+| Path | Built from |
+| --- | --- |
+| `/` | a redirect to `/latest/` |
+| `/latest/` | the newest released version |
+| `/<version>/` | that version's release branch |
+| `/dev/` | `main` |
+
+The site root serves the newest release, not `main`. Documentation for work
+that has merged but not shipped lives at `/dev/` and is reachable from the
+version selector in the header, so a reader never lands on instructions for a
+binary they cannot download.
+
+A release branch is published only when the tag `v<version>` exists, so an
+abandoned release PR whose branch survives never reaches the site. Prereleases
+are not published. A branch that predates the site (no `mkdocs.yml` in its tree)
+is skipped with a notice rather than failing the build.
+
+The build ignores each version's own `site_url` and version-selector settings,
+supplying them through an overlay config that `INHERIT`s the version's
+`mkdocs.yml`. Released trees are immutable, so a version whose config was
+written before the selector existed still gets one.
+
+The push trigger for the deploy job carries no paths filter. A release commit
+touches `internals/cli/version.json` and the changelog and nothing else, and
+that push is exactly what has to promote the new release branch onto the site.
 
 ## Shipped profile minimums
 

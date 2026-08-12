@@ -197,8 +197,10 @@ func TestPluginConfigRequiredKeys(t *testing.T) {
 		}
 	}
 
-	if _, ok := seen["service"]; ok {
-		t.Fatal("service has no required config key; it must not gain one by accident")
+	for plugin := range seen {
+		if _, ok := pluginConfigRequired[plugin]; !ok {
+			t.Fatalf("plugin %q gained a required config key that pluginConfigRequired does not declare", plugin)
+		}
 	}
 }
 

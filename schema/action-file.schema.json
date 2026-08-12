@@ -32,9 +32,14 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
                   "dest": {
                     "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "mode": {
+                    "pattern": "^[0-7]{3,4}$",
                     "type": "string"
                   },
                   "src": {
@@ -44,7 +49,8 @@
                 },
                 "required": [
                   "src",
-                  "dest"
+                  "dest",
+                  "mode"
                 ]
               }
             },
@@ -67,9 +73,20 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
+                  "append_only": {
+                    "type": "boolean"
+                  },
                   "group": {
                     "pattern": "^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$",
+                    "type": "string"
+                  },
+                  "immutable": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "pattern": "^[0-7]{3,4}$",
                     "type": "string"
                   },
                   "owner": {
@@ -80,7 +97,10 @@
                     "pattern": "^[A-Za-z0-9._/@-]+$",
                     "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "path"
+                ]
               }
             },
             "required": [
@@ -347,12 +367,51 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
                   "name": {
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$",
                     "type": "string"
+                  },
+                  "restart_policy": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "steps": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "type": {
+                        "enum": [
+                          "always",
+                          "on_change"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  "state": {
+                    "enum": [
+                      "started",
+                      "stopped",
+                      "restarted",
+                      "reloaded",
+                      "reload-or-restart"
+                    ],
+                    "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "name"
+                ]
               }
             },
             "required": [
@@ -374,16 +433,26 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
                   "dest": {
                     "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "mode": {
+                    "pattern": "^[0-7]{3,4}$",
                     "type": "string"
                   },
                   "src": {
                     "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$",
                     "type": "string"
                   }
-                }
+                },
+                "required": [
+                  "src",
+                  "dest",
+                  "mode"
+                ]
               }
             },
             "required": [

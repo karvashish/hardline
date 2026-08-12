@@ -29,7 +29,14 @@ const (
 	// An rpm package name, optionally arch-qualified ("glibc.i686"). Wider than
 	// the Debian rule: rpm names are case-sensitive and use underscores.
 	rpmNamePattern = `^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`
+	// An octal file mode, with or without the leading zero, capped at four
+	// digits so it cannot exceed the 07777 the plugins parse.
+	fileModePattern = `^[0-7]{3,4}$`
 )
+
+func boolean() map[string]any {
+	return map[string]any{"type": "boolean"}
+}
 
 func stringPattern(pattern string) map[string]any {
 	return map[string]any{"type": "string", "pattern": pattern}
@@ -55,20 +62,28 @@ func stringArrayPattern(pattern string) map[string]any {
 // once it interpolates profile input into a root command.
 var pluginConfigConstraints = map[string]map[string]any{
 	"service": {
-		"name": stringPattern(serviceUnitPattern),
+		"name":           stringPattern(serviceUnitPattern),
+		"enabled":        boolean(),
+		"state":          stringEnum("started", "stopped", "restarted", "reloaded", "reload-or-restart"),
+		"restart_policy": restartPolicyConfig(),
 	},
 	"file_meta": {
-		"path":  stringPattern(targetPathPattern),
-		"owner": stringPattern(userGroupPattern),
-		"group": stringPattern(userGroupPattern),
+		"path":        stringPattern(targetPathPattern),
+		"mode":        stringPattern(fileModePattern),
+		"owner":       stringPattern(userGroupPattern),
+		"group":       stringPattern(userGroupPattern),
+		"immutable":   boolean(),
+		"append_only": boolean(),
 	},
 	"template": {
 		"src":  stringPattern(profileRelPattern),
 		"dest": stringPattern(managedPathPattern),
+		"mode": stringPattern(fileModePattern),
 	},
 	"audit": {
 		"src":  stringPattern(profileRelPattern),
 		"dest": stringPattern(managedPathPattern),
+		"mode": stringPattern(fileModePattern),
 	},
 	"firewall": {
 		"managed_dest": stringPattern(managedPathPattern),
@@ -83,6 +98,21 @@ var pluginConfigConstraints = map[string]map[string]any{
 	"packages_apt":  packageConfig(debNamePattern),
 	"packages_dnf4": packageConfig(rpmNamePattern),
 	"packages_dnf5": packageConfig(rpmNamePattern),
+}
+
+// restartPolicyConfig is the service plugin's whole restart-policy surface. The
+// steps it watches are checked against the profile's step graph at verify, so
+// only their shape is stated here.
+func restartPolicyConfig() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"type":  stringEnum("always", "on_change"),
+			"steps": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required": []any{"type"},
+	}
 }
 
 // An operation cadence, as the plugins parse it.
@@ -109,9 +139,13 @@ func packageConfig(namePattern string) map[string]any {
 // pluginConfigClosed lists the plugins whose config surface is fully described
 // above, so anything else in the object is a mistake worth failing on.
 var pluginConfigClosed = map[string]bool{
+	"audit":         true,
+	"file_meta":     true,
 	"packages_apt":  true,
 	"packages_dnf4": true,
 	"packages_dnf5": true,
+	"service":       true,
+	"template":      true,
 }
 
 // nftablesMainConfigs are the only files apply will append an include to:
@@ -124,7 +158,10 @@ var nftablesMainConfigs = []string{"/etc/nftables.conf", "/etc/sysconfig/nftable
 var pluginConfigRequired = map[string][]string{
 	"firewall":          {"main_config"},
 	"firewall_template": {"main_config"},
-	"audit":             {"src", "dest"},
+	"audit":             {"src", "dest", "mode"},
+	"template":          {"src", "dest", "mode"},
+	"service":           {"name"},
+	"file_meta":         {"path"},
 }
 
 func configSchema(plugin string) map[string]any {

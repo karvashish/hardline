@@ -95,12 +95,13 @@ External plugins are loaded by `internals/plugins.LoadFromBinaryDir`.
 That loader:
 
 1. finds the directory adjacent to the `hardline` binary
-2. requires the directory not to be world-writable
+2. requires the directory to be a real directory, not a symlink, not writable by group or others, and owned by root or by the user running hardline
 3. scans for `.so` files
-4. opens each plugin with Go's `plugin` package
-5. looks up the `HardlinePluginV1` symbol
-6. requires that symbol to be a `*pluginapi.Plugin`
-7. registers the plugin into the shared registry
+4. applies the same checks to each `.so` before opening it, so a file planted before the directory was tightened is refused rather than loaded
+5. opens each plugin with Go's `plugin` package
+6. looks up the `HardlinePluginV1` symbol
+7. requires that symbol to be a `*pluginapi.Plugin`
+8. registers the plugin into the shared registry
 
 If one or more external plugins are found, Hardline emits an explicit warning that they are not signature-verified and will run as root.
 

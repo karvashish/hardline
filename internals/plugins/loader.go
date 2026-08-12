@@ -28,6 +28,8 @@ var (
 	executablePath   = os.Executable
 	readDirEntries   = os.ReadDir
 	statPath         = os.Stat
+	lstatPath        = os.Lstat
+	currentUID       = os.Geteuid
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return plugin.Open(path)
 	}
@@ -41,14 +43,14 @@ var (
 //
 // Trust model: external plugins are Go shared objects (.so) and are NOT
 // signature-verified. Any file placed in this directory executes arbitrary
-// code with root privileges (via passwordless sudo). Operators must ensure:
-//   - The binary directory and plugins/ subdirectory are owned by root and
-//     not world-writable (chmod 755 or stricter).
-//   - Plugins are sourced from a trusted, controlled location (e.g. the same
-//     package or release artifact as the binary itself).
+// code with root privileges (via passwordless sudo), so the directory and every
+// artifact in it are checked before anything is opened: each must be a real
+// directory or regular file rather than a symlink, must not be writable by
+// group or others, and must be owned by root or by the user running hardline.
+// Anything else is refused rather than warned about.
 //
-// This directory is NOT multi-tenant safe. Do not allow untrusted users to
-// write to it.
+// What this cannot check is where the plugin came from. Source them from the
+// same package or release artifact as the binary itself.
 func LoadFromBinaryDir() error {
 	exe, err := executablePath()
 	if err != nil {
@@ -58,17 +60,38 @@ func LoadFromBinaryDir() error {
 	return LoadFromDir(pluginDir)
 }
 
-// checkDirPermissions verifies the plugin directory is not world-writable.
-// External plugins execute arbitrary code with root privileges, so a
-// world-writable directory is a privilege-escalation vector.
-func checkDirPermissions(dir string) error {
-	info, err := statPath(dir)
+// assertTrustedArtifact holds one path to the rules the trust model already
+// stated but nothing enforced. Everything under this directory runs as root, so
+// the question is not whether the file looks like a plugin but whether anyone
+// other than root or the invoking user could have put it there: a group-writable
+// directory, a symlink pointing somewhere else, or a file owned by a third party
+// are each enough to hand root away.
+func assertTrustedArtifact(path string, wantDir bool) error {
+	info, err := lstatPath(path)
 	if err != nil {
-		return fmt.Errorf("stat plugins directory %q: %w", dir, err)
+		return fmt.Errorf("stat %q: %w", path, err)
 	}
-	mode := info.Mode().Perm()
-	if mode&fs.FileMode(0o002) != 0 {
-		return fmt.Errorf("plugins directory %q is world-writable (mode %04o); refusing to load plugins — fix with: chmod o-w %q", dir, mode, dir)
+
+	switch {
+	case info.Mode()&fs.ModeSymlink != 0:
+		return fmt.Errorf("%q is a symlink; refusing to load plugins through one, because what it points at is not what was checked", path)
+	case wantDir && !info.IsDir():
+		return fmt.Errorf("plugins path %q is not a directory", path)
+	case !wantDir && !info.Mode().IsRegular():
+		return fmt.Errorf("plugin %q is not a regular file", path)
+	}
+
+	if mode := info.Mode().Perm(); mode&0o022 != 0 {
+		fix := "chmod go-w " + path
+		return fmt.Errorf("%q is writable by group or others (mode %04o); refusing to load plugins — fix with: %s", path, mode, fix)
+	}
+
+	uid, ok := fileOwnerUID(info)
+	if !ok {
+		return nil
+	}
+	if uid != 0 && int(uid) != currentUID() {
+		return fmt.Errorf("%q is owned by uid %d, which is neither root nor the user running hardline (uid %d); refusing to load plugins", path, uid, currentUID())
 	}
 	return nil
 }
@@ -85,7 +108,7 @@ func LoadFromDir(dir string) error {
 		return fmt.Errorf("read plugins directory %q: %w", dir, err)
 	}
 
-	if err := checkDirPermissions(dir); err != nil {
+	if err := assertTrustedArtifact(dir, true); err != nil {
 		return err
 	}
 
@@ -116,6 +139,13 @@ func LoadFromDir(dir string) error {
 }
 
 func loadPluginFile(path string) error {
+	// Checked per artifact, not once for the directory: a directory nobody else
+	// can write to can still hold a file someone else owns, left there before
+	// the directory was tightened.
+	if err := assertTrustedArtifact(path, false); err != nil {
+		return err
+	}
+
 	pl, err := openSharedObject(path)
 	if err != nil {
 		return fmt.Errorf("open plugin %q: %w", path, err)

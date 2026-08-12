@@ -151,17 +151,17 @@ func TestLoadFromDir(t *testing.T) {
 	})
 }
 
-func TestCheckDirPermissions(t *testing.T) {
+func TestAssertTrustedArtifactOnDirectories(t *testing.T) {
 	t.Run("rejects world-writable directory", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.Chmod(dir, 0o777); err != nil {
 			t.Fatalf("chmod: %v", err)
 		}
-		err := checkDirPermissions(dir)
+		err := assertTrustedArtifact(dir, true)
 		if err == nil {
 			t.Fatal("expected error for world-writable dir")
 		}
-		if !strings.Contains(err.Error(), "world-writable") {
+		if !strings.Contains(err.Error(), "writable by group or others") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -171,7 +171,7 @@ func TestCheckDirPermissions(t *testing.T) {
 		if err := os.Chmod(dir, 0o755); err != nil {
 			t.Fatalf("chmod: %v", err)
 		}
-		if err := checkDirPermissions(dir); err != nil {
+		if err := assertTrustedArtifact(dir, true); err != nil {
 			t.Fatalf("expected no error for 0755 dir, got %v", err)
 		}
 	})
@@ -181,7 +181,7 @@ func TestCheckDirPermissions(t *testing.T) {
 		if err := os.Chmod(dir, 0o700); err != nil {
 			t.Fatalf("chmod: %v", err)
 		}
-		if err := checkDirPermissions(dir); err != nil {
+		if err := assertTrustedArtifact(dir, true); err != nil {
 			t.Fatalf("expected no error for 0700 dir, got %v", err)
 		}
 	})
@@ -191,11 +191,11 @@ func TestCheckDirPermissions(t *testing.T) {
 		if err := os.Chmod(dir, 0o773); err != nil {
 			t.Fatalf("chmod: %v", err)
 		}
-		err := checkDirPermissions(dir)
+		err := assertTrustedArtifact(dir, true)
 		if err == nil {
 			t.Fatal("expected error for 0773 dir")
 		}
-		if !strings.Contains(err.Error(), "world-writable") {
+		if !strings.Contains(err.Error(), "writable by group or others") {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -204,11 +204,11 @@ func TestCheckDirPermissions(t *testing.T) {
 		restore := stubLoaderDeps()
 		defer restore()
 
-		statPath = func(string) (os.FileInfo, error) {
+		lstatPath = func(string) (os.FileInfo, error) {
 			return nil, errors.New("stat boom")
 		}
-		err := checkDirPermissions("/nonexistent")
-		if err == nil || !strings.Contains(err.Error(), "stat plugins directory") {
+		err := assertTrustedArtifact("/nonexistent", true)
+		if err == nil || !strings.Contains(err.Error(), "stat ") {
 			t.Fatalf("expected stat error, got %v", err)
 		}
 	})
@@ -225,8 +225,8 @@ func TestLoadFromDirRejectsWorldWritable(t *testing.T) {
 	}
 
 	err := LoadFromDir(dir)
-	if err == nil || !strings.Contains(err.Error(), "world-writable") {
-		t.Fatalf("expected world-writable rejection, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "writable by group or others") {
+		t.Fatalf("expected a world-writable rejection, got %v", err)
 	}
 }
 
@@ -302,10 +302,14 @@ func stubLoaderDeps() func() {
 	prevOpen := openSharedObject
 	prevRegister := registerPluginAction
 	prevStat := statPath
+	prevLstat := lstatPath
+	prevUID := currentUID
 
 	executablePath = os.Executable
 	readDirEntries = os.ReadDir
 	statPath = os.Stat
+	lstatPath = os.Lstat
+	currentUID = os.Geteuid
 	registerPluginAction = func(pluginapi.Plugin) error { return nil }
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return fakePlugin{symbols: map[string]any{
@@ -319,6 +323,8 @@ func stubLoaderDeps() func() {
 		openSharedObject = prevOpen
 		registerPluginAction = prevRegister
 		statPath = prevStat
+		lstatPath = prevLstat
+		currentUID = prevUID
 	}
 }
 
@@ -341,5 +347,95 @@ func validLoaderPlugin(name string) pluginapi.Plugin {
 		Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
 			return pluginapi.CaptureResult{}, nil
 		},
+	}
+}
+
+// TestLoadFromDirRejectsUntrustedArtifacts covers the per-file half of the trust
+// model: a directory nobody else can write to can still hold a file that was
+// planted before it was tightened, and every one of these runs as root.
+func TestLoadFromDirRejectsUntrustedArtifacts(t *testing.T) {
+	t.Run("symlinked plugin", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		dir := t.TempDir()
+		target := filepath.Join(t.TempDir(), "real.so")
+		mustWrite(t, target)
+		if err := os.Symlink(target, filepath.Join(dir, "linked.so")); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+
+		err := LoadFromDir(dir)
+		if err == nil || !strings.Contains(err.Error(), "is a symlink") {
+			t.Fatalf("expected a symlink rejection, got %v", err)
+		}
+	})
+
+	t.Run("group-writable plugin", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "loose.so")
+		mustWrite(t, path)
+		if err := os.Chmod(path, 0o664); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+
+		err := LoadFromDir(dir)
+		if err == nil || !strings.Contains(err.Error(), "writable by group or others") {
+			t.Fatalf("expected a group-writable rejection, got %v", err)
+		}
+	})
+
+	t.Run("plugin owned by another user", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "foreign.so")
+		mustWrite(t, path)
+		// Nothing here can chown, so the check is driven from the other side:
+		// the same file read as though hardline ran as a different user.
+		currentUID = func() int { return os.Geteuid() + 1 }
+
+		err := LoadFromDir(dir)
+		if err == nil || !strings.Contains(err.Error(), "neither root nor the user running hardline") {
+			t.Fatalf("expected an ownership rejection, got %v", err)
+		}
+	})
+
+	t.Run("trusted plugin loads", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ok.so")
+		mustWrite(t, path)
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+
+		if err := LoadFromDir(dir); err != nil {
+			t.Fatalf("expected a trusted plugin to load, got %v", err)
+		}
+	})
+}
+
+func TestAssertTrustedArtifactRejectsAnIrregularFile(t *testing.T) {
+	restore := stubLoaderDeps()
+	defer restore()
+
+	dir := t.TempDir()
+	if err := assertTrustedArtifact(dir, false); err == nil ||
+		!strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("expected a directory to be refused as a plugin, got %v", assertTrustedArtifact(dir, false))
+	}
+
+	path := filepath.Join(dir, "plain.so")
+	mustWrite(t, path)
+	if err := assertTrustedArtifact(path, true); err == nil ||
+		!strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("expected a file to be refused as the plugins directory, got %v", assertTrustedArtifact(path, true))
 	}
 }

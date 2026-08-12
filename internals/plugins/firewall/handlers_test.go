@@ -43,7 +43,25 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 	plugin := Plugin()
 
-	err := plugin.Apply(pluginapi.Context{Host: firewallHelperRuntimeStub{runRootWithOutput: "644 12", readContent: "stale"}}, profile.Step{
+	// What the kernel reports after loading this step's ruleset. Activation
+	// compares the two, so the stub has to answer as the loaded host would.
+	live := mustLiveRulesetJSON(&Spec{
+		Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter",
+		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
+		Policies: []Policy{
+			{Chain: "input", Policy: "drop"},
+			{Chain: "forward", Policy: "drop"},
+			{Chain: "output", Policy: "accept"},
+		},
+		Rules: []Rule{
+			{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+			{Chain: "input", CTStates: []string{"established", "related"}, Action: "accept"},
+		},
+	})
+
+	err := plugin.Apply(pluginapi.Context{Host: firewallHelperRuntimeStub{
+		runRootWithOutput: "644 12", readContent: "stale", liveRulesetJSON: live,
+	}}, profile.Step{
 		ID:     "fw",
 		Plugin: "firewall",
 		Config: map[string]any{

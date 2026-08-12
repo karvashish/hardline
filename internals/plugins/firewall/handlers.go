@@ -37,7 +37,17 @@ func Plugin() pluginapi.Plugin {
 			if err := Apply(ctx, spec); err != nil {
 				return err
 			}
-			return ValidateApply(ctx.Host, spec.MainConfig, spec.ManagedDest)
+			if err := ValidateApply(ctx.Host, spec.MainConfig, spec.ManagedDest); err != nil {
+				return err
+			}
+			// The file is in place and the composite parses; loading it is what
+			// makes the kernel run it. Without this the step hardens a file and
+			// leaves the running ruleset untouched.
+			desired, err := NormalizeDesiredSpec(spec)
+			if err != nil {
+				return err
+			}
+			return ActivateFirewall(ctx.Host, spec.MainConfig, desired)
 		},
 		Plan: func(ctx pluginapi.Context, step profile.Step) (pluginapi.PlanResult, error) {
 			spec, err := decodeFirewallSpec(step)

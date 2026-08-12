@@ -150,12 +150,12 @@ SCENARIOS=(
   overrides-verify overrides-effect
   # Trust boundaries
   injection-guard signed-bundle-coverage edited-profile-refused firewall-include-rollback
-  firewall-include-layering
+  firewall-include-layering firewall-activation
 )
 
 # Scenarios that require the base profile applied first (nftables include +
 # base table). "all" bootstraps via the base-profile scenario, which runs first.
-BOOTSTRAP_SET="base-profile firewall-basic-rollback firewall-include-rollback firewall-include-layering firewall-advanced firewall-external-plugin multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback apply-no-local-rollback overrides-effect"
+BOOTSTRAP_SET="base-profile firewall-basic-rollback firewall-include-rollback firewall-include-layering firewall-activation firewall-advanced firewall-external-plugin multi-plugin-rollback auto-rollback-on-failure layered-rollback layered-auto-rollback apply-no-local-rollback overrides-effect"
 
 run_scenario() {
   local name="$1"

@@ -9,6 +9,7 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -952,6 +953,94 @@ func validDeterministicFirewallSpec() *Spec {
 	}
 }
 
+// activationProbeAnswer serves the two host questions activation asks before
+// and after it loads: which ports sshd listens on, and what the kernel ended up
+// running. Both have to be answered for a stub to reach the load at all.
+func activationProbeAnswer(cmd string, noSSHD bool, liveJSON string) (string, bool) {
+	switch {
+	case strings.HasPrefix(cmd, "ss -Hltnp"):
+		if noSSHD {
+			return "", true
+		}
+		return `LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=800,fd=3))`, true
+	case strings.Contains(cmd, "nft -j list ruleset"):
+		if liveJSON != "" {
+			return liveJSON, true
+		}
+		return standardLiveRulesetJSON, true
+	}
+	return "", false
+}
+
+// standardLiveRulesetJSON is what the host reports after loading the ruleset
+// validDeterministicFirewallSpec describes.
+var standardLiveRulesetJSON = mustLiveRulesetJSON(validDeterministicFirewallSpec())
+
+func mustLiveRulesetJSON(spec *Spec) string {
+	normalized, err := NormalizeDesiredSpec(spec)
+	if err != nil {
+		panic("build live ruleset fixture: " + err.Error())
+	}
+	return liveRulesetJSON(normalized)
+}
+
+// liveRulesetJSON renders what "nft -j list ruleset" reports for a loaded
+// ruleset. Activation compares the kernel's answer against what was asked for,
+// so a stub that cannot speak nft's JSON cannot exercise activation at all.
+func liveRulesetJSON(spec NormalizedSpec) string {
+	entries := []string{fmt.Sprintf(`{"table":{"family":%q,"name":%q}}`, spec.Family, spec.Table)}
+
+	chains := make([]string, 0, len(spec.Policies))
+	for chain := range spec.Policies {
+		chains = append(chains, chain)
+	}
+	sort.Strings(chains)
+	for _, chain := range chains {
+		entries = append(entries, fmt.Sprintf(
+			`{"chain":{"family":%q,"table":%q,"name":%q,"type":"filter","hook":%q,"policy":%q}}`,
+			spec.Family, spec.Table, chain, chain, spec.Policies[chain]))
+	}
+
+	for _, rule := range spec.Rules {
+		var exprs []string
+		if rule.InInterface != "" {
+			exprs = append(exprs, fmt.Sprintf(`{"match":{"left":{"meta":{"key":"iifname"}},"op":"==","right":%q}}`, rule.InInterface))
+		}
+		if rule.OutInterface != "" {
+			exprs = append(exprs, fmt.Sprintf(`{"match":{"left":{"meta":{"key":"oifname"}},"op":"==","right":%q}}`, rule.OutInterface))
+		}
+		if rule.Source != "" {
+			exprs = append(exprs, fmt.Sprintf(`{"match":{"left":{"payload":{"protocol":%q,"field":"saddr"}},"op":"==","right":%q}}`,
+				addressKeyword(spec.Family, rule.Source), rule.Source))
+		}
+		if rule.Destination != "" {
+			exprs = append(exprs, fmt.Sprintf(`{"match":{"left":{"payload":{"protocol":%q,"field":"daddr"}},"op":"==","right":%q}}`,
+				addressKeyword(spec.Family, rule.Destination), rule.Destination))
+		}
+		if len(rule.CTStates) > 0 {
+			quoted := make([]string, 0, len(rule.CTStates))
+			for _, state := range rule.CTStates {
+				quoted = append(quoted, fmt.Sprintf("%q", state))
+			}
+			exprs = append(exprs, fmt.Sprintf(`{"match":{"left":{"ct":{"key":"state"}},"op":"in","right":[%s]}}`, strings.Join(quoted, ",")))
+		}
+		switch rule.Proto {
+		case "tcp", "udp":
+			exprs = append(exprs, fmt.Sprintf(`{"match":{"left":{"payload":{"protocol":%q,"field":"dport"}},"op":"==","right":%d}}`, rule.Proto, rule.Port))
+		case "icmp":
+			exprs = append(exprs, `{"match":{"left":{"payload":{"protocol":"ip","field":"protocol"}},"op":"==","right":"icmp"}}`)
+		case "icmpv6":
+			exprs = append(exprs, `{"match":{"left":{"payload":{"protocol":"ip6","field":"nexthdr"}},"op":"==","right":"icmpv6"}}`)
+		}
+		exprs = append(exprs, fmt.Sprintf(`{%q:null}`, rule.Action))
+
+		entries = append(entries, fmt.Sprintf(`{"rule":{"family":%q,"table":%q,"chain":%q,"expr":[%s]}}`,
+			spec.Family, spec.Table, rule.Chain, strings.Join(exprs, ",")))
+	}
+
+	return `{"nftables":[` + strings.Join(entries, ",") + `]}`
+}
+
 type fakeFileInfo struct {
 	mode os.FileMode
 	size int64
@@ -1023,6 +1112,8 @@ func (s firewallRuntimeStub) RunRootWithTimeout(cmd string, _ time.Duration) (st
 
 type firewallHelperRuntimeStub struct {
 	legacyGlob           bool
+	noSSHD               bool
+	liveRulesetJSON      string
 	runRootErr           error
 	runRootWithOutput    string
 	runRootWithOutputErr error
@@ -1038,6 +1129,11 @@ func (s firewallHelperRuntimeStub) RunRoot(cmd string) error {
 }
 
 func (s firewallHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	// Activation probes the host before it loads anything, so a stub that says
+	// nothing would read as "sshd is not listening" and refuse the load.
+	if answer, ok := activationProbeAnswer(cmd, s.noSSHD, s.liveRulesetJSON); ok {
+		return answer, nil
+	}
 	if s.runRootWithOutputErr != nil {
 		return "", s.runRootWithOutputErr
 	}
@@ -1070,6 +1166,8 @@ func (s firewallHelperRuntimeStub) RunRootWithTimeout(string, time.Duration) (st
 
 type firewallExecHostStub struct {
 	legacyGlob        bool
+	noSSHD            bool
+	liveRulesetJSON   string
 	runRoot           func(string) error
 	runRootWithOutput func(string) (string, error)
 	readRootFile      func(string) (string, error)
@@ -1089,10 +1187,18 @@ func (s firewallExecHostStub) RunRoot(cmd string) error {
 }
 
 func (s firewallExecHostStub) RunRootWithOutput(cmd string) (string, error) {
-	if s.runRootWithOutput == nil {
-		return "", nil
+	// A test's own answer wins; the canned probe replies only fill in for the
+	// commands it did not care to model, so a stub still reaches the load.
+	if s.runRootWithOutput != nil {
+		out, err := s.runRootWithOutput(cmd)
+		if err != nil || strings.TrimSpace(out) != "" {
+			return out, err
+		}
 	}
-	return s.runRootWithOutput(cmd)
+	if answer, ok := activationProbeAnswer(cmd, s.noSSHD, s.liveRulesetJSON); ok {
+		return answer, nil
+	}
+	return "", nil
 }
 
 func (firewallExecHostStub) Stat(string) (os.FileInfo, error) { return nil, errors.New("missing") }
@@ -1766,5 +1872,163 @@ func TestRemoveNftablesFlushEdgeCases(t *testing.T) {
 	}
 	if err := RemoveNftablesFlush(untouched, MainConfigDebian); err != nil {
 		t.Fatalf("expected a no-op, got %v", err)
+	}
+}
+
+func normalizedTestSpec(t *testing.T, spec *Spec) NormalizedSpec {
+	t.Helper()
+	normalized, err := NormalizeDesiredSpec(spec)
+	if err != nil {
+		t.Fatalf("NormalizeDesiredSpec failed: %v", err)
+	}
+	return normalized
+}
+
+// TestActivateFirewallLoadsAndVerifies is the whole point of activation: the
+// file is loaded, and what the kernel ends up running is read back and checked.
+func TestActivateFirewallLoadsAndVerifies(t *testing.T) {
+	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
+
+	var cmds []string
+	host := firewallExecHostStub{
+		runRootWithOutput: func(cmd string) (string, error) {
+			cmds = append(cmds, cmd)
+			return "", nil
+		},
+	}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("ActivateFirewall failed: %v", err)
+	}
+
+	joined := strings.Join(cmds, "\n")
+	if !strings.Contains(joined, "nft -f '"+MainConfigDebian+"'") {
+		t.Fatalf("expected the main config to be loaded in one transaction, got %v", cmds)
+	}
+	if strings.Contains(joined, "systemctl restart") {
+		t.Fatalf("activation must not restart the service: its stop flushes the ruleset, got %v", cmds)
+	}
+}
+
+func TestActivateFirewallRefusesAnIncompleteLoad(t *testing.T) {
+	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
+
+	// The kernel came back with an empty ruleset: the load silently did nothing.
+	host := firewallExecHostStub{liveRulesetJSON: `{"nftables":[]}`}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "not what was applied") {
+		t.Fatalf("expected the read-back to refuse the load, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "tcp dport 22 accept") {
+		t.Fatalf("expected the missing rule to be named, got %v", err)
+	}
+}
+
+func TestActivateFirewallReportsWhatNftSaid(t *testing.T) {
+	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
+
+	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+		if strings.HasPrefix(cmd, "nft -f ") {
+			return "/etc/nftables.conf:9:1-6: Error: Could not process rule: No such file or directory", errors.New("exit status 1")
+		}
+		return "", nil
+	}}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "No such file or directory") {
+		t.Fatalf("expected nft's own complaint, got %v", err)
+	}
+}
+
+// TestActivateFirewallRefusesToLockItselfOut: a drop policy with no accept for
+// the port sshd answers on takes the host away from the run that applied it.
+func TestActivateFirewallRefusesToLockItselfOut(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 8080, Action: "accept"}}
+	desired := normalizedTestSpec(t, spec)
+
+	var cmds []string
+	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+		cmds = append(cmds, cmd)
+		return "", nil
+	}}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
+		t.Fatalf("expected a lockout refusal, got %v", err)
+	}
+	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
+		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
+	}
+}
+
+func TestActivateFirewallAcceptsANonStandardSSHPort(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 2222, Action: "accept"}}
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{
+		runRootWithOutput: func(cmd string) (string, error) {
+			if strings.HasPrefix(cmd, "ss -Hltnp") {
+				return `LISTEN 0 128 0.0.0.0:2222 0.0.0.0:* users:(("sshd",pid=800,fd=3))`, nil
+			}
+			return "", nil
+		},
+		liveRulesetJSON: liveRulesetJSON(desired),
+	}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("expected the ruleset to be loaded, got %v", err)
+	}
+}
+
+// A source-scoped accept keeps one network in, not the operator applying the
+// profile, so it must not satisfy the guard.
+func TestActivateFirewallIgnoresANarrowedAccept(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "accept"}}
+	desired := normalizedTestSpec(t, spec)
+
+	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
+		t.Fatalf("expected a narrowed accept to be refused as management access, got %v", err)
+	}
+}
+
+func TestActivateFirewallFailsClosedWithoutAnSSHProbe(t *testing.T) {
+	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
+
+	host := firewallExecHostStub{noSSHD: true}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "could not determine which port sshd") {
+		t.Fatalf("expected the probe to fail closed, got %v", err)
+	}
+
+	failing := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+		if strings.HasPrefix(cmd, "ss -Hltnp") {
+			return "", errors.New("ss: command not found")
+		}
+		return "", nil
+	}}
+	if err := ActivateFirewall(failing, MainConfigDebian, desired); err == nil {
+		t.Fatal("expected a failing probe to refuse the load")
+	}
+}
+
+// An accept policy needs no guard: nothing is being shut out.
+func TestActivateFirewallSkipsTheGuardForAnAcceptPolicy(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{noSSHD: true, liveRulesetJSON: liveRulesetJSON(desired)}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("expected an accept policy to need no lockout probe, got %v", err)
+	}
+}
+
+func TestActivateFirewallGuards(t *testing.T) {
+	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
+	if err := ActivateFirewall(nil, MainConfigDebian, desired); err == nil {
+		t.Fatal("expected a host to be required")
+	}
+	if err := ActivateFirewall(firewallExecHostStub{}, "/etc/evil.conf", desired); err == nil {
+		t.Fatal("expected a foreign main config to be refused")
 	}
 }

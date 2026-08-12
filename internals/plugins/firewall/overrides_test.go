@@ -122,8 +122,26 @@ func TestPlugin_AppliesAllowTCPPortsOverride(t *testing.T) {
 		},
 	}
 
+	// The override adds a rule, so the ruleset the kernel reports back has to
+	// carry it too: activation refuses a load that did not take what was asked.
+	live := mustLiveRulesetJSON(&Spec{
+		Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter",
+		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
+		Policies: []Policy{
+			{Chain: "input", Policy: "drop"},
+			{Chain: "forward", Policy: "drop"},
+			{Chain: "output", Policy: "accept"},
+		},
+		Rules: []Rule{
+			{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+			{Chain: "input", Proto: "tcp", Port: 8080, Action: "accept"},
+		},
+	})
+
 	ctx := pluginapi.Context{
-		Host: firewallHelperRuntimeStub{runRootWithOutput: "644 12", readContent: "stale"},
+		Host: firewallHelperRuntimeStub{
+			runRootWithOutput: "644 12", readContent: "stale", liveRulesetJSON: live,
+		},
 		Overrides: map[string]json.RawMessage{
 			OverrideKeyAllowTCPPorts: json.RawMessage(`[8080]`),
 		},

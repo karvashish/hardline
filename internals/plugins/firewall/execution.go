@@ -162,6 +162,132 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 	return EnsureNftablesInclude(ctx.Host, fw.MainConfig, destPath)
 }
 
+// ActivateFirewall loads the main config into the kernel and proves the running
+// ruleset is the one that was asked for. Writing the file is not what protects
+// a host: until something loads it, the kernel keeps whatever it had, so a
+// profile that only wrote a file was hardened on disk and open in practice.
+func ActivateFirewall(host pluginapi.Host, mainConfig string, desired NormalizedSpec) error {
+	if host == nil {
+		return fmt.Errorf("firewall step: host context is required")
+	}
+	if !ValidMainConfig(mainConfig) {
+		return fmt.Errorf("unsupported firewall main_config %q", mainConfig)
+	}
+
+	if err := assertManagementAccess(host, desired); err != nil {
+		return err
+	}
+
+	// One file, one transaction: the flush and every table in it commit
+	// together, so there is no moment where the host has no rules. A service
+	// restart would do this as stop-then-start, and its stop flushes the
+	// ruleset on its own.
+	if out, err := host.RunRootWithOutput("nft -f " + pluginapi.ShellArg(mainConfig) + " 2>&1"); err != nil {
+		if detail := firstNftLines(out, 5); detail != "" {
+			return fmt.Errorf("load %s: %s", mainConfig, detail)
+		}
+		return fmt.Errorf("load %s: %w", mainConfig, err)
+	}
+
+	live, err := currentFirewallState(host, desired.Family, desired.Table)
+	if err != nil {
+		return fmt.Errorf("read back the loaded ruleset: %w", err)
+	}
+	if drift := renderFirewallStateDiff(live, desired); len(drift) > 0 {
+		return fmt.Errorf("the loaded ruleset is not what was applied:\n  %s", strings.Join(drift, "\n  "))
+	}
+	return nil
+}
+
+// assertManagementAccess refuses to load a ruleset that would not accept the
+// port sshd is listening on. A drop policy with no rule for that port takes the
+// host away from whoever applied it, and the run cannot undo what it can no
+// longer reach.
+func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
+	policy := desired.Policies["input"]
+	if policy != "drop" && policy != "reject" {
+		return nil
+	}
+
+	ports, err := sshdListeningPorts(host)
+	if err != nil {
+		return err
+	}
+	for _, port := range ports {
+		if acceptsInputPort(desired, port) {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"refusing to load: the input chain policy is %q and no rule accepts tcp on the port sshd is listening on (%s); "+
+			"add an accept rule for it, or hardline would lock itself out of this host",
+		policy, joinPorts(ports))
+}
+
+// sshdListeningPorts reads the ports sshd is actually listening on. It fails
+// closed: a probe that cannot answer is not evidence that a lockout is safe.
+func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
+	out, err := host.RunRootWithOutput("ss -Hltnp 2>/dev/null")
+	if err != nil {
+		return nil, fmt.Errorf("probe the listening ssh ports: %w", err)
+	}
+
+	seen := make(map[int]struct{})
+	var ports []int
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "sshd") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		local := fields[3]
+		idx := strings.LastIndex(local, ":")
+		if idx < 0 {
+			continue
+		}
+		port, convErr := strconv.Atoi(local[idx+1:])
+		if convErr != nil || port < 1 || port > 65535 {
+			continue
+		}
+		if _, dup := seen[port]; dup {
+			continue
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("could not determine which port sshd is listening on; refusing to load a ruleset that may lock this host out")
+	}
+	sort.Ints(ports)
+	return ports, nil
+}
+
+// acceptsInputPort reports whether the ruleset lets a new connection to port
+// reach sshd. Only rules with no address or interface narrowing count: one that
+// accepts a single source address does not keep the host reachable in general.
+func acceptsInputPort(desired NormalizedSpec, port int) bool {
+	for _, rule := range desired.Rules {
+		if rule.Chain != "input" || rule.Action != "accept" || rule.Proto != "tcp" || rule.Port != port {
+			continue
+		}
+		if rule.Source != "" || rule.Destination != "" || rule.InInterface != "" || rule.OutInterface != "" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func joinPorts(ports []int) string {
+	out := make([]string, 0, len(ports))
+	for _, port := range ports {
+		out = append(out, strconv.Itoa(port))
+	}
+	return strings.Join(out, ", ")
+}
+
 // firstNftLines trims nft's complaint down to something an error can carry. nft
 // prints the offending line and a caret ruler, which is the useful part.
 func firstNftLines(out string, n int) string {

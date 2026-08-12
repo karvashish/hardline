@@ -227,3 +227,55 @@ $(nft_forget_managed "${second_dest}")
 EOF
   scenario_end
 }
+
+# ── firewall-activation: apply loads the ruleset, with no service step at all ─
+scenario_firewall_activation() {
+  local dir="${ARTIFACT_ROOT}/firewall-activation"
+  reset_dir "${dir}"
+  scenario_start "firewall-activation: the firewall step loads the ruleset itself, in declared order"
+  guard_can_sign || return
+
+  local table="hardline_fw_activate"
+  local dest="/etc/nftables.d/96-hardline-fw-activate.nft"
+
+  ssh_cmd "sudo bash -seo pipefail" <<EOF
+nft delete table inet ${table} 2>/dev/null || true
+$(nft_forget_managed "${dest}")
+EOF
+
+  must_remote "table absent before apply (control: proves apply has to load it)" <<EOF
+if nft list table inet ${table} >/dev/null 2>&1; then exit 1; fi
+EOF
+
+  local pdir; pdir=$(make_profile_firewall_only "fw-activate" "${table}" "${dest}")
+  must_hl "${dir}/apply.log" "apply firewall-only profile" -- apply "${pdir}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
+
+  # No service step exists in this profile, so a live table can only have come
+  # from the plugin's own load.
+  must_remote "the table is live immediately after apply, without any service restart" <<EOF
+nft list table inet ${table} >/dev/null 2>&1
+nft list chain inet ${table} input | grep -q 'policy drop'
+EOF
+
+  # The kernel prints a chain in evaluation order, so this is the declared
+  # order surviving all the way to the running ruleset: the invalid-state drop
+  # has to precede the accepts it was written before.
+  must_remote "the loaded chain keeps the declared rule order" <<EOF
+order=\$(nft list chain inet ${table} input | grep -n -e 'ct state invalid drop' -e 'iif "lo" accept' -e 'tcp dport 22 accept' | cut -d: -f1 | tr '\n' ' ')
+test "\$(echo \${order} | awk '{print (\$1<\$2 && \$2<\$3) ? "ok" : "bad"}')" = "ok"
+EOF
+
+  must_hl "${dir}/rollback.log" "rollback firewall-only profile" -- rollback "${pdir}" "${remote_args[@]}"
+
+  must_remote "rollback leaves no include, no file, and a config that still parses" <<EOF
+if $(nft_include_test "${dest}"); then exit 1; fi
+test ! -e ${dest}
+nft -c -f ${NFT_MAIN_CONFIG}
+EOF
+
+  ssh_cmd "sudo bash -seo pipefail" <<EOF >/dev/null 2>&1 || true
+nft delete table inet ${table} 2>/dev/null || true
+$(nft_forget_managed "${dest}")
+EOF
+  scenario_end
+}

@@ -153,6 +153,41 @@ EOJSON
   echo "${dir}"
 }
 
+# Firewall with no service step at all. Nothing here can load the ruleset except
+# the firewall plugin itself, which is what makes it evidence that apply
+# activates rather than only writing a file.
+make_profile_firewall_only() {
+  local name="$1" table="$2" dest="$3"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-firewall.json"], "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-firewall.json" <<EOJSON
+{
+  "steps": [
+    { "id": "configure-fw", "plugin": "firewall", "config": {
+        "backend": "nftables", "main_config": "${NFT_MAIN_CONFIG}", "family": "inet", "table": "${table}",
+        "managed_dest": "${dest}",
+        "policies": [{ "chain": "input", "policy": "drop" }],
+        "rules": [
+          { "chain": "input", "ct_states": ["invalid"], "action": "drop" },
+          { "chain": "input", "in_interface": "lo", "action": "accept" },
+          { "chain": "input", "ct_states": ["established", "related"], "action": "accept" },
+          { "chain": "input", "proto": "tcp", "port": 22, "action": "accept" }
+        ] } }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
 # Firewall with advanced rules (forward chain, source CIDR, multi-port, non-lo).
 make_profile_firewall_advanced() {
   local name="$1" table="$2" dest="$3" iface="${4:-lo}"

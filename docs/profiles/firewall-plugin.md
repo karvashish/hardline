@@ -84,6 +84,9 @@ Behavior:
 - Hardline ensures the main config starts with `flush ruleset`, so one load produces exactly the ruleset the file describes rather than adding to whatever the kernel already holds. Debian-family configs ship the line; on RHEL-family hosts hardline writes it, and rollback removes it again only if this run added it
 - the rendered ruleset is staged as `<managed_dest>.hardline-candidate` and parsed there with `nft -c -f` before it is moved into place, so a file the host cannot load never reaches the path the host loads from; the include is added only after the file exists
 - validation runs `nft -c -f <main_config>` on the target
+- apply then loads the config with `nft -f <main_config>`: one file, one transaction, so the flush and every table in it commit together and the host is never briefly without rules. A `systemctl restart nftables` would do the same load as stop-then-start, and the stop flushes the ruleset on its own, so a profile needs only `enabled: true` with `state: "started"` for the ruleset to survive a reboot
+- after loading, the running table is read back with `nft -j list ruleset` and compared to what was applied, including rule order; a mismatch fails the step
+- before loading, a ruleset whose `input` policy is `drop` or `reject` must accept tcp on a port sshd is listening on, or apply refuses rather than locking itself out. The probe fails closed: if the listening port cannot be determined, nothing is loaded
 - plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`, and reports a chain whose rules match but evaluate in a different order
 - rollback removes the include before the managed file: an include naming a file that is gone fails every later nftables load
 

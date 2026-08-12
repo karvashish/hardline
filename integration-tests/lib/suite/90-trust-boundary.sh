@@ -130,7 +130,7 @@ sed -i '/nftables\\.d/d' ${NFT_MAIN_CONFIG}
 EOF
 
   must_remote "include line absent before apply (control: proves apply has to add it)" <<EOF
-if $(nft_include_test); then exit 1; fi
+if $(nft_include_test "${dest}"); then exit 1; fi
 EOF
 
   local before; before="$(remote_value "sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1")"
@@ -145,8 +145,9 @@ EOF
 
   # Prove apply really mutated the file, otherwise the post-rollback hash match
   # below would hold trivially.
-  must_remote "apply added the include line" <<EOF
-$(nft_include_test)
+  must_remote "apply added an include naming this file, not its directory" <<EOF
+$(nft_include_test "${dest}")
+grep -F -q 'include "${dest}"' ${NFT_MAIN_CONFIG}
 EOF
   local after; after="$(remote_value "sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1")"
   [ "${after}" != "${before}" ] || note_fail "${NFT_MAIN_CONFIG} hash unchanged by apply (${before})"
@@ -157,11 +158,70 @@ test "\$(sha256sum ${NFT_MAIN_CONFIG} | cut -d' ' -f1)" = "${before}"
 nft -c -f ${NFT_MAIN_CONFIG}
 EOF
 
-  # Leave the host as the rest of the suite expects it: include line present.
+  # Leave the host as the rest of the suite expects it: no leftover table, no
+  # include naming a file that is gone.
   ssh_cmd "sudo bash -seo pipefail" <<EOF >/dev/null 2>&1 || true
 nft delete table inet hardline_fw_include 2>/dev/null || true
-$(nft_include_test) ||
-  printf '\n%s\n' 'include "/etc/nftables.d/*.nft"' >> ${NFT_MAIN_CONFIG}
+$(nft_forget_managed "${dest}")
+EOF
+  scenario_end
+}
+
+# ── firewall-include-layering: one profile's rollback keeps another's include ─
+scenario_firewall_include_layering() {
+  local dir="${ARTIFACT_ROOT}/firewall-include-layering"
+  reset_dir "${dir}"
+  scenario_start "firewall-include-layering: rolling back one profile leaves the other profile's include in ${NFT_MAIN_CONFIG}"
+  guard_can_sign || return
+
+  local first_table="hardline_fw_layer_a"
+  local second_table="hardline_fw_layer_b"
+  local first_dest="/etc/nftables.d/97-hardline-fw-layer-a.nft"
+  local second_dest="/etc/nftables.d/98-hardline-fw-layer-b.nft"
+
+  ssh_cmd "sudo bash -seo pipefail" <<EOF
+nft delete table inet ${first_table} 2>/dev/null || true
+nft delete table inet ${second_table} 2>/dev/null || true
+$(nft_forget_managed "${first_dest}")
+$(nft_forget_managed "${second_dest}")
+EOF
+
+  local first; first=$(make_profile_firewall "fw-layer-a" "${first_table}" "${first_dest}")
+  local second; second=$(make_profile_firewall "fw-layer-b" "${second_table}" "${second_dest}")
+
+  must_hl "${dir}/apply-a.log" "apply first firewall profile" -- apply "${first}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
+  must_hl "${dir}/apply-b.log" "apply second firewall profile" -- apply "${second}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
+
+  must_remote "both profiles are included by name and both tables are loaded" <<EOF
+$(nft_include_test "${first_dest}")
+$(nft_include_test "${second_dest}")
+nft list table inet ${first_table} >/dev/null 2>&1
+nft list table inet ${second_table} >/dev/null 2>&1
+EOF
+
+  must_hl "${dir}/rollback-a.log" "rollback the first profile" -- rollback "${first}" "${remote_args[@]}"
+
+  must_remote "only the first profile's include and file are gone; the second survives" <<EOF
+if $(nft_include_test "${first_dest}"); then exit 1; fi
+test ! -e ${first_dest}
+$(nft_include_test "${second_dest}")
+test -e ${second_dest}
+nft -c -f ${NFT_MAIN_CONFIG}
+EOF
+
+  must_hl "${dir}/rollback-b.log" "rollback the second profile" -- rollback "${second}" "${remote_args[@]}"
+
+  must_remote "the second rollback leaves no hardline include behind" <<EOF
+if $(nft_include_test "${second_dest}"); then exit 1; fi
+test ! -e ${second_dest}
+nft -c -f ${NFT_MAIN_CONFIG}
+EOF
+
+  ssh_cmd "sudo bash -seo pipefail" <<EOF >/dev/null 2>&1 || true
+nft delete table inet ${first_table} 2>/dev/null || true
+nft delete table inet ${second_table} 2>/dev/null || true
+$(nft_forget_managed "${first_dest}")
+$(nft_forget_managed "${second_dest}")
 EOF
   scenario_end
 }

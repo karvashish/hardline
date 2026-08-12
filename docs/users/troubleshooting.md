@@ -135,13 +135,21 @@ The packages plugin validates every name against `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`.
 
 The firewall plugin shells out to `nft` on the target and has no separate presence check, so a missing `nftables` package surfaces as the underlying command failing — most visibly from `nft -c -f /etc/nftables.conf` during validation. Install the userspace tools in an earlier step via the package plugin for the target, or choose a profile that doesn't use the firewall plugin.
 
-### `nftables.conf missing include for /etc/nftables.d/*.nft`
+### `nftables.conf missing include for the managed file`
 
-The plugin requires `/etc/nftables.conf` to contain `include "/etc/nftables.d/*.nft"` and appends the line when it is absent. This error means the check ran against a target where the append had not happened yet or was reverted.
+The plugin requires the main config to contain `include "<managed_dest>"` — the exact file the step manages — and appends the line when it is absent. This error means the check ran against a target where the append had not happened yet or was reverted.
+
+### `still contains the directory-wide include written by an older hardline`
+
+Earlier versions appended `include "<dir>/*.nft"` instead of one line per managed file. Keeping that line next to the per-file include loads the same ruleset twice in a single transaction, so apply refuses until it is removed:
+
+```bash
+sudo sed -i -E '/^[[:space:]]*include[[:space:]]+"?\/etc\/nftables\.d\/\*\.nft"?[[:space:]]*$/d' /etc/nftables.conf
+```
 
 ### Rules apply but traffic still blocked
 
-The firewall plugin writes a deterministic ruleset file to the `managed_dest` path declared in the step — `/etc/nftables.d/99-hardline-firewall.nft` in the shipped starter profile — and ensures `/etc/nftables.conf` sources `/etc/nftables.d/*.nft`. If your target has a pre-existing `nftables` ruleset that conflicts (for example, `ufw` or a cloud-init-managed ruleset), the two sets can race. Inspect the live table:
+The firewall plugin writes a deterministic ruleset file to the `managed_dest` path declared in the step — `/etc/nftables.d/99-hardline-firewall.nft` in the shipped starter profile — and ensures the main config includes that file by name. If your target has a pre-existing `nftables` ruleset that conflicts (for example, `ufw` or a cloud-init-managed ruleset), the two sets can race. Inspect the live table:
 
 ```bash
 sudo nft list ruleset

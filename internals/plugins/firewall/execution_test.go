@@ -19,7 +19,10 @@ const (
 	testDest       = "/etc/nftables.d/99-hardline-firewall.nft"
 )
 
-var testIncludeCheck = includeCheckCmd(testMainConfig, testDest)
+var (
+	testIncludeCheck    = includeCheckCmd(testMainConfig, testDest)
+	testLegacyGlobCheck = legacyGlobCheckCmd(testMainConfig, testDest)
+)
 
 func TestNormalizeDesiredSpec(t *testing.T) {
 	spec, err := NormalizeDesiredSpec(&Spec{
@@ -476,7 +479,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `printf '\n%s\n' 'include "/etc/nftables.d/*.nft"' >> '/etc/nftables.conf'`) {
+		if !strings.Contains(strings.Join(cmds, "\n"), `printf '\n%s\n' 'include "/etc/nftables.d/99-hardline-firewall.nft"' >> '/etc/nftables.conf'`) {
 			t.Fatalf("expected include append command, got %v", cmds)
 		}
 
@@ -735,13 +738,18 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 2 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
-		// Reverse-ordered rollback restores the managed file first, so
-		// nftables.conf must be the first object recorded.
-		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != MainConfigDebian {
-			t.Fatalf("expected %s captured first, got %+v", MainConfigDebian, rec.Objects[0].File)
+		// Rollback walks the objects in reverse, and an include naming a file
+		// that is gone breaks every nftables load, so the include has to be
+		// recorded last to be removed first.
+		include := rec.Objects[1].ConfigLine
+		if rec.Objects[1].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
+			t.Fatalf("expected the %s include captured last, got %+v", MainConfigDebian, rec.Objects[1])
 		}
-		if rec.Objects[1].File == nil || rec.Objects[1].File.Path != ManagedDestination(validDeterministicFirewallSpec()) {
-			t.Fatalf("expected managed destination captured second, got %+v", rec.Objects[1].File)
+		if include.Line != `include "/etc/nftables.d/99-hardline-firewall.nft"` {
+			t.Fatalf("expected the exact managed file to be included, got %q", include.Line)
+		}
+		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != ManagedDestination(validDeterministicFirewallSpec()) {
+			t.Fatalf("expected managed destination captured first, got %+v", rec.Objects[0].File)
 		}
 	})
 
@@ -940,6 +948,7 @@ func (f fakeFileInfo) Sys() any           { return nil }
 type firewallRuntimeStub struct {
 	statInfo    os.FileInfo
 	include     bool
+	legacyGlob  bool
 	configErr   error
 	rulesetJSON string
 	rulesetErr  error
@@ -949,6 +958,11 @@ type firewallRuntimeStub struct {
 
 func (s firewallRuntimeStub) RunRoot(cmd string) error {
 	switch cmd {
+	case testLegacyGlobCheck:
+		if s.legacyGlob {
+			return nil
+		}
+		return errors.New("no legacy glob")
 	case testIncludeCheck:
 		if s.include {
 			return nil
@@ -989,6 +1003,7 @@ func (s firewallRuntimeStub) RunRootWithTimeout(cmd string, _ time.Duration) (st
 }
 
 type firewallHelperRuntimeStub struct {
+	legacyGlob           bool
 	runRootErr           error
 	runRootWithOutput    string
 	runRootWithOutputErr error
@@ -996,7 +1011,12 @@ type firewallHelperRuntimeStub struct {
 	readErr              error
 }
 
-func (s firewallHelperRuntimeStub) RunRoot(string) error { return s.runRootErr }
+func (s firewallHelperRuntimeStub) RunRoot(cmd string) error {
+	if cmd == testLegacyGlobCheck && !s.legacyGlob {
+		return errors.New("no legacy glob")
+	}
+	return s.runRootErr
+}
 
 func (s firewallHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 	if s.runRootWithOutputErr != nil {
@@ -1030,6 +1050,7 @@ func (s firewallHelperRuntimeStub) RunRootWithTimeout(string, time.Duration) (st
 }
 
 type firewallExecHostStub struct {
+	legacyGlob        bool
 	runRoot           func(string) error
 	runRootWithOutput func(string) (string, error)
 	readRootFile      func(string) (string, error)
@@ -1037,6 +1058,11 @@ type firewallExecHostStub struct {
 }
 
 func (s firewallExecHostStub) RunRoot(cmd string) error {
+	// grep exits non-zero when the pattern is absent, and a host carrying the
+	// old directory-wide include is the exception, not the default.
+	if cmd == testLegacyGlobCheck && !s.legacyGlob {
+		return errors.New("no legacy glob")
+	}
 	if s.runRoot == nil {
 		return nil
 	}
@@ -1126,4 +1152,225 @@ func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 			t.Fatal("expected a nil host to be refused")
 		}
 	})
+}
+
+// TestRollbackRemovesOnlyItsOwnInclude is the layering case: two profiles both
+// append an include to the same main config, and the first one's rollback must
+// take back its own line without disturbing the second's.
+func TestRollbackRemovesOnlyItsOwnInclude(t *testing.T) {
+	const other = `include "/etc/nftables.d/50-other.nft"`
+	current := "flush ruleset\n\n" + IncludeLine(testDest) + "\n" + other + "\n"
+
+	var wrote string
+	var wroteMode os.FileMode
+	host := firewallExecHostStub{
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile: func(string) (string, error) { return current, nil },
+		writeRootFile: func(_ string, data []byte, mode os.FileMode) error {
+			wrote = string(data)
+			wroteMode = mode
+			return nil
+		},
+	}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        testMainConfig,
+		Line:        IncludeLine(testDest),
+		FileExisted: true,
+		Added:       true,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if strings.Contains(wrote, testDest) {
+		t.Fatalf("expected our include to be gone, got %q", wrote)
+	}
+	if !strings.Contains(wrote, other) {
+		t.Fatalf("expected the other profile's include to survive, got %q", wrote)
+	}
+	if !strings.Contains(wrote, "flush ruleset") {
+		t.Fatalf("expected the rest of the file to survive, got %q", wrote)
+	}
+	if wroteMode.Perm() != 0o644 {
+		t.Fatalf("expected the file's own mode to be preserved, got %v", wroteMode)
+	}
+}
+
+func TestRollbackLeavesAnIncludeItDidNotAdd(t *testing.T) {
+	host := firewallExecHostStub{writeRootFile: func(string, []byte, os.FileMode) error {
+		t.Fatal("a line this run did not add must not be rewritten")
+		return nil
+	}}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        testMainConfig,
+		Line:        IncludeLine(testDest),
+		FileExisted: true,
+		Added:       false,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+}
+
+func TestRollbackRemovesAMainConfigItCreated(t *testing.T) {
+	var cmds []string
+	host := firewallExecHostStub{runRoot: func(cmd string) error {
+		cmds = append(cmds, cmd)
+		return nil
+	}}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        testMainConfig,
+		Line:        IncludeLine(testDest),
+		FileExisted: false,
+		Added:       true,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(cmds, "\n"), "rm -f '"+testMainConfig+"'") {
+		t.Fatalf("expected the created main config to be removed, got %v", cmds)
+	}
+}
+
+func TestRestoreNftablesIncludeRejectsAForeignPath(t *testing.T) {
+	err := RestoreNftablesInclude(firewallExecHostStub{}, pluginapi.ConfigLineSnapshot{
+		Path:        "/etc/passwd",
+		Line:        IncludeLine(testDest),
+		FileExisted: true,
+		Added:       true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unexpected main config path") {
+		t.Fatalf("expected a rejected path, got %v", err)
+	}
+}
+
+// TestApplyRefusesTheLegacyGlobInclude: leaving the old directory-wide include
+// next to an exact one loads the same file twice in a single transaction.
+func TestApplyRefusesTheLegacyGlobInclude(t *testing.T) {
+	host := firewallExecHostStub{legacyGlob: true}
+	err := EnsureNftablesInclude(host, testMainConfig, testDest)
+	if err == nil || !strings.Contains(err.Error(), "directory-wide include") {
+		t.Fatalf("expected the legacy glob to be refused, got %v", err)
+	}
+}
+
+// TestDiffReportsReorderedChain: the same rules in a different order is a
+// different firewall, so it must not report as aligned.
+func TestDiffReportsReorderedChain(t *testing.T) {
+	desired, err := NormalizeDesiredSpec(&Spec{
+		Backend:     "nftables",
+		MainConfig:  testMainConfig,
+		ManagedDest: testDest,
+		Family:      "inet",
+		Table:       "filter",
+		Policies:    []Policy{{Chain: "input", Policy: "drop"}},
+		Rules: []Rule{
+			{Chain: "input", Proto: "tcp", Port: 22, Action: "drop", Source: "10.0.0.1"},
+			{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeDesiredSpec failed: %v", err)
+	}
+	if desired.Rules[0].Action != "drop" {
+		t.Fatalf("declared order must survive normalization, got %+v", desired.Rules)
+	}
+
+	swapped := NormalizedSpec{
+		Family:   desired.Family,
+		Table:    desired.Table,
+		Policies: desired.Policies,
+		Rules:    []NormalizedRule{desired.Rules[1], desired.Rules[0]},
+	}
+
+	diff := DiffNormalized(swapped, desired)
+	if len(diff.RulesToAdd) != 0 || len(diff.RulesToRemove) != 0 {
+		t.Fatalf("expected no membership change, got %+v", diff)
+	}
+	if len(diff.Reordered) != 1 || diff.Reordered[0] != "input" {
+		t.Fatalf("expected the input chain reported as reordered, got %v", diff.Reordered)
+	}
+
+	if aligned := DiffNormalized(desired, desired); len(aligned.Reordered) != 0 {
+		t.Fatalf("expected no reorder against itself, got %v", aligned.Reordered)
+	}
+}
+
+func TestIncludeLineConflictReportsARemovedInclude(t *testing.T) {
+	rec := pluginapi.ConfigLineSnapshot{
+		Path:        testMainConfig,
+		Line:        IncludeLine(testDest),
+		FileExisted: true,
+		Added:       true,
+	}
+
+	present := firewallExecHostStub{runRoot: func(cmd string) error {
+		if cmd == testIncludeCheck {
+			return nil
+		}
+		return nil
+	}}
+	if got := includeLineConflict(present, rec); got != nil {
+		t.Fatalf("expected no conflict while the include is present, got %v", got)
+	}
+
+	gone := firewallExecHostStub{runRoot: func(cmd string) error {
+		if cmd == testIncludeCheck {
+			return errors.New("missing")
+		}
+		return nil
+	}}
+	conflicts := includeLineConflict(gone, rec)
+	if len(conflicts) != 1 || !strings.Contains(conflicts[0], "no longer contains") {
+		t.Fatalf("expected a removed-include conflict, got %v", conflicts)
+	}
+
+	rec.Added = false
+	if got := includeLineConflict(gone, rec); got != nil {
+		t.Fatalf("a line this run did not add is not our conflict, got %v", got)
+	}
+	if got := includeLineConflict(nil, rec); got != nil {
+		t.Fatalf("expected no conflict without a host, got %v", got)
+	}
+}
+
+func TestRemoveNftablesIncludeEdgeCases(t *testing.T) {
+	if err := RemoveNftablesInclude(nil, testMainConfig, IncludeLine(testDest)); err == nil {
+		t.Fatal("expected a host to be required")
+	}
+	if err := RemoveNftablesInclude(firewallExecHostStub{}, "/etc/evil.conf", IncludeLine(testDest)); err == nil {
+		t.Fatal("expected a foreign main config to be refused")
+	}
+
+	// Nothing to rewrite when the file is already gone.
+	absent := firewallExecHostStub{runRootWithOutput: func(string) (string, error) {
+		return "", nil
+	}}
+	if err := RemoveNftablesInclude(absent, testMainConfig, IncludeLine(testDest)); err != nil {
+		t.Fatalf("expected an absent main config to be a no-op, got %v", err)
+	}
+
+	// A file that never carried the line is left untouched.
+	const content = "flush ruleset\n"
+	untouched := firewallExecHostStub{
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(content)), nil
+		},
+		readRootFile: func(string) (string, error) { return content, nil },
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			t.Fatal("a file without our include must not be rewritten")
+			return nil
+		},
+	}
+	if err := RemoveNftablesInclude(untouched, testMainConfig, IncludeLine(testDest)); err != nil {
+		t.Fatalf("expected a no-op, got %v", err)
+	}
+
+	if _, removed := withoutIncludeLine("flush ruleset\n", "not an include line"); removed {
+		t.Fatal("a malformed line must not match anything")
+	}
 }

@@ -6,18 +6,17 @@
 # Requires: all variables from itest.sh (BINARY_PATH, remote_args, etc.)
 
 # ensure_nftables_ready puts the host into the state every firewall scenario
-# needs before it applies anything: nftables installed, enabled, running, and
-# its main config including the drop-in directory the plugin writes into. The
-# starter profile happens to do all of this too, but a target that ships no
-# starter profile is still a target the firewall scenarios have to run on, so
-# the suite sets it up rather than treating it as a reason to skip.
+# needs before it applies anything: nftables installed, enabled and running,
+# with a main config that includes nothing yet. Apply writes an include per
+# managed file, so seeding one here would hide whether hardline wired it, and a
+# directory-wide include is refused outright.
 ensure_nftables_ready() {
-  echo "== itest setup: nftables service + include (${NFT_MAIN_CONFIG}) =="
+  echo "== itest setup: nftables service (${NFT_MAIN_CONFIG}) =="
   pkg_installed nftables || pkg_install nftables || fail "could not install nftables"
   ssh_cmd "sudo bash -seo pipefail" <<EOF || fail "could not prepare nftables on the host"
 install -d -m 0755 /etc/nftables.d
 touch ${NFT_MAIN_CONFIG}
-$(nft_include_test) || printf '\n%s\n' 'include "/etc/nftables.d/*.nft"' >> ${NFT_MAIN_CONFIG}
+sed -i -E '/^[[:space:]]*include[[:space:]]+"?\/etc\/nftables\.d\/\*\.nft"?[[:space:]]*\$/d' ${NFT_MAIN_CONFIG}
 systemctl enable nftables >/dev/null 2>&1
 systemctl restart nftables
 systemctl is-enabled nftables >/dev/null 2>&1
@@ -134,7 +133,7 @@ test "$(sysctl -n kernel.dmesg_restrict)" = "1"
 test "$(sysctl -n fs.protected_hardlinks)" = "1"
 test "$(sysctl -n fs.protected_symlinks)" = "1"
 INNER
-    nft_include_test
+    nft_include_test "/etc/nftables.d/99-hardline-firewall.nft"
     echo
     echo "nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1"
   } | ssh_cmd "sudo bash -se"
@@ -152,14 +151,15 @@ run_success_apply() {
 
   ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
-rm -f "${MULTI_SUCCESS_TEMPLATE_DEST}" "${MULTI_SUCCESS_FIREWALL_DEST}"
+rm -f "${MULTI_SUCCESS_TEMPLATE_DEST}"
+$(nft_forget_managed "${MULTI_SUCCESS_FIREWALL_DEST}")
 systemctl restart nftables
 test ! -e "${MULTI_SUCCESS_TEMPLATE_DEST}"
 test ! -e "${MULTI_SUCCESS_FIREWALL_DEST}"
 ! nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-$(nft_include_test)
+if $(nft_include_test "${MULTI_SUCCESS_FIREWALL_DEST}"); then exit 1; fi
 nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
 
@@ -200,7 +200,7 @@ set -euo pipefail
 nft list table inet "${MULTI_SUCCESS_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-$(nft_include_test)
+$(nft_include_test "${MULTI_SUCCESS_FIREWALL_DEST}")
 nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
   then fail "success apply did not load firewall/nftables state"; fi
@@ -236,7 +236,8 @@ run_failure_apply() {
 
   ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
-rm -f "${MULTI_FAILURE_TEMPLATE_DEST}" "${MULTI_FAILURE_FIREWALL_DEST}" "${FAILURE_DEST}"
+rm -f "${MULTI_FAILURE_TEMPLATE_DEST}" "${FAILURE_DEST}"
+$(nft_forget_managed "${MULTI_FAILURE_FIREWALL_DEST}")
 systemctl restart nftables
 test ! -e "${MULTI_FAILURE_TEMPLATE_DEST}"
 test ! -e "${MULTI_FAILURE_FIREWALL_DEST}"
@@ -247,7 +248,7 @@ systemctl is-enabled ${SSH_UNIT} >/dev/null 2>&1
 systemctl is-active ${SSH_UNIT} >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-$(nft_include_test)
+if $(nft_include_test "${MULTI_FAILURE_FIREWALL_DEST}"); then exit 1; fi
 nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
 
@@ -290,7 +291,7 @@ systemctl is-enabled ${SSH_UNIT} >/dev/null 2>&1
 systemctl is-active ${SSH_UNIT} >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-$(nft_include_test)
+if $(nft_include_test "${MULTI_FAILURE_FIREWALL_DEST}"); then exit 1; fi
 nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
   then fail "forced rollback did not restore clean remote state"; fi
@@ -370,14 +371,15 @@ run_layer_base_apply() {
 
   ssh_cmd "sudo bash -se" <<EOF
 set -euo pipefail
-rm -f "${LAYER_BASE_TEMPLATE_DEST}" "${LAYER_BASE_FIREWALL_DEST}"
+rm -f "${LAYER_BASE_TEMPLATE_DEST}"
+$(nft_forget_managed "${LAYER_BASE_FIREWALL_DEST}")
 systemctl restart nftables
 test ! -e "${LAYER_BASE_TEMPLATE_DEST}"
 test ! -e "${LAYER_BASE_FIREWALL_DEST}"
 ! nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-$(nft_include_test)
+if $(nft_include_test "${LAYER_BASE_FIREWALL_DEST}"); then exit 1; fi
 nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
 
@@ -418,7 +420,7 @@ set -euo pipefail
 nft list table inet "${LAYER_BASE_FIREWALL_TABLE}" >/dev/null 2>&1
 systemctl is-enabled nftables >/dev/null 2>&1
 systemctl is-active nftables >/dev/null 2>&1
-$(nft_include_test)
+$(nft_include_test "${LAYER_BASE_FIREWALL_DEST}")
 nft -c -f ${NFT_MAIN_CONFIG} >/dev/null 2>&1
 EOF
   then fail "layer-base apply did not load firewall/nftables state"; fi

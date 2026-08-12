@@ -124,10 +124,23 @@ pkg_purge() {
   esac
 }
 
-# nft_include_test prints the remote check that the managed include is wired
-# into whichever main config this family uses.
+# nft_include_test prints the remote check that one managed file is included by
+# name in whichever main config this family uses. Apply writes an include per
+# managed file, so the check needs the file it is asking about.
 nft_include_test() {
-  printf "grep -E -q 'include[[:space:]]+\"?/etc/nftables\\\\.d/\\\\*\\\\.nft\"?' %s" "${NFT_MAIN_CONFIG}"
+  local escaped
+  escaped="$(printf '%s' "$1" | sed 's/[.*+?()|^$]/\\&/g')"
+  printf "grep -E -q '^[[:space:]]*include[[:space:]]+\"?%s\"?[[:space:]]*\$' %s" "${escaped}" "${NFT_MAIN_CONFIG}"
+}
+
+# nft_forget_managed prints the remote commands that take a managed firewall
+# file out of service: the include first, then the file. Removing the file while
+# its include survives makes every later nft load fail on the missing path.
+nft_forget_managed() {
+  local escaped
+  escaped="$(printf '%s' "$1" | sed 's/[].[*+?()|^$\\/]/\\&/g')"
+  printf "sed -i -E '/^[[:space:]]*include[[:space:]]+\"?%s\"?[[:space:]]*\$/d' %s\nrm -f '%s'\n" \
+    "${escaped}" "${NFT_MAIN_CONFIG}" "$1"
 }
 
 # Scenarios that apply a firewall need the nftables include the starter profile

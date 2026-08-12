@@ -167,12 +167,15 @@ func TestRHELMainConfigWiring(t *testing.T) {
 	}
 }
 
-func TestIncludeLineFollowsManagedDest(t *testing.T) {
-	if got := IncludeLine("/etc/nftables.d/99-hardline-firewall.nft"); got != `include "/etc/nftables.d/*.nft"` {
+// TestIncludeLineNamesTheManagedFile pins the exact-file include: several
+// profiles can manage files in one drop-in directory, and a directory glob
+// would make each of them load the others' rules.
+func TestIncludeLineNamesTheManagedFile(t *testing.T) {
+	if got := IncludeLine("/etc/nftables.d/99-hardline-firewall.nft"); got != `include "/etc/nftables.d/99-hardline-firewall.nft"` {
 		t.Fatalf("unexpected include line: %q", got)
 	}
-	if got := IncludeLine("/etc/hardline.d/99-hardline-firewall.nft"); got != `include "/etc/hardline.d/*.nft"` {
-		t.Fatalf("include line must follow managed_dest, got %q", got)
+	if got := IncludeLine("/etc/hardline.d/99-other-firewall.nft"); got != `include "/etc/hardline.d/99-other-firewall.nft"` {
+		t.Fatalf("include line must name managed_dest, got %q", got)
 	}
 }
 

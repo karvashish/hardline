@@ -32,19 +32,44 @@ func ValidMainConfig(p string) bool {
 	}
 }
 
-// IncludeLine is the line apply appends to the main config. The glob follows
-// the managed destination's own directory, so a profile that moves the managed
-// file moves the include with it.
+// IncludeLine is the line apply appends to the main config. It names the exact
+// file this step manages, not its directory: several profiles can own files in
+// the same drop-in directory, and a glob would make each of them load the
+// others' rules and make the evaluation order between them a function of their
+// filenames.
 func IncludeLine(dest string) string {
-	return fmt.Sprintf(`include "%s/*.nft"`, path.Dir(dest))
+	return fmt.Sprintf(`include "%s"`, dest)
 }
 
-// includeCheckCmd matches the include with or without quotes, so a hand-written
-// include already present on the host is not duplicated.
+// includeCheckCmd matches this file's own include line and nothing else, with
+// or without quotes, so a line already present is not duplicated and another
+// profile's include is never mistaken for this one.
 func includeCheckCmd(mainConfig, dest string) string {
-	glob := strings.ReplaceAll(path.Dir(dest)+"/*.nft", ".", `\.`)
-	glob = strings.ReplaceAll(glob, "*", `\*`)
-	return fmt.Sprintf(`grep -E -q 'include[[:space:]]+"?%s"?' %s 2>/dev/null`, glob, pluginapi.ShellArg(mainConfig))
+	return fmt.Sprintf(`grep -E -q '^[[:space:]]*include[[:space:]]+"?%s"?[[:space:]]*$' %s 2>/dev/null`,
+		escapeIncludeRegex(dest), pluginapi.ShellArg(mainConfig))
+}
+
+// legacyGlobCheckCmd finds the directory-wide include earlier hardline versions
+// wrote. Leaving it in place next to an exact include would load this file
+// twice in one transaction, so apply refuses rather than duplicating rules.
+func legacyGlobCheckCmd(mainConfig, dest string) string {
+	glob := escapeIncludeRegex(path.Dir(dest) + "/*.nft")
+	return fmt.Sprintf(`grep -E -q '^[[:space:]]*include[[:space:]]+"?%s"?[[:space:]]*$' %s 2>/dev/null`,
+		glob, pluginapi.ShellArg(mainConfig))
+}
+
+// escapeIncludeRegex quotes the characters EnforceManagedPath allows that mean
+// something to a POSIX ERE.
+func escapeIncludeRegex(p string) string {
+	var b strings.Builder
+	for _, r := range p {
+		switch r {
+		case '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '^', '$', '\\':
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 type NormalizedSpec struct {
@@ -70,6 +95,9 @@ type NormalizedDiff struct {
 	PolicyChanges []string
 	RulesToAdd    []NormalizedRule
 	RulesToRemove []NormalizedRule
+	// Reordered names the chains whose rules are all present but evaluated in a
+	// different order than declared.
+	Reordered []string
 }
 
 type firewallStatRuntime interface {
@@ -356,6 +384,9 @@ func renderFirewallStateDiff(current NormalizedSpec, desired NormalizedSpec) []s
 	for _, rule := range diff.RulesToAdd {
 		lines = append(lines, "+ "+RenderNormalizedRule(desired.Family, rule))
 	}
+	for _, chain := range diff.Reordered {
+		lines = append(lines, fmt.Sprintf("chain %s: same rules, different evaluation order", chain))
+	}
 	return lines
 }
 
@@ -432,8 +463,11 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
-	// Apply also appends the include line to the main config, so that file has
-	// to be journalled too or rollback silently leaves the mutation behind.
+	// Apply also appends the include line to the main config, so that mutation
+	// has to be journalled too or rollback silently leaves it behind. Only the
+	// line is recorded, not the file: another profile may add its own include to
+	// the same config after this run, and restoring the whole file would delete
+	// it along with ours.
 	mainConfig := strings.TrimSpace(spec.MainConfig)
 	if !ValidMainConfig(mainConfig) {
 		return record, fmt.Errorf("step %q (type=firewall): unsupported main_config %q", stepID, spec.MainConfig)
@@ -442,15 +476,57 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	if err != nil {
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", mainConfig, err)
 	}
+	include := pluginapi.ConfigLineSnapshot{
+		Path:        mainConfig,
+		Line:        IncludeLine(dest),
+		FileExisted: mainSnap.Existed,
+		Added:       !firewallIncludePresent(ctx.Host, mainConfig, dest),
+	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
-	// Rollback walks Before in reverse, so listing the main config first restores
-	// the managed file before the include that points at its directory.
+	// Rollback walks Before in reverse, so the include is listed last to be
+	// taken back first. An include naming a file that is no longer there fails
+	// every nftables load, so the pointer has to go before what it points at.
 	record.Objects = []pluginapi.ObjectRecord{
-		{Kind: pluginapi.ObjectFile, File: &mainSnap},
 		{Kind: pluginapi.ObjectFile, File: &snap},
+		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &include},
 	}
 	return record, nil
+}
+
+// includeLineConflict reports an include this run added that is no longer
+// there. Rolling back would then be removing a line someone else already
+// removed, and the managed file has been inert since.
+func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) []string {
+	if host == nil || !rec.Added {
+		return nil
+	}
+	dest := normalizeIncludeLine(rec.Line)
+	if dest == "" {
+		return nil
+	}
+	if firewallIncludePresent(host, rec.Path, dest) {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s no longer contains %s", rec.Path, rec.Line)}
+}
+
+// RestoreNftablesInclude undoes what apply did to the main config: the file if
+// this run created it, otherwise the one line it appended.
+func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) error {
+	if host == nil {
+		return fmt.Errorf("firewall rollback: host is required")
+	}
+	if !ValidMainConfig(rec.Path) {
+		return fmt.Errorf("firewall rollback: unexpected main config path %q", rec.Path)
+	}
+	if !rec.Added {
+		return nil
+	}
+	if !rec.FileExisted {
+		return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
+	}
+	return RemoveNftablesInclude(host, rec.Path, rec.Line)
 }
 
 // restoreNftablesMainConfig reverts the nftables main config to its pre-apply
@@ -499,6 +575,13 @@ func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
 	}
+	if err := host.RunRoot(legacyGlobCheckCmd(mainConfig, dest)); err == nil {
+		return fmt.Errorf(
+			"%s still contains the directory-wide include %q written by an older hardline; "+
+				"remove that line so %s is included once, by name",
+			mainConfig, fmt.Sprintf(`include "%s/*.nft"`, path.Dir(dest)), dest)
+	}
+
 	check := includeCheckCmd(mainConfig, dest)
 	if err := host.RunRoot(check); err == nil {
 		return nil
@@ -515,6 +598,72 @@ func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	}
 
 	return nil
+}
+
+// RemoveNftablesInclude takes back exactly the line this run added and leaves
+// every other line, including another profile's include, untouched.
+func RemoveNftablesInclude(host pluginapi.Host, mainConfig, line string) error {
+	if host == nil {
+		return fmt.Errorf("firewall rollback: host is required")
+	}
+	if !ValidMainConfig(mainConfig) {
+		return fmt.Errorf("firewall rollback: unexpected main config path %q", mainConfig)
+	}
+
+	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
+	}
+	if !snap.Existed {
+		return nil
+	}
+	mode, err := pluginapi.ParseFileMode(snap.Mode)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: %s: %w", mainConfig, err)
+	}
+	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
+	}
+
+	next, removed := withoutIncludeLine(string(current), line)
+	if !removed {
+		return nil
+	}
+	if err := host.WriteRootFile(mainConfig, []byte(next), mode); err != nil {
+		return fmt.Errorf("firewall rollback: rewrite %s: %w", mainConfig, err)
+	}
+	return nil
+}
+
+// withoutIncludeLine drops every occurrence of one include line, comparing the
+// way the presence check does: leading and trailing space and the optional
+// quotes around the path are not a different line.
+func withoutIncludeLine(content, line string) (string, bool) {
+	target := normalizeIncludeLine(line)
+	if target == "" {
+		return content, false
+	}
+
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	removed := false
+	for _, l := range lines {
+		if normalizeIncludeLine(l) == target {
+			removed = true
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n"), removed
+}
+
+func normalizeIncludeLine(line string) string {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) != 2 || fields[0] != "include" {
+		return ""
+	}
+	return strings.Trim(fields[1], `"`)
 }
 
 func firewallIncludePresent(host pluginapi.Host, mainConfig, dest string) bool {
@@ -594,9 +743,10 @@ func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 		}
 	}
 
-	sort.Slice(out.Rules, func(i, j int) bool {
-		return out.Rules[i].key() < out.Rules[j].key()
-	})
+	// Declared order is the order the kernel evaluates. Sorting here put every
+	// accept ahead of every drop in a chain, so an anti-spoof or invalid-state
+	// drop written first in the profile was emitted after the accepts it was
+	// meant to precede, and the rule never matched anything.
 	return out, nil
 }
 
@@ -840,9 +990,9 @@ func NormalizeCurrentState(nftJSON, family, table string) (NormalizedSpec, error
 		}
 	}
 
-	sort.Slice(out.Rules, func(i, j int) bool {
-		return out.Rules[i].key() < out.Rules[j].key()
-	})
+	// nft lists a chain's rules in evaluation order, which is the whole point of
+	// reading them back: sorting the live state would compare a set against a
+	// set and call a reordered ruleset aligned.
 	return out, nil
 }
 
@@ -1154,32 +1304,60 @@ func DiffNormalized(current, desired NormalizedSpec) NormalizedDiff {
 		desiredSet[rule.key()] = rule
 	}
 	currentSet := make(map[string]NormalizedRule)
+	var currentManaged []NormalizedRule
 	for _, rule := range current.Rules {
 		if _, managed := managedChains[rule.Chain]; !managed {
 			continue
 		}
 		currentSet[rule.key()] = rule
+		currentManaged = append(currentManaged, rule)
 	}
 
-	for key, rule := range desiredSet {
-		if _, ok := currentSet[key]; !ok {
+	for _, rule := range desired.Rules {
+		if _, ok := currentSet[rule.key()]; !ok {
 			diff.RulesToAdd = append(diff.RulesToAdd, rule)
 		}
 	}
-	for key, rule := range currentSet {
-		if _, ok := desiredSet[key]; !ok {
+	for _, rule := range currentManaged {
+		if _, ok := desiredSet[rule.key()]; !ok {
 			diff.RulesToRemove = append(diff.RulesToRemove, rule)
 		}
 	}
 
-	sort.Slice(diff.RulesToAdd, func(i, j int) bool {
-		return diff.RulesToAdd[i].key() < diff.RulesToAdd[j].key()
-	})
-	sort.Slice(diff.RulesToRemove, func(i, j int) bool {
-		return diff.RulesToRemove[i].key() < diff.RulesToRemove[j].key()
-	})
-
+	diff.Reordered = reorderedChains(currentManaged, desired.Rules, chains)
 	return diff
+}
+
+// reorderedChains reports the chains whose rules are all present but evaluated
+// in a different order than the profile declared. A firewall with the right set
+// of rules in the wrong order is a different firewall, so this is drift even
+// though nothing has to be added or removed.
+func reorderedChains(current, desired []NormalizedRule, chains []string) []string {
+	var out []string
+	for _, chain := range chains {
+		currentKeys := chainRuleKeys(current, chain)
+		desiredKeys := chainRuleKeys(desired, chain)
+		if len(currentKeys) != len(desiredKeys) {
+			continue
+		}
+		for i := range desiredKeys {
+			if currentKeys[i] != desiredKeys[i] {
+				out = append(out, chain)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func chainRuleKeys(rules []NormalizedRule, chain string) []string {
+	var out []string
+	for _, rule := range rules {
+		if rule.Chain == chain {
+			out = append(out, rule.key())
+		}
+	}
+	return out
 }
 
 func RenderNormalized(spec NormalizedSpec) string {

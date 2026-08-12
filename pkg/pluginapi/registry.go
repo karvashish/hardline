@@ -19,11 +19,12 @@ const (
 	// rollback mode.
 	ModeIrreversible = "irreversible"
 
-	ObjectFile     = "file"
-	ObjectFileMeta = "file_meta"
-	ObjectService  = "service"
-	ObjectPackage  = "package"
-	ObjectValidate = "validate"
+	ObjectFile       = "file"
+	ObjectFileMeta   = "file_meta"
+	ObjectService    = "service"
+	ObjectPackage    = "package"
+	ObjectValidate   = "validate"
+	ObjectConfigLine = "config_line"
 )
 
 // FileSnapshot is the recorded state of a managed file. Owner and group are
@@ -86,13 +87,30 @@ type PackageState struct {
 	RequestedPurge   bool   `json:"requested_purge,omitempty"`
 }
 
+// ConfigLineSnapshot records a single line this run added to a file it does not
+// own. Restoring such a file wholesale is wrong once more than one profile
+// writes to it: the later profile's line would be erased by the earlier
+// profile's rollback. Undoing exactly the line that was added leaves every
+// other owner's lines in place.
+type ConfigLineSnapshot struct {
+	Path string `json:"path"`
+	Line string `json:"line"`
+	// FileExisted distinguishes "we appended to someone's file" from "we
+	// created the file", which rollback undoes by deleting it.
+	FileExisted bool `json:"file_existed"`
+	// Added is false when the line was already there, which makes the rollback
+	// a no-op rather than a removal of something this run did not do.
+	Added bool `json:"added"`
+}
+
 type ObjectRecord struct {
-	Kind     string            `json:"kind"`
-	File     *FileSnapshot     `json:"file,omitempty"`
-	FileMeta *FileMetaSnapshot `json:"file_meta,omitempty"`
-	Service  *ServiceState     `json:"service,omitempty"`
-	Package  *PackageState     `json:"package,omitempty"`
-	Message  string            `json:"message,omitempty"`
+	Kind       string              `json:"kind"`
+	File       *FileSnapshot       `json:"file,omitempty"`
+	FileMeta   *FileMetaSnapshot   `json:"file_meta,omitempty"`
+	Service    *ServiceState       `json:"service,omitempty"`
+	Package    *PackageState       `json:"package,omitempty"`
+	ConfigLine *ConfigLineSnapshot `json:"config_line,omitempty"`
+	Message    string              `json:"message,omitempty"`
 }
 
 type CaptureResult struct {

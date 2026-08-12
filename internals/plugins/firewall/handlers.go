@@ -76,6 +76,11 @@ func Plugin() pluginapi.Plugin {
 					return restoreNftablesMainConfig(host, *obj.File)
 				}
 				return pluginapi.RestoreFileSnapshot(host, *obj.File)
+			case pluginapi.ObjectConfigLine:
+				if obj.ConfigLine == nil {
+					return fmt.Errorf("firewall rollback: missing include record")
+				}
+				return RestoreNftablesInclude(host, *obj.ConfigLine)
 			case pluginapi.ObjectValidate:
 				return nil
 			default:
@@ -83,8 +88,11 @@ func Plugin() pluginapi.Plugin {
 			}
 		},
 		DetectConflict: func(host pluginapi.Host, after pluginapi.ObjectRecord) []string {
-			if after.Kind == pluginapi.ObjectFile && after.File != nil {
+			switch {
+			case after.Kind == pluginapi.ObjectFile && after.File != nil:
 				return pluginapi.FileSnapshotConflict(host, *after.File)
+			case after.Kind == pluginapi.ObjectConfigLine && after.ConfigLine != nil:
+				return includeLineConflict(host, *after.ConfigLine)
 			}
 			return nil
 		},

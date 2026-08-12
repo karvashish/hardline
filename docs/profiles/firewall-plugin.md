@@ -72,11 +72,11 @@ Rule constraints:
 
 Behavior:
 
-- Hardline normalizes, deduplicates, and sorts the desired ruleset into a deterministic file, so the same config always renders byte-identically
-- Hardline ensures `main_config` contains an include for the managed file's own directory (`include "<dir of managed_dest>/*.nft"`), appending the line when absent. The glob follows `managed_dest`, so moving the managed file moves the include with it
+- Hardline normalizes and deduplicates the desired ruleset into a deterministic file, so the same config always renders byte-identically. Rules keep the order the profile declared them in, because that is the order the kernel evaluates them: a `drop` written before an `accept` stays before it
+- Hardline ensures `main_config` contains `include "<managed_dest>"` — the exact file this step manages — appending the line when absent. Several profiles can own files in one drop-in directory without loading each other's rules, and rollback removes only its own line. A directory-wide `include "<dir>/*.nft"` left by an older hardline is refused, because keeping both would load the same file twice in one transaction
 - validation runs `nft -c -f <main_config>` on the target
-- plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`
-- rollback restores `main_config` before the managed file, so the include is reverted in the right order
+- plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`, and reports a chain whose rules match but evaluate in a different order
+- rollback removes the include before the managed file: an include naming a file that is gone fails every later nftables load
 
 ## Runtime overrides
 

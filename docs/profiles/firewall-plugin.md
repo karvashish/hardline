@@ -63,6 +63,13 @@ Every chain referenced by a rule must have a matching policy entry, or normaliza
 | `out_interface` | interface name | |
 | `ct_states` | any of `new`, `established`, `related`, `invalid`, `untracked` | Deduplicated |
 
+Field constraints:
+
+- `table` must be an nftables identifier (`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+- `source` and `destination` take one address or one CIDR prefix, matching the table's family; a prefix with host bits set, a range, a named set, or a hostname is refused
+- `in_interface` and `out_interface` take an interface name within the kernel's 15-character limit
+- a base-chain `policy` is `accept` or `drop`; nft takes nothing else as a chain policy, so `reject` belongs on a rule
+
 Rule constraints:
 
 - `tcp` and `udp` require at least one port; `icmp`, `icmpv6`, and an omitted `proto` must not define any

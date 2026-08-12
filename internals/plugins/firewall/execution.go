@@ -4,8 +4,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -697,6 +699,9 @@ func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 	if table == "" {
 		return NormalizedSpec{}, fmt.Errorf("firewall table is required")
 	}
+	if !tableNameRe.MatchString(table) {
+		return NormalizedSpec{}, fmt.Errorf("firewall table %q is not an nftables identifier", fw.Table)
+	}
 
 	out := NormalizedSpec{
 		Family:   family,
@@ -719,6 +724,12 @@ func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 		if err != nil {
 			return out, fmt.Errorf("normalize firewall policy for chain %q: %w", cp.Chain, err)
 		}
+		// nft takes accept or drop as a base-chain policy and nothing else, so
+		// a reject policy is a file the host refuses to load. Rejecting is
+		// still available per rule, which is where it belongs.
+		if pn == "reject" {
+			return out, fmt.Errorf("chain %q policy %q is not a valid base-chain policy; use \"drop\" and add a reject rule if you need one", cp.Chain, cp.Policy)
+		}
 		out.Policies[cn] = pn
 	}
 
@@ -740,6 +751,9 @@ func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 	for _, rule := range out.Rules {
 		if _, ok := out.Policies[rule.Chain]; !ok {
 			return out, fmt.Errorf("missing policy for chain %q used by rules", rule.Chain)
+		}
+		if err := assertAddressFamily(family, rule); err != nil {
+			return out, err
 		}
 	}
 
@@ -796,10 +810,22 @@ func NormalizeDesiredRule(rule Rule) ([]NormalizedRule, error) {
 	}
 	sort.Ints(filteredPorts)
 
-	src := strings.TrimSpace(rule.Source)
-	dst := strings.TrimSpace(rule.Destination)
-	iif := strings.TrimSpace(rule.InInterface)
-	oif := strings.TrimSpace(rule.OutInterface)
+	src, err := normalizeAddress("source", rule.Source)
+	if err != nil {
+		return nil, err
+	}
+	dst, err := normalizeAddress("destination", rule.Destination)
+	if err != nil {
+		return nil, err
+	}
+	iif, err := normalizeInterface("in_interface", rule.InInterface)
+	if err != nil {
+		return nil, err
+	}
+	oif, err := normalizeInterface("out_interface", rule.OutInterface)
+	if err != nil {
+		return nil, err
+	}
 	ctStates, err := normalizeCTStates(rule.CTStates)
 	if err != nil {
 		return nil, err
@@ -860,8 +886,118 @@ func normalizeFirewallFamily(family string) string {
 	return strings.ToLower(strings.TrimSpace(family))
 }
 
+// tableNameRe is what nft accepts as an identifier. The table name is written
+// straight into "table <family> <name> {" in a file loaded as root, so anything
+// outside an identifier would be further nft grammar rather than a name.
+var tableNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+
 func normalizeFirewallTable(table string) string {
 	return strings.TrimSpace(table)
+}
+
+// interfaceNameRe follows the kernel's own limit: an interface name is at most
+// IFNAMSIZ-1 characters and carries no whitespace, slash or quote. The value is
+// rendered inside iif "%s", where a quote would close the string and leave the
+// rest to be read as grammar.
+var interfaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$`)
+
+func normalizeInterface(field, raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if !interfaceNameRe.MatchString(v) {
+		return "", fmt.Errorf("rule %s %q is not an interface name", field, raw)
+	}
+	return v, nil
+}
+
+// normalizeAddress accepts one address or one CIDR prefix and nothing else: no
+// ranges, no named sets, no lists. Each of those is valid nft that a profile
+// cannot express through this field, and accepting the text unparsed is what
+// would let it through into a root-loaded ruleset.
+func normalizeAddress(field, raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+
+	if strings.Contains(v, "/") {
+		prefix, err := netip.ParsePrefix(v)
+		if err != nil {
+			return "", fmt.Errorf("rule %s %q is not an address or CIDR prefix", field, raw)
+		}
+		if prefix.Addr().Zone() != "" {
+			return "", fmt.Errorf("rule %s %q must not carry a zone", field, raw)
+		}
+		if masked := prefix.Masked(); masked != prefix {
+			return "", fmt.Errorf("rule %s %q has host bits set outside its prefix; write it as %q", field, raw, masked.String())
+		}
+		return prefix.String(), nil
+	}
+
+	addr, err := netip.ParseAddr(v)
+	if err != nil {
+		return "", fmt.Errorf("rule %s %q is not an address or CIDR prefix", field, raw)
+	}
+	if addr.Zone() != "" {
+		return "", fmt.Errorf("rule %s %q must not carry a zone", field, raw)
+	}
+	return addr.String(), nil
+}
+
+// addressIsV6 reports how an already-normalized address should be rendered. It
+// decides the nft keyword per address rather than per table, so an inet table
+// can carry both without emitting "ip saddr" in front of an IPv6 address.
+func addressIsV6(addr string) bool {
+	if addr == "" {
+		return false
+	}
+	if strings.Contains(addr, "/") {
+		prefix, err := netip.ParsePrefix(addr)
+		return err == nil && prefix.Addr().Is6()
+	}
+	parsed, err := netip.ParseAddr(addr)
+	return err == nil && parsed.Is6()
+}
+
+// addressKeyword is the nft protocol keyword an address matches under. A table
+// pinned to one family keeps that family's keyword even for a value that failed
+// to parse, so a malformed record renders as it always did rather than silently
+// switching protocol.
+func addressKeyword(family, addr string) string {
+	switch family {
+	case "ip":
+		return "ip"
+	case "ip6":
+		return "ip6"
+	}
+	if addressIsV6(addr) {
+		return "ip6"
+	}
+	return "ip"
+}
+
+// assertAddressFamily keeps a rule's addresses inside the table's family. An
+// ip table cannot match an IPv6 address, and nft rejects the whole file at load
+// rather than the one rule, so this is caught while the profile is still text.
+func assertAddressFamily(family string, rule NormalizedRule) error {
+	for _, entry := range []struct{ field, value string }{
+		{"source", rule.Source},
+		{"destination", rule.Destination},
+	} {
+		if entry.value == "" {
+			continue
+		}
+		isV6 := addressIsV6(entry.value)
+		if family == "ip" && isV6 {
+			return fmt.Errorf("rule %s %q is IPv6, which an %q table cannot match", entry.field, entry.value, family)
+		}
+		if family == "ip6" && !isV6 {
+			return fmt.Errorf("rule %s %q is IPv4, which an %q table cannot match", entry.field, entry.value, family)
+		}
+	}
+	return nil
 }
 
 func NormalizePolicy(policy string) (string, error) {
@@ -1422,15 +1558,13 @@ func RenderNormalizedRule(family string, r NormalizedRule) string {
 		parts = append(parts, fmt.Sprintf(`oif "%s"`, r.OutInterface))
 	}
 
-	srcKey := "ip"
-	if family == "ip6" {
-		srcKey = "ip6"
-	}
+	// The keyword follows the address, not the table: an inet table can carry
+	// both, and "ip saddr" in front of an IPv6 address is a file nft refuses.
 	if r.Source != "" {
-		parts = append(parts, fmt.Sprintf("%s saddr %s", srcKey, r.Source))
+		parts = append(parts, fmt.Sprintf("%s saddr %s", addressKeyword(family, r.Source), r.Source))
 	}
 	if r.Destination != "" {
-		parts = append(parts, fmt.Sprintf("%s daddr %s", srcKey, r.Destination))
+		parts = append(parts, fmt.Sprintf("%s daddr %s", addressKeyword(family, r.Destination), r.Destination))
 	}
 
 	if len(r.CTStates) > 0 {

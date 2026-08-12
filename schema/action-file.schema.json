@@ -122,7 +122,22 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
+                  "backend": {
+                    "enum": [
+                      "nftables"
+                    ],
+                    "type": "string"
+                  },
+                  "family": {
+                    "enum": [
+                      "inet",
+                      "ip",
+                      "ip6"
+                    ],
+                    "type": "string"
+                  },
                   "main_config": {
                     "enum": [
                       "/etc/nftables.conf",
@@ -132,6 +147,119 @@
                   },
                   "managed_dest": {
                     "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "policies": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "chain": {
+                          "enum": [
+                            "input",
+                            "output",
+                            "forward"
+                          ],
+                          "type": "string"
+                        },
+                        "policy": {
+                          "enum": [
+                            "accept",
+                            "drop"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "chain",
+                        "policy"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "rules": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "action": {
+                          "enum": [
+                            "accept",
+                            "drop",
+                            "reject"
+                          ],
+                          "type": "string"
+                        },
+                        "chain": {
+                          "enum": [
+                            "input",
+                            "output",
+                            "forward"
+                          ],
+                          "type": "string"
+                        },
+                        "ct_states": {
+                          "items": {
+                            "enum": [
+                              "new",
+                              "established",
+                              "related",
+                              "invalid",
+                              "untracked"
+                            ],
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "destination": {
+                          "pattern": "^$|^[0-9A-Fa-f:.]{1,45}(/[0-9]{1,3})?$",
+                          "type": "string"
+                        },
+                        "in_interface": {
+                          "pattern": "^$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$",
+                          "type": "string"
+                        },
+                        "out_interface": {
+                          "pattern": "^$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$",
+                          "type": "string"
+                        },
+                        "port": {
+                          "maximum": 65535,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "ports": {
+                          "items": {
+                            "maximum": 65535,
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        },
+                        "proto": {
+                          "enum": [
+                            "",
+                            "tcp",
+                            "udp",
+                            "icmp",
+                            "icmpv6"
+                          ],
+                          "type": "string"
+                        },
+                        "source": {
+                          "pattern": "^$|^[0-9A-Fa-f:.]{1,45}(/[0-9]{1,3})?$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "chain",
+                        "action"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "table": {
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
                     "type": "string"
                   }
                 },
@@ -159,7 +287,39 @@
           "then": {
             "properties": {
               "config": {
+                "additionalProperties": false,
                 "properties": {
+                  "allow": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "port": {
+                          "maximum": 65535,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "proto": {
+                          "enum": [
+                            "tcp",
+                            "udp"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "port",
+                        "proto"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "backend": {
+                    "enum": [
+                      "nftables"
+                    ],
+                    "type": "string"
+                  },
                   "main_config": {
                     "enum": [
                       "/etc/nftables.conf",
@@ -169,6 +329,23 @@
                   },
                   "managed_dest": {
                     "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "policy": {
+                    "enum": [
+                      "allow",
+                      "deny",
+                      "reject",
+                      "drop"
+                    ],
+                    "type": "string"
+                  },
+                  "template_dest": {
+                    "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "template_src": {
+                    "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$",
                     "type": "string"
                   }
                 },

@@ -1374,3 +1374,130 @@ func TestRemoveNftablesIncludeEdgeCases(t *testing.T) {
 		t.Fatal("a malformed line must not match anything")
 	}
 }
+
+// TestNormalizeRejectsUnparsedFields covers the fields that reach a root-loaded
+// nft file verbatim. Each case is valid nft grammar that this config cannot
+// express, so accepting the text is what would smuggle it in.
+func TestNormalizeRejectsUnparsedFields(t *testing.T) {
+	base := func() *Spec {
+		return &Spec{
+			Backend:     "nftables",
+			MainConfig:  testMainConfig,
+			ManagedDest: testDest,
+			Family:      "inet",
+			Table:       "filter",
+			Policies:    []Policy{{Chain: "input", Policy: "drop"}},
+			Rules:       []Rule{{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"}},
+		}
+	}
+
+	cases := []struct {
+		name string
+		with func(*Spec)
+		want string
+	}{
+		{
+			name: "table carrying more grammar",
+			with: func(s *Spec) { s.Table = `filter { }; include "/tmp/evil.nft` },
+			want: "not an nftables identifier",
+		},
+		{
+			name: "table with a space",
+			with: func(s *Spec) { s.Table = "my filter" },
+			want: "not an nftables identifier",
+		},
+		{
+			name: "interface closing its own quote",
+			with: func(s *Spec) { s.Rules[0].InInterface = `lo" accept; iif "eth0` },
+			want: "is not an interface name",
+		},
+		{
+			name: "interface longer than the kernel allows",
+			with: func(s *Spec) { s.Rules[0].InInterface = "abcdefghijklmnop" },
+			want: "is not an interface name",
+		},
+		{
+			name: "source that is a second statement",
+			with: func(s *Spec) { s.Rules[0].Source = "10.0.0.1; drop" },
+			want: "is not an address or CIDR prefix",
+		},
+		{
+			name: "source as an nft range",
+			with: func(s *Spec) { s.Rules[0].Source = "10.0.0.1-10.0.0.9" },
+			want: "is not an address or CIDR prefix",
+		},
+		{
+			name: "source as a named set",
+			with: func(s *Spec) { s.Rules[0].Source = "@trusted" },
+			want: "is not an address or CIDR prefix",
+		},
+		{
+			name: "destination hostname",
+			with: func(s *Spec) { s.Rules[0].Destination = "example.com" },
+			want: "is not an address or CIDR prefix",
+		},
+		{
+			name: "prefix with host bits set",
+			with: func(s *Spec) { s.Rules[0].Source = "10.0.0.5/24" },
+			want: "has host bits set",
+		},
+		{
+			name: "reject as a base-chain policy",
+			with: func(s *Spec) { s.Policies[0].Policy = "reject" },
+			want: "not a valid base-chain policy",
+		},
+		{
+			name: "IPv6 address in an ip table",
+			with: func(s *Spec) { s.Family = "ip"; s.Rules[0].Source = "2001:db8::1" },
+			want: "which an \"ip\" table cannot match",
+		},
+		{
+			name: "IPv4 address in an ip6 table",
+			with: func(s *Spec) { s.Family = "ip6"; s.Rules[0].Source = "10.0.0.1" },
+			want: "which an \"ip6\" table cannot match",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := base()
+			tc.with(spec)
+			_, err := NormalizeDesiredSpec(spec)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected an error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeAcceptsOrdinaryAddressesAndInterfaces(t *testing.T) {
+	spec, err := NormalizeDesiredSpec(&Spec{
+		Backend:     "nftables",
+		MainConfig:  testMainConfig,
+		ManagedDest: testDest,
+		Family:      "inet",
+		Table:       "filter",
+		Policies:    []Policy{{Chain: "input", Policy: "drop"}},
+		Rules: []Rule{
+			{Chain: "input", InInterface: "lo", Action: "accept"},
+			{Chain: "input", InInterface: "ens4.100", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "accept"},
+			{Chain: "input", Proto: "tcp", Port: 443, Source: "2001:db8::/32", Action: "accept"},
+			{Chain: "input", Proto: "udp", Port: 53, Destination: "192.0.2.10", Action: "accept"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected an ordinary ruleset to normalize, got %v", err)
+	}
+
+	rendered := RenderNormalized(spec)
+	for _, want := range []string{
+		`iif "lo" accept`,
+		`iif "ens4.100" ip saddr 10.0.0.0/8 tcp dport 22 accept`,
+		`ip6 saddr 2001:db8::/32 tcp dport 443 accept`,
+		`ip daddr 192.0.2.10 udp dport 53 accept`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected %q in the rendered ruleset:\n%s", want, rendered)
+		}
+	}
+}

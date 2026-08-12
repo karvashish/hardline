@@ -88,16 +88,108 @@ var pluginConfigConstraints = map[string]map[string]any{
 	"firewall": {
 		"managed_dest": stringPattern(managedPathPattern),
 		"main_config":  stringEnum(nftablesMainConfigs...),
+		"backend":      stringEnum("nftables"),
+		"family":       stringEnum("inet", "ip", "ip6"),
+		"table":        stringPattern(nftIdentifierPattern),
+		"policies":     firewallPolicies(),
+		"rules":        firewallRules(),
 	},
 	"firewall_template": {
-		"managed_dest": stringPattern(managedPathPattern),
-		"main_config":  stringEnum(nftablesMainConfigs...),
+		"managed_dest":  stringPattern(managedPathPattern),
+		"main_config":   stringEnum(nftablesMainConfigs...),
+		"backend":       stringEnum("nftables"),
+		"policy":        stringEnum("allow", "deny", "reject", "drop"),
+		"template_src":  stringPattern(profileRelPattern),
+		"template_dest": stringPattern(managedPathPattern),
+		"allow":         firewallTemplateAllow(),
 	},
 	// One entry per package plugin. The backend is the plugin, not a config
 	// key, so each states the naming rule its own package manager enforces.
 	"packages_apt":  packageConfig(debNamePattern),
 	"packages_dnf4": packageConfig(rpmNamePattern),
 	"packages_dnf5": packageConfig(rpmNamePattern),
+}
+
+const (
+	// An nft identifier, which is what a table name has to be: it is written
+	// into "table <family> <name> {" in a file loaded as root.
+	nftIdentifierPattern = `^[A-Za-z_][A-Za-z0-9_]{0,63}$`
+	// An interface name, bounded by the kernel's IFNAMSIZ and free of the quote
+	// that would close the string it is rendered inside. The empty alternative
+	// is how a profile says "unset", which is what the plugin reads it as.
+	interfaceNamePattern = `^$|^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$`
+	// A single address or CIDR prefix, or empty for unset. The plugin parses
+	// these properly; the pattern exists so the shape of the value is fixed
+	// before verify hands it to anything.
+	addressPattern = `^$|^[0-9A-Fa-f:.]{1,45}(/[0-9]{1,3})?$`
+)
+
+func portNumber() map[string]any {
+	return map[string]any{"type": "integer", "minimum": 1, "maximum": 65535}
+}
+
+// optionalPortNumber allows 0, which is how a rule says it has no single port;
+// the plugin reads that value as unset rather than as port zero.
+func optionalPortNumber() map[string]any {
+	return map[string]any{"type": "integer", "minimum": 0, "maximum": 65535}
+}
+
+// firewallPolicies is the base-chain policy list. reject is absent because nft
+// takes only accept or drop as a chain policy.
+func firewallPolicies() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []any{"chain", "policy"},
+			"properties": map[string]any{
+				"chain":  stringEnum("input", "output", "forward"),
+				"policy": stringEnum("accept", "drop"),
+			},
+		},
+	}
+}
+
+func firewallRules() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []any{"chain", "action"},
+			"properties": map[string]any{
+				"chain":         stringEnum("input", "output", "forward"),
+				"action":        stringEnum("accept", "drop", "reject"),
+				"proto":         stringEnum("", "tcp", "udp", "icmp", "icmpv6"),
+				"port":          optionalPortNumber(),
+				"ports":         map[string]any{"type": "array", "items": portNumber()},
+				"source":        stringPattern(addressPattern),
+				"destination":   stringPattern(addressPattern),
+				"in_interface":  stringPattern(interfaceNamePattern),
+				"out_interface": stringPattern(interfaceNamePattern),
+				"ct_states": map[string]any{
+					"type":  "array",
+					"items": stringEnum("new", "established", "related", "invalid", "untracked"),
+				},
+			},
+		},
+	}
+}
+
+func firewallTemplateAllow() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []any{"port", "proto"},
+			"properties": map[string]any{
+				"port":  portNumber(),
+				"proto": stringEnum("tcp", "udp"),
+			},
+		},
+	}
 }
 
 // restartPolicyConfig is the service plugin's whole restart-policy surface. The
@@ -139,13 +231,15 @@ func packageConfig(namePattern string) map[string]any {
 // pluginConfigClosed lists the plugins whose config surface is fully described
 // above, so anything else in the object is a mistake worth failing on.
 var pluginConfigClosed = map[string]bool{
-	"audit":         true,
-	"file_meta":     true,
-	"packages_apt":  true,
-	"packages_dnf4": true,
-	"packages_dnf5": true,
-	"service":       true,
-	"template":      true,
+	"audit":             true,
+	"file_meta":         true,
+	"firewall":          true,
+	"firewall_template": true,
+	"packages_apt":      true,
+	"packages_dnf4":     true,
+	"packages_dnf5":     true,
+	"service":           true,
+	"template":          true,
 }
 
 // nftablesMainConfigs are the only files apply will append an include to:

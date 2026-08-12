@@ -189,11 +189,12 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 	if fw.Backend != "nftables" {
 		summary := fmt.Sprintf("firewall_template step: unsupported backend %q (no-op)", fw.Backend)
 		return pluginapi.PlanResult{
-			Summary:         summary,
-			Details:         []string{"only nftables backend is supported by executor"},
-			WillChange:      true,
-			OperatorSummary: fmt.Sprintf("Unsupported firewall template backend %q requested", fw.Backend),
-			Highlights:      []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
+			Summary:          summary,
+			Details:          []string{"only nftables backend is supported by executor"},
+			WillChange:       true,
+			OperatorSummary:  fmt.Sprintf("Unsupported firewall template backend %q requested", fw.Backend),
+			Highlights:       []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
+			RollbackFidelity: pluginapi.ModeDeterministic,
 		}, nil
 	}
 
@@ -224,10 +225,11 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 		tmplPath, destPath, len(fw.Allow),
 	)
 	return pluginapi.PlanResult{
-		Summary:         summary,
-		Details:         details,
-		WillChange:      true,
-		OperatorSummary: fmt.Sprintf("Render firewall template %q to %q with %d allow rule(s)", tmplPath, destPath, len(fw.Allow)),
+		Summary:          summary,
+		Details:          details,
+		WillChange:       true,
+		OperatorSummary:  fmt.Sprintf("Render firewall template %q to %q with %d allow rule(s)", tmplPath, destPath, len(fw.Allow)),
+		RollbackFidelity: pluginapi.ModeDeterministic,
 	}, nil
 }
 

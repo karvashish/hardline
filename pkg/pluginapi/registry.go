@@ -14,6 +14,10 @@ const (
 	ModeDeterministic = "deterministic"
 	ModeBestEffort    = "best_effort"
 	ModeNoop          = "noop"
+	// ModeIrreversible is plan vocabulary only: it describes work no journal
+	// can undo, such as a package index refresh, so it never names a capture's
+	// rollback mode.
+	ModeIrreversible = "irreversible"
 
 	ObjectFile     = "file"
 	ObjectFileMeta = "file_meta"
@@ -137,6 +141,12 @@ type PlanResult struct {
 	WillChange      bool
 	OperatorSummary string
 	Highlights      []string
+	// RollbackFidelity is what a rollback of this step would actually restore:
+	// ModeDeterministic, ModeBestEffort or ModeIrreversible. A plan that
+	// announces rollback as available for a package upgrade or an index refresh
+	// promises something no rollback can deliver, so a step that will change
+	// state has to say which of the three it is.
+	RollbackFidelity string
 }
 
 type Plugin struct {

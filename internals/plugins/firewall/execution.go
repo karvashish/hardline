@@ -188,12 +188,13 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 	if fw.Backend != "nftables" {
 		summary := fmt.Sprintf("firewall step: unsupported backend %q (no-op)", fw.Backend)
 		return pluginapi.PlanResult{
-			Summary:         summary,
-			Details:         []string{"only nftables backend is supported by executor"},
-			Diff:            nil,
-			WillChange:      true,
-			OperatorSummary: fmt.Sprintf("Unsupported firewall backend %q requested", fw.Backend),
-			Highlights:      []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
+			Summary:          summary,
+			Details:          []string{"only nftables backend is supported by executor"},
+			Diff:             nil,
+			WillChange:       true,
+			OperatorSummary:  fmt.Sprintf("Unsupported firewall backend %q requested", fw.Backend),
+			Highlights:       []string{fmt.Sprintf("only the nftables backend is supported; got %q", fw.Backend)},
+			RollbackFidelity: pluginapi.ModeDeterministic,
 		}, nil
 	}
 	if strings.TrimSpace(fw.Family) == "" {
@@ -309,12 +310,13 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 		willChange = false
 	}
 	return pluginapi.PlanResult{
-		Summary:         summary,
-		Details:         details,
-		Diff:            diff,
-		WillChange:      willChange,
-		OperatorSummary: fmt.Sprintf("Manage nftables table %s %s in %q (%d policy entries, %d rules)", desired.Family, desired.Table, fw.ManagedDest, len(desired.Policies), len(desired.Rules)),
-		Highlights:      highlights,
+		Summary:          summary,
+		Details:          details,
+		Diff:             diff,
+		WillChange:       willChange,
+		OperatorSummary:  fmt.Sprintf("Manage nftables table %s %s in %q (%d policy entries, %d rules)", desired.Family, desired.Table, fw.ManagedDest, len(desired.Policies), len(desired.Rules)),
+		Highlights:       highlights,
+		RollbackFidelity: pluginapi.ModeDeterministic,
 	}, nil
 }
 
@@ -402,11 +404,12 @@ func ValidatePlan(host pluginapi.Host, mainConfig, dest string) (pluginapi.PlanR
 	}
 
 	return pluginapi.PlanResult{
-		Summary:         fmt.Sprintf("validate firewall: check %s and nft -c on %s", include, mainConfig),
-		Details:         details,
-		WillChange:      true,
-		OperatorSummary: "Validate nftables include wiring and current nftables syntax",
-		Highlights:      highlights,
+		Summary:          fmt.Sprintf("validate firewall: check %s and nft -c on %s", include, mainConfig),
+		Details:          details,
+		WillChange:       true,
+		OperatorSummary:  "Validate nftables include wiring and current nftables syntax",
+		Highlights:       highlights,
+		RollbackFidelity: pluginapi.ModeDeterministic,
 	}, nil
 }
 

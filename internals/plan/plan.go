@@ -277,10 +277,47 @@ func writePlanSummary(b *strings.Builder, steps []StepPlan) {
 		logger.ColorBold, logger.ColorReset, logger.ColorBlue, counts[dispositionPlanned], logger.ColorReset)
 	fmt.Fprintf(b, "%sNeeds attention%s : %s%d%s\n",
 		logger.ColorBold, logger.ColorReset, logger.ColorRed, counts[dispositionAttention], logger.ColorReset)
-	fmt.Fprintf(b, "%sRollback%s        : %sAVAILABLE%s\n\n",
-		logger.ColorBold, logger.ColorReset, logger.ColorGreen, logger.ColorReset)
+	fidelity, color := plannedRollbackFidelity(steps)
+	fmt.Fprintf(b, "%sRollback%s        : %s%s%s\n\n",
+		logger.ColorBold, logger.ColorReset, color, fidelity, logger.ColorReset)
 	fmt.Fprintf(b, "%sNo changes will be made until 'hardline apply' is executed.%s\n\n",
 		logger.ColorDim, logger.ColorReset)
+}
+
+// plannedRollbackFidelity is the weakest restoration any changing step would
+// give. Reporting a flat "AVAILABLE" alongside a package upgrade or an index
+// refresh promises the operator a return to the previous state that no journal
+// can deliver, so the worst case is what the summary names.
+func plannedRollbackFidelity(steps []StepPlan) (string, string) {
+	worst := ""
+	for _, step := range steps {
+		if !step.WillChange {
+			continue
+		}
+		switch step.RollbackFidelity {
+		case pluginapi.ModeIrreversible:
+			return "IRREVERSIBLE (some changes cannot be undone)", logger.ColorRed
+		case pluginapi.ModeBestEffort:
+			worst = pluginapi.ModeBestEffort
+		case pluginapi.ModeDeterministic:
+			if worst == "" {
+				worst = pluginapi.ModeDeterministic
+			}
+		default:
+			// A changing step whose plugin says nothing is not evidence that a
+			// rollback would restore it.
+			return "UNKNOWN (a step did not report its rollback fidelity)", logger.ColorYellow
+		}
+	}
+
+	switch worst {
+	case pluginapi.ModeBestEffort:
+		return "BEST-EFFORT (some steps restore recorded state, not the exact transaction)", logger.ColorYellow
+	case pluginapi.ModeDeterministic:
+		return "AVAILABLE", logger.ColorGreen
+	default:
+		return "NOT NEEDED (no changes planned)", logger.ColorGreen
+	}
 }
 
 func renderCompactStepResult(step StepPlan) string {

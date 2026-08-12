@@ -256,6 +256,50 @@ func TestRenderCompactPlan(t *testing.T) {
 	}
 }
 
+func TestPlannedRollbackFidelity(t *testing.T) {
+	changing := func(fidelity string) StepPlan {
+		return StepPlan{PlanResult: pluginapi.PlanResult{WillChange: true, RollbackFidelity: fidelity}}
+	}
+
+	cases := []struct {
+		name  string
+		steps []StepPlan
+		want  string
+	}{
+		{name: "nothing planned", want: "NOT NEEDED"},
+		{
+			name:  "aligned steps do not weaken the verdict",
+			steps: []StepPlan{{PlanResult: pluginapi.PlanResult{RollbackFidelity: pluginapi.ModeIrreversible}}},
+			want:  "NOT NEEDED",
+		},
+		{name: "deterministic only", steps: []StepPlan{changing(pluginapi.ModeDeterministic)}, want: "AVAILABLE"},
+		{
+			name:  "one best-effort step downgrades the run",
+			steps: []StepPlan{changing(pluginapi.ModeDeterministic), changing(pluginapi.ModeBestEffort)},
+			want:  "BEST-EFFORT",
+		},
+		{
+			name:  "irreversible wins over everything",
+			steps: []StepPlan{changing(pluginapi.ModeBestEffort), changing(pluginapi.ModeIrreversible)},
+			want:  "IRREVERSIBLE",
+		},
+		{
+			name:  "a silent plugin is not evidence of a clean rollback",
+			steps: []StepPlan{changing(pluginapi.ModeDeterministic), changing("")},
+			want:  "UNKNOWN",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := plannedRollbackFidelity(tc.steps)
+			if !strings.HasPrefix(got, tc.want) {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
 func TestRenderCompactStepResult(t *testing.T) {
 	step := StepPlan{
 		PlanResult: pluginapi.PlanResult{

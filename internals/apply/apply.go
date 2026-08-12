@@ -270,14 +270,37 @@ func writeApplyFooter(p *profile.Profile, journal *rollback.Journal, total, chan
 	row(logger.ColorBold+"Aligned"+logger.ColorReset+"  : ", logger.ColorGreen+strconv.Itoa(aligned)+logger.ColorReset)
 	row(logger.ColorBold+"Duration"+logger.ColorReset+" : ", formatShortDuration(duration))
 
-	rollbackStatus := "AVAILABLE (on target)"
+	rollbackStatus, rollbackColor := journalledRollbackFidelity(journal)
 	if journal != nil && journal.RunID != "" {
-		rollbackStatus = "AVAILABLE (run " + journal.RunID + ")"
+		rollbackStatus += " (run " + journal.RunID + ")"
+	} else {
+		rollbackStatus += " (on target)"
 	}
-	row(logger.ColorBold+"Rollback"+logger.ColorReset+" : ", logger.ColorGreen+rollbackStatus+logger.ColorReset)
+	row(logger.ColorBold+"Rollback"+logger.ColorReset+" : ", rollbackColor+rollbackStatus+logger.ColorReset)
 	b.WriteString("\n")
 
 	logger.Infof("%s", b.String())
+}
+
+// journalledRollbackFidelity reads back what the run actually recorded. The
+// journal already knows which steps captured best-effort state; announcing a
+// flat "AVAILABLE" over them tells the operator a rollback will return the host
+// to where it was, which for a package transaction it will not.
+func journalledRollbackFidelity(journal *rollback.Journal) (string, string) {
+	if journal == nil || len(journal.Steps) == 0 {
+		return "AVAILABLE", logger.ColorGreen
+	}
+
+	bestEffort := 0
+	for _, step := range journal.Steps {
+		if step.RollbackMode == pluginapi.ModeBestEffort {
+			bestEffort++
+		}
+	}
+	if bestEffort == 0 {
+		return "AVAILABLE", logger.ColorGreen
+	}
+	return "BEST-EFFORT for " + strconv.Itoa(bestEffort) + " step(s)", logger.ColorYellow
 }
 
 // formatShortDuration renders a Duration in a compact human-readable form:

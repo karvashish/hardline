@@ -968,3 +968,37 @@ func applyWithBundle(ctx context.Context, c cli.Command) error {
 		Overrides:      applyBundleOverrides,
 	})
 }
+
+func TestJournalledRollbackFidelity(t *testing.T) {
+	cases := []struct {
+		name    string
+		journal *rollback.Journal
+		want    string
+	}{
+		{name: "no journal", want: "AVAILABLE"},
+		{
+			name: "deterministic steps only",
+			journal: &rollback.Journal{Steps: []rollback.StepRecord{
+				{ID: "s1", RollbackMode: pluginapi.ModeDeterministic},
+			}},
+			want: "AVAILABLE",
+		},
+		{
+			name: "a best-effort step is named",
+			journal: &rollback.Journal{Steps: []rollback.StepRecord{
+				{ID: "s1", RollbackMode: pluginapi.ModeDeterministic},
+				{ID: "s2", RollbackMode: pluginapi.ModeBestEffort},
+			}},
+			want: "BEST-EFFORT for 1 step(s)",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := journalledRollbackFidelity(tc.journal)
+			if got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}

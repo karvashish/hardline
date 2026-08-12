@@ -341,13 +341,28 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 	}
 
 	return pluginapi.PlanResult{
-		Summary:         summary,
-		Details:         details,
-		Diff:            diff,
-		WillChange:      noop != 0,
-		OperatorSummary: operatorSummary,
-		Highlights:      highlights,
+		Summary:          summary,
+		Details:          details,
+		Diff:             diff,
+		WillChange:       noop != 0,
+		OperatorSummary:  operatorSummary,
+		Highlights:       highlights,
+		RollbackFidelity: planRollbackFidelity(in),
 	}
+}
+
+// planRollbackFidelity states what a rollback of this step would really
+// restore. A package index refresh leaves nothing to put back, and every other
+// package operation restores what the journal recorded rather than the exact
+// transaction, so only a step that does nothing at all is deterministic.
+func planRollbackFidelity(in PlanInputs) string {
+	if in.Update.WillRun {
+		return pluginapi.ModeIrreversible
+	}
+	if in.Upgrade.WillRun || in.Autoremove.WillRun || len(in.InstallInfos) > 0 || len(in.PurgeInfos) > 0 {
+		return pluginapi.ModeBestEffort
+	}
+	return pluginapi.ModeDeterministic
 }
 
 func packagesSentence(parts []string) string {

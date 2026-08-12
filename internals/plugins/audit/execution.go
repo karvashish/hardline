@@ -205,11 +205,12 @@ func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 	}
 
 	return pluginapi.PlanResult{
-		Summary:         summary,
-		Details:         details,
-		Diff:            diff,
-		WillChange:      willChange,
-		OperatorSummary: operator,
+		Summary:          summary,
+		Details:          details,
+		Diff:             diff,
+		WillChange:       willChange,
+		OperatorSummary:  operator,
+		RollbackFidelity: pluginapi.ModeDeterministic,
 	}, nil
 }
 

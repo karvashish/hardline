@@ -352,7 +352,7 @@ func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
 		"actions/a.json": `{"steps":[
   {"id":"svc","plugin":"service","config":{"name":"getty@tty1.service","state":"started"}},
   {"id":"fm","plugin":"file_meta","config":{"path":"/etc/shadow","owner":"root","group":"shadow","mode":"0640"}},
-  {"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/ssh/sshd_config.d/99-hardline.conf"}},
+  {"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/ssh/sshd_config.d/99-hardline.conf","mode":"0600"}},
   {"id":"fw","plugin":"firewall","config":{"main_config":"/etc/nftables.conf","managed_dest":"/etc/nftables.d/99-hardline.nft"}},
   {"id":"pkg","plugin":"packages_dnf4","config":{"install":["curl","libssl3"],"purge":["telnet"]}}
 ]}`,
@@ -360,5 +360,105 @@ func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
 
 	if err := p.Affirm(); err != nil {
 		t.Fatalf("expected an ordinary profile to validate, got %v", err)
+	}
+}
+
+// graphProfile builds a two-action-file profile so the step graph is checked
+// across files, which is the order a run executes them in.
+func graphProfile(t *testing.T, first, second string) *Profile {
+	t.Helper()
+	return bundleProfile(t, map[string]string{
+		"profile.json": `{
+  "id": "graph-profile",
+  "display_name": "Graph Profile",
+  "version": "1.0.0",
+  "os": {"family": "ubuntu", "version": "24.04", "variant": "lts"},
+  "profile_schema": 1,
+  "min_hardline": "0.1.0",
+  "actions": ["actions/a.json", "actions/b.json"],
+  "templates": []
+}`,
+		"actions/a.json": `{"steps":[` + first + `]}`,
+		"actions/b.json": `{"steps":[` + second + `]}`,
+	})
+}
+
+func TestAffirm_RejectsBrokenStepGraph(t *testing.T) {
+	const watcher = `{"id":"svc","plugin":"service","config":{"name":"sshd.service","state":"reloaded",
+		"restart_policy":{"type":"on_change","steps":["tpl"]}}}`
+
+	cases := []struct {
+		name   string
+		first  string
+		second string
+		want   string
+	}{
+		{
+			name:   "duplicate id across action files",
+			first:  `{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			second: `{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/two.conf","mode":"0600"}}`,
+			want:   "already declared by an earlier step",
+		},
+		{
+			name:   "empty id",
+			first:  `{"id":"  ","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			second: `{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/two.conf","mode":"0600"}}`,
+			want:   "has an empty id",
+		},
+		{
+			name:   "padded id",
+			first:  `{"id":" tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			second: `{"id":"other","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/two.conf","mode":"0600"}}`,
+			want:   "leading or trailing whitespace",
+		},
+		{
+			name:   "watches unknown step",
+			first:  `{"id":"other","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			second: watcher,
+			want:   `watches unknown step "tpl"`,
+		},
+		{
+			name:   "watches a later step",
+			first:  watcher,
+			second: `{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			want:   "which runs after it",
+		},
+		{
+			name:  "watches itself",
+			first: `{"id":"svc","plugin":"service","config":{"name":"sshd.service","state":"reloaded","restart_policy":{"type":"on_change","steps":["svc"]}}}`,
+			second: `{"id":"tpl","plugin":"template",
+				"config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			want: "watches itself",
+		},
+		{
+			name:  "empty watched id",
+			first: `{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
+			second: `{"id":"svc","plugin":"service","config":{"name":"sshd.service","state":"reloaded",
+				"restart_policy":{"type":"on_change","steps":[" "]}}}`,
+			want: "empty step id",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := graphProfile(t, tc.first, tc.second).Affirm()
+			if err == nil {
+				t.Fatal("expected the broken step graph to be rejected")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestAffirm_AcceptsStepWatchingAnEarlierFile(t *testing.T) {
+	p := graphProfile(t,
+		`{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/ssh/sshd_config.d/99-hardline.conf","mode":"0600"}}`,
+		`{"id":"svc","plugin":"service","config":{"name":"sshd.service","state":"reloaded",
+			"restart_policy":{"type":"on_change","steps":["tpl"]}}}`)
+
+	if err := p.Affirm(); err != nil {
+		t.Fatalf("expected a well-formed step graph to validate, got %v", err)
 	}
 }

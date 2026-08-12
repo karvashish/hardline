@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/url"
 	"path"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/karvashish/hardline/schema"
@@ -71,7 +72,91 @@ func (p *Profile) Affirm() error {
 		}
 	}
 
+	return p.validateStepGraph()
+}
+
+// validateStepGraph checks the step list the run will execute: action files in
+// declared order, steps in file order. A duplicate ID overwrites the other
+// step's entry in the change map and makes the rollback dependency lookup
+// ambiguous, and a restart dependency on a step that does not exist, or has not
+// run yet, can never register a change - so the restart it was meant to trigger
+// silently never happens.
+func (p *Profile) validateStepGraph() error {
+	position := make(map[string]int, 16)
+	order := 0
+
+	for _, af := range p.ActionFiles {
+		for i, step := range af.Steps {
+			id := strings.TrimSpace(step.ID)
+			if id == "" {
+				return fmt.Errorf("action file %q: step %d has an empty id", af.Path, i)
+			}
+			if id != step.ID {
+				return fmt.Errorf("action file %q: step id %q must not have leading or trailing whitespace", af.Path, step.ID)
+			}
+			if _, dup := position[id]; dup {
+				return fmt.Errorf("action file %q: step id %q is already declared by an earlier step", af.Path, id)
+			}
+			position[id] = order
+			order++
+		}
+	}
+
+	order = 0
+	for _, af := range p.ActionFiles {
+		for _, step := range af.Steps {
+			deps, err := step.watchedSteps()
+			if err != nil {
+				return fmt.Errorf("action file %q: step %q: %w", af.Path, step.ID, err)
+			}
+			for _, dep := range deps {
+				if dep == step.ID {
+					return fmt.Errorf("action file %q: step %q watches itself", af.Path, step.ID)
+				}
+				depOrder, ok := position[dep]
+				if !ok {
+					return fmt.Errorf("action file %q: step %q watches unknown step %q", af.Path, step.ID, dep)
+				}
+				if depOrder > order {
+					return fmt.Errorf("action file %q: step %q watches step %q, which runs after it", af.Path, step.ID, dep)
+				}
+			}
+			order++
+		}
+	}
 	return nil
+}
+
+// watchedSteps returns the step IDs this step's restart policy watches. Only
+// the service plugin declares them, and reading its config here is deliberate:
+// the graph is a profile-level property, and routing it through a plugin hook
+// would buy indirection for a single caller.
+func (s Step) watchedSteps() ([]string, error) {
+	if s.PluginName() != "service" {
+		return nil, nil
+	}
+
+	var spec struct {
+		RestartPolicy *struct {
+			Steps []string `json:"steps"`
+		} `json:"restart_policy"`
+	}
+	if err := s.Decode(&spec); err != nil {
+		return nil, err
+	}
+	if spec.RestartPolicy == nil {
+		return nil, nil
+	}
+
+	out := make([]string, 0, len(spec.RestartPolicy.Steps))
+	for _, dep := range spec.RestartPolicy.Steps {
+		trimmed := strings.TrimSpace(dep)
+		if trimmed == "" {
+			return nil, fmt.Errorf("restart_policy steps contains an empty step id")
+		}
+		out = append(out, trimmed)
+	}
+	return out, nil
 }
 
 // loadResolvedSchema reads name from the embedded schema FS. $ref targets

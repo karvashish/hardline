@@ -488,6 +488,9 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				if cmd == testIncludeCheck {
 					return errors.New("missing")
 				}
+				if strings.HasPrefix(cmd, "test -e ") {
+					return errors.New("missing")
+				}
 				if strings.Contains(cmd, ">> '/etc/nftables.conf'") {
 					return errors.New("append failed")
 				}
@@ -508,8 +511,8 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			},
 			writeRootFile: func(string, []byte, os.FileMode) error { return errors.New("write failed") },
 		}}, validDeterministicFirewallSpec())
-		if err == nil || !strings.Contains(err.Error(), "write root file") {
-			t.Fatalf("expected write error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "write firewall candidate") {
+			t.Fatalf("expected candidate write error, got %v", err)
 		}
 
 		var gotDest string
@@ -533,8 +536,15 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
+		// Drift is corrected through the staging file: the bytes are written to
+		// the candidate, nft parses them there, and only then are they moved
+		// into the place the host loads from.
+		var gotCmds []string
 		err = Apply(pluginapi.Context{Host: firewallExecHostStub{
-			runRoot:           func(string) error { return nil },
+			runRoot: func(cmd string) error {
+				gotCmds = append(gotCmds, cmd)
+				return nil
+			},
 			runRootWithOutput: func(string) (string, error) { return fmt.Sprintf("644 %d", len(wantRender)), nil },
 			readRootFile:      func(string) (string, error) { return wantRender + "\n# drift", nil },
 			writeRootFile: func(dest string, data []byte, mode os.FileMode) error {
@@ -545,8 +555,13 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if gotDest != validDeterministicFirewallSpec().ManagedDest || gotData != wantRender || gotMode != 0o644 {
+		candidate := validDeterministicFirewallSpec().ManagedDest + candidateSuffix
+		if gotDest != candidate || gotData != wantRender || gotMode != 0o644 {
 			t.Fatalf("unexpected write payload: dest=%q mode=%#o", gotDest, gotMode)
+		}
+		joined := strings.Join(gotCmds, "\n")
+		if !strings.Contains(joined, "mv -f '"+candidate+"' '"+validDeterministicFirewallSpec().ManagedDest+"'") {
+			t.Fatalf("expected the candidate to be moved into place, got %v", gotCmds)
 		}
 	})
 
@@ -1499,5 +1514,87 @@ func TestNormalizeAcceptsOrdinaryAddressesAndInterfaces(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected %q in the rendered ruleset:\n%s", want, rendered)
 		}
+	}
+}
+
+// TestApplyNeverInstallsACandidateNftRejects is the point of staging: a file
+// the host cannot load must never reach the path the host loads from.
+func TestApplyNeverInstallsACandidateNftRejects(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	candidate := spec.ManagedDest + candidateSuffix
+
+	var cmds []string
+	err := Apply(pluginapi.Context{Host: firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			if strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("missing")
+			}
+			return nil
+		},
+		runRootWithOutput: func(cmd string) (string, error) {
+			if strings.HasPrefix(cmd, "nft -c -f ") {
+				return "/etc/nftables.d/x.nft:3:1-5: Error: syntax error, unexpected junk\njunk\n^^^^", errors.New("exit status 1")
+			}
+			return "", nil
+		},
+		writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+	}}, spec)
+
+	if err == nil || !strings.Contains(err.Error(), "rejected by nft") {
+		t.Fatalf("expected the candidate to be refused, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "syntax error") {
+		t.Fatalf("expected nft's own complaint in the error, got %v", err)
+	}
+
+	joined := strings.Join(cmds, "\n")
+	if strings.Contains(joined, "mv -f ") {
+		t.Fatalf("a rejected candidate must not be moved into place, got %v", cmds)
+	}
+	if !strings.Contains(joined, "rm -f '"+candidate+"'") {
+		t.Fatalf("expected the rejected candidate to be cleaned up, got %v", cmds)
+	}
+	if strings.Contains(joined, ">> '/etc/nftables.conf'") {
+		t.Fatalf("a rejected candidate must not be wired into the main config, got %v", cmds)
+	}
+}
+
+func TestApplyCleansUpAfterAFailedInstall(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	candidate := spec.ManagedDest + candidateSuffix
+
+	var cmds []string
+	err := Apply(pluginapi.Context{Host: firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			if strings.HasPrefix(cmd, "test -e ") {
+				return errors.New("missing")
+			}
+			if strings.HasPrefix(cmd, "mv -f ") {
+				return errors.New("read-only filesystem")
+			}
+			return nil
+		},
+		writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+	}}, spec)
+
+	if err == nil || !strings.Contains(err.Error(), "install firewall candidate") {
+		t.Fatalf("expected an install error, got %v", err)
+	}
+	if !strings.Contains(strings.Join(cmds, "\n"), "rm -f '"+candidate+"'") {
+		t.Fatalf("expected the staged candidate to be cleaned up, got %v", cmds)
+	}
+}
+
+func TestFirstNftLinesBoundsTheComplaint(t *testing.T) {
+	if got := firstNftLines("  \n ", 3); got != "" {
+		t.Fatalf("expected empty output to stay empty, got %q", got)
+	}
+	if got := firstNftLines("a\nb\nc\nd", 2); got != "a; b" {
+		t.Fatalf("unexpected trim: %q", got)
+	}
+	if got := firstNftLines("only", 5); got != "only" {
+		t.Fatalf("unexpected single line: %q", got)
 	}
 }

@@ -137,25 +137,74 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 			return fmt.Errorf("mkdir -p %s: %w", dir, err)
 		}
 	}
-	if err := EnsureNftablesInclude(ctx.Host, fw.MainConfig, destPath); err != nil {
-		return err
-	}
 
 	desiredRendered := RenderNormalized(desired)
 	matches, err := firewallDestinationMatches(ctx.Host, destPath, desiredRendered, os.FileMode(0644))
 	if err != nil {
 		return fmt.Errorf("compare destination %s: %w", destPath, err)
 	}
-	if matches {
+	if !matches {
+		if err := installFirewallCandidate(ctx.Host, destPath, desiredRendered); err != nil {
+			return err
+		}
+		logger.Debugf("handleFirewall: rendered deterministic firewall rules to %q\n", destPath)
+	} else {
 		logger.Debugf("handleFirewall: destination %q already matches, skipping write\n", destPath)
-		return nil
 	}
 
-	if err := ctx.Host.WriteRootFile(destPath, []byte(desiredRendered), os.FileMode(0644)); err != nil {
-		return fmt.Errorf("write root file %s: %w", destPath, err)
+	// The include goes in after the file it names exists. An include pointing at
+	// a missing file fails every nft load on the host, including the one this
+	// step is about to ask for.
+	return EnsureNftablesInclude(ctx.Host, fw.MainConfig, destPath)
+}
+
+// firstNftLines trims nft's complaint down to something an error can carry. nft
+// prints the offending line and a caret ruler, which is the useful part.
+func firstNftLines(out string, n int) string {
+	trimmed := strings.TrimSpace(out)
+	if trimmed == "" {
+		return ""
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "; ")
+}
+
+// candidateSuffix names the staging file. It sits beside the destination so the
+// move into place is a rename on one filesystem, and it is not the file the
+// main config includes, so nothing loads it while it is being checked.
+const candidateSuffix = ".hardline-candidate"
+
+// installFirewallCandidate writes the ruleset to a staging path, has nft parse
+// it there, and only then moves it into place. Writing first and checking after
+// leaves a file the host would fail to load sitting where the host will load
+// it, which is exactly the state a firewall step must never produce.
+func installFirewallCandidate(host pluginapi.Host, destPath, rendered string) error {
+	candidate := destPath + candidateSuffix
+
+	if err := host.WriteRootFile(candidate, []byte(rendered), os.FileMode(0644)); err != nil {
+		return fmt.Errorf("write firewall candidate %s: %w", candidate, err)
 	}
 
-	logger.Debugf("handleFirewall: rendered deterministic firewall rules to %q\n", destPath)
+	out, checkErr := host.RunRootWithOutput("nft -c -f " + pluginapi.ShellArg(candidate) + " 2>&1")
+	if checkErr != nil {
+		if rmErr := host.RunRoot("rm -f " + pluginapi.ShellArg(candidate)); rmErr != nil {
+			logger.Warnf("firewall: could not remove the rejected candidate %s: %v\n", candidate, rmErr)
+		}
+		if detail := firstNftLines(out, 5); detail != "" {
+			return fmt.Errorf("firewall candidate rejected by nft: %s", detail)
+		}
+		return fmt.Errorf("firewall candidate rejected by nft: %w", checkErr)
+	}
+
+	if err := host.RunRoot("mv -f " + pluginapi.ShellArg(candidate) + " " + pluginapi.ShellArg(destPath)); err != nil {
+		if rmErr := host.RunRoot("rm -f " + pluginapi.ShellArg(candidate)); rmErr != nil {
+			logger.Warnf("firewall: could not remove the staged candidate %s: %v\n", candidate, rmErr)
+		}
+		return fmt.Errorf("install firewall candidate as %s: %w", destPath, err)
+	}
 	return nil
 }
 

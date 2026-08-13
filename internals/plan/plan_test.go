@@ -827,8 +827,7 @@ var (
 
 func planWithBundle(c cli.Command) error {
 	return Plan(c, &verify.VerifiedBundle{
-		ProfileDir: c.Profile,
-		Profile:    planBundleProfile,
-		Overrides:  planBundleOverrides,
+		Profile:   planBundleProfile,
+		Overrides: planBundleOverrides,
 	})
 }

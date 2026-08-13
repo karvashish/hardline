@@ -114,18 +114,6 @@ func (p *Profile) signedBytes(rel string) ([]byte, error) {
 	return content, nil
 }
 
-func (p *Profile) ActionPaths() ([]string, error) {
-	out := make([]string, 0, len(p.Actions))
-	for _, rel := range p.Actions {
-		key, err := p.resolve(rel)
-		if err != nil {
-			return nil, fmt.Errorf("profile action %w", err)
-		}
-		out = append(out, key)
-	}
-	return out, nil
-}
-
 func (s Step) PluginName() string {
 	return strings.ToLower(strings.TrimSpace(s.Plugin))
 }

@@ -20,7 +20,6 @@ var (
 )
 
 type VerifiedBundle struct {
-	ProfileDir     string
 	ManifestDigest string
 	Profile        *profile.Profile
 	Overrides      map[string]json.RawMessage
@@ -62,7 +61,6 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, err
 	}
 	return &VerifiedBundle{
-		ProfileDir:     c.Profile,
 		ManifestDigest: manifest.Digest,
 		Profile:        p,
 		Overrides:      overrides,

@@ -956,5 +956,5 @@ func stubHandlers() func() {
 }
 
 func stubBundle() *verify.VerifiedBundle {
-	return &verify.VerifiedBundle{ProfileDir: "p", Profile: &profile.Profile{ID: "p"}}
+	return &verify.VerifiedBundle{Profile: &profile.Profile{ID: "p"}}
 }

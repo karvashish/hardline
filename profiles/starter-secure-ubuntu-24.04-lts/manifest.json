@@ -64,7 +64,7 @@
     },
     {
       "path": "templates/40-audit-hardening-rules.tmpl",
-      "sha256": "6d82f0d0de3d9ec558ad74cd832f41533c8e5a3cd61837c73bb40d0e2b11e12e"
+      "sha256": "2215e27a1ec37c98343c4f25335c76dd6ea7fbfdcb9ad8f2b69816de3b16cdd0"
     },
     {
       "path": "templates/50-journald-hardening.conf.tmpl",

@@ -154,7 +154,6 @@ func planProfile(client *remote.Client, p *profile.Profile, options planRunOptio
 				return err
 			}
 
-			// Record the predicted outcome for downstream steps (service restart on_change)
 			stepChanges[step.ID] = sp.WillChange
 
 			plans = append(plans, sp)
@@ -252,8 +251,6 @@ func writePlanHeader(b *strings.Builder, profile profile.Profile, hostname strin
 	fmt.Fprintf(b, "%s\n\n", strings.Repeat("-", 60))
 }
 
-// PrintPlanNextSteps prints the "NEXT STEPS" block after a standalone plan run.
-// It is not called when plan runs as part of apply.
 func PrintPlanNextSteps(c cli.Command) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%sNEXT STEPS%s\n", logger.ColorCyan+logger.ColorBold, logger.ColorReset)
@@ -284,10 +281,6 @@ func writePlanSummary(b *strings.Builder, steps []StepPlan) {
 		logger.ColorDim, logger.ColorReset)
 }
 
-// plannedRollbackFidelity is the weakest restoration any changing step would
-// give. Reporting a flat "AVAILABLE" alongside a package upgrade or an index
-// refresh promises the operator a return to the previous state that no journal
-// can deliver, so the worst case is what the summary names.
 func plannedRollbackFidelity(steps []StepPlan) (string, string) {
 	worst := ""
 	unknown := false
@@ -305,10 +298,6 @@ func plannedRollbackFidelity(steps []StepPlan) (string, string) {
 				worst = pluginapi.ModeDeterministic
 			}
 		default:
-			// A changing step whose plugin says nothing is not evidence that a
-			// rollback would restore it. The scan continues rather than reporting
-			// it here, because a later irreversible step outranks it and would
-			// otherwise be hidden behind this one.
 			unknown = true
 		}
 	}
@@ -408,10 +397,6 @@ func normalizedHighlights(highlights []string) []string {
 	return notes
 }
 
-// previewPlanLines renders the diff lines for the compact plan log. It drops
-// only the unified-diff framing lines ("--- / +++ / @@") and shows every
-// remaining change line; nothing is capped, so the log reflects the full set
-// of changes for the step.
 func previewPlanLines(lines []string) []string {
 	clean := normalizedReportLines(lines)
 	out := clean[:0]
@@ -424,10 +409,6 @@ func previewPlanLines(lines []string) []string {
 	return out
 }
 
-// isDiffHeaderLine reports whether a line is a unified-diff framing line
-// ("--- current ...", "+++ desired ...", "@@ ...") that is meaningless without
-// the content lines beneath it. Plan previews strip these so every line shown
-// to the operator is substantive.
 func isDiffHeaderLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	switch {

@@ -537,9 +537,6 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("Apply failed: %v", err)
 		}
 
-		// Drift is corrected through the staging file: the bytes are written to
-		// the candidate, nft parses them there, and only then are they moved
-		// into the place the host loads from.
 		var gotCmds []string
 		err = Apply(pluginapi.Context{Host: firewallExecHostStub{
 			runRoot: func(cmd string) error {
@@ -754,9 +751,6 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 3 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
-		// Rollback walks the objects in reverse, and an include naming a file
-		// that is gone breaks every nftables load, so the include has to be
-		// recorded last to be removed first.
 		include := rec.Objects[2].ConfigLine
 		if rec.Objects[2].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
 			t.Fatalf("expected the %s include captured last, got %+v", MainConfigDebian, rec.Objects[2])
@@ -953,9 +947,6 @@ func validDeterministicFirewallSpec() *Spec {
 	}
 }
 
-// activationProbeAnswer serves the two host questions activation asks before
-// and after it loads: which ports sshd listens on, and what the kernel ended up
-// running. Both have to be answered for a stub to reach the load at all.
 func activationProbeAnswer(cmd string, noSSHD bool, liveJSON string) (string, bool) {
 	switch {
 	case strings.HasPrefix(cmd, "ss -Hltnp"):
@@ -972,8 +963,6 @@ func activationProbeAnswer(cmd string, noSSHD bool, liveJSON string) (string, bo
 	return "", false
 }
 
-// standardLiveRulesetJSON is what the host reports after loading the ruleset
-// validDeterministicFirewallSpec describes.
 var standardLiveRulesetJSON = mustLiveRulesetJSON(validDeterministicFirewallSpec())
 
 func mustLiveRulesetJSON(spec *Spec) string {
@@ -984,9 +973,6 @@ func mustLiveRulesetJSON(spec *Spec) string {
 	return liveRulesetJSON(normalized)
 }
 
-// liveRulesetJSON renders what "nft -j list ruleset" reports for a loaded
-// ruleset. Activation compares the kernel's answer against what was asked for,
-// so a stub that cannot speak nft's JSON cannot exercise activation at all.
 func liveRulesetJSON(spec NormalizedSpec) string {
 	entries := []string{fmt.Sprintf(`{"table":{"family":%q,"name":%q}}`, spec.Family, spec.Table)}
 
@@ -1129,16 +1115,12 @@ func (s firewallHelperRuntimeStub) RunRoot(cmd string) error {
 }
 
 func (s firewallHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
-	// Activation probes the host before it loads anything, so a stub that says
-	// nothing would read as "sshd is not listening" and refuse the load.
 	if answer, ok := activationProbeAnswer(cmd, s.noSSHD, s.liveRulesetJSON); ok {
 		return answer, nil
 	}
 	if s.runRootWithOutputErr != nil {
 		return "", s.runRootWithOutputErr
 	}
-	// The snapshot helper asks for a typed stat line; the plugin's own
-	// destination check asks for mode and size only.
 	if strings.Contains(cmd, "%F|") {
 		fields := strings.Fields(s.runRootWithOutput)
 		if len(fields) != 2 {
@@ -1175,8 +1157,6 @@ type firewallExecHostStub struct {
 }
 
 func (s firewallExecHostStub) RunRoot(cmd string) error {
-	// grep exits non-zero when the pattern is absent, and a host carrying the
-	// old directory-wide include is the exception, not the default.
 	if cmd == testLegacyGlobCheck && !s.legacyGlob {
 		return errors.New("no legacy glob")
 	}
@@ -1187,8 +1167,6 @@ func (s firewallExecHostStub) RunRoot(cmd string) error {
 }
 
 func (s firewallExecHostStub) RunRootWithOutput(cmd string) (string, error) {
-	// A test's own answer wins; the canned probe replies only fill in for the
-	// commands it did not care to model, so a stub still reaches the load.
 	if s.runRootWithOutput != nil {
 		out, err := s.runRootWithOutput(cmd)
 		if err != nil || strings.TrimSpace(out) != "" {
@@ -1221,9 +1199,6 @@ func (s firewallExecHostStub) RunRootWithTimeout(cmd string, _ time.Duration) (s
 	return s.RunRootWithOutput(cmd)
 }
 
-// TestRollbackRestoresNftablesMainConfig covers the mutation apply makes
-// outside the managed destination: without it, rollback reports success while
-// leaving the appended include behind.
 func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 	plug := Plugin()
 
@@ -1279,9 +1254,6 @@ func TestRollbackRestoresNftablesMainConfig(t *testing.T) {
 	})
 }
 
-// TestRollbackRemovesOnlyItsOwnInclude is the layering case: two profiles both
-// append an include to the same main config, and the first one's rollback must
-// take back its own line without disturbing the second's.
 func TestRollbackRemovesOnlyItsOwnInclude(t *testing.T) {
 	const other = `include "/etc/nftables.d/50-other.nft"`
 	current := "flush ruleset\n\n" + IncludeLine(testDest) + "\n" + other + "\n"
@@ -1373,8 +1345,6 @@ func TestRestoreNftablesIncludeRejectsAForeignPath(t *testing.T) {
 	}
 }
 
-// TestApplyRefusesTheLegacyGlobInclude: leaving the old directory-wide include
-// next to an exact one loads the same file twice in a single transaction.
 func TestApplyRefusesTheLegacyGlobInclude(t *testing.T) {
 	host := firewallExecHostStub{legacyGlob: true}
 	err := EnsureNftablesInclude(host, testMainConfig, testDest)
@@ -1383,8 +1353,6 @@ func TestApplyRefusesTheLegacyGlobInclude(t *testing.T) {
 	}
 }
 
-// TestDiffReportsReorderedChain: the same rules in a different order is a
-// different firewall, so it must not report as aligned.
 func TestDiffReportsReorderedChain(t *testing.T) {
 	desired, err := NormalizeDesiredSpec(&Spec{
 		Backend:     "nftables",
@@ -1425,9 +1393,6 @@ func TestDiffReportsReorderedChain(t *testing.T) {
 	}
 }
 
-// Conflict detection is handed the after snapshot, which was taken once apply
-// had appended the include, so Added is false on it. A guard keyed on Added
-// being true never fires at all.
 func TestIncludeLineConflictReportsARemovedInclude(t *testing.T) {
 	rec := pluginapi.ConfigLineSnapshot{
 		Path:        testMainConfig,
@@ -1475,7 +1440,6 @@ func TestRemoveNftablesIncludeEdgeCases(t *testing.T) {
 		t.Fatal("expected a foreign main config to be refused")
 	}
 
-	// Nothing to rewrite when the file is already gone.
 	absent := firewallExecHostStub{runRootWithOutput: func(string) (string, error) {
 		return "", nil
 	}}
@@ -1483,7 +1447,6 @@ func TestRemoveNftablesIncludeEdgeCases(t *testing.T) {
 		t.Fatalf("expected an absent main config to be a no-op, got %v", err)
 	}
 
-	// A file that never carried the line is left untouched.
 	const content = "flush ruleset\n"
 	untouched := firewallExecHostStub{
 		runRootWithOutput: func(string) (string, error) {
@@ -1504,9 +1467,6 @@ func TestRemoveNftablesIncludeEdgeCases(t *testing.T) {
 	}
 }
 
-// TestNormalizeRejectsUnparsedFields covers the fields that reach a root-loaded
-// nft file verbatim. Each case is valid nft grammar that this config cannot
-// express, so accepting the text is what would smuggle it in.
 func TestNormalizeRejectsUnparsedFields(t *testing.T) {
 	base := func() *Spec {
 		return &Spec{
@@ -1631,8 +1591,6 @@ func TestNormalizeAcceptsOrdinaryAddressesAndInterfaces(t *testing.T) {
 	}
 }
 
-// TestApplyNeverInstallsACandidateNftRejects is the point of staging: a file
-// the host cannot load must never reach the path the host loads from.
 func TestApplyNeverInstallsACandidateNftRejects(t *testing.T) {
 	spec := validDeterministicFirewallSpec()
 	candidate := spec.ManagedDest + candidateSuffix
@@ -1713,9 +1671,6 @@ func TestFirstNftLinesBoundsTheComplaint(t *testing.T) {
 	}
 }
 
-// TestEnsureNftablesFlushPutsTheHeaderFirst covers the RHEL-family case: the
-// shipped config carries no flush, so a load would add to the running ruleset
-// instead of replacing it.
 func TestEnsureNftablesFlushPutsTheHeaderFirst(t *testing.T) {
 	const existing = "# managed by the distribution\ninclude \"/etc/nftables.d/50-other.nft\"\n"
 
@@ -1776,9 +1731,6 @@ func TestEnsureNftablesFlushGuards(t *testing.T) {
 	}
 }
 
-// Apply loads the ruleset into the kernel rather than leaving it for a service
-// restart, so a rollback that only puts the files back leaves the host running
-// the very ruleset being rolled back until it next boots.
 func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 	snap := pluginapi.FileSnapshot{Path: testDest, Existed: false}
 
@@ -1796,8 +1748,6 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 		}
 	})
 
-	// A main config without the flush header would add to what the kernel is
-	// already running, which is the ruleset being rolled back.
 	t.Run("flushes when the main config has no header", func(t *testing.T) {
 		var cmds []string
 		host := firewallExecHostStub{
@@ -1820,8 +1770,6 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 		}
 	})
 
-	// Rollback deleted the main config because this run created it, so there is
-	// nothing left to load from and the applied ruleset just goes.
 	t.Run("flushes when the main config is gone", func(t *testing.T) {
 		var cmds []string
 		host := firewallExecHostStub{
@@ -1907,8 +1855,6 @@ func TestRollbackReportsAFailedReload(t *testing.T) {
 	}
 }
 
-// A restore that could not put the file back has nothing to reload from, so it
-// stops there rather than loading whatever the host still has.
 func TestRollbackStopsWhenTheFileCannotBeRestored(t *testing.T) {
 	host := firewallExecHostStub{
 		runRootWithOutput: func(string) (string, error) {
@@ -1958,9 +1904,6 @@ func containsCmd(cmds []string, want string) bool {
 	return false
 }
 
-// Ubuntu 24.04 runs ssh from ssh.socket, so systemd holds the listening socket
-// and nothing in ss names sshd. Scanning for sshd alone refuses every drop
-// policy on those hosts.
 func TestSSHDListeningPortsCoversSocketActivation(t *testing.T) {
 	t.Run("a socket unit's live port counts", func(t *testing.T) {
 		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
@@ -1982,9 +1925,6 @@ func TestSSHDListeningPortsCoversSocketActivation(t *testing.T) {
 		}
 	})
 
-	// The guard passes as soon as one of these ports is accepted, so a port
-	// taken from a unit file and no further would weaken it into accepting a
-	// port ssh never had.
 	t.Run("a declared port nothing listens on does not count", func(t *testing.T) {
 		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
 			switch {
@@ -2114,8 +2054,6 @@ func normalizedTestSpec(t *testing.T, spec *Spec) NormalizedSpec {
 	return normalized
 }
 
-// TestActivateFirewallLoadsAndVerifies is the whole point of activation: the
-// file is loaded, and what the kernel ends up running is read back and checked.
 func TestActivateFirewallLoadsAndVerifies(t *testing.T) {
 	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
 
@@ -2142,7 +2080,6 @@ func TestActivateFirewallLoadsAndVerifies(t *testing.T) {
 func TestActivateFirewallRefusesAnIncompleteLoad(t *testing.T) {
 	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
 
-	// The kernel came back with an empty ruleset: the load silently did nothing.
 	host := firewallExecHostStub{liveRulesetJSON: `{"nftables":[]}`}
 	err := ActivateFirewall(host, MainConfigDebian, desired)
 	if err == nil || !strings.Contains(err.Error(), "not what was applied") {
@@ -2168,8 +2105,6 @@ func TestActivateFirewallReportsWhatNftSaid(t *testing.T) {
 	}
 }
 
-// TestActivateFirewallRefusesToLockItselfOut: a drop policy with no accept for
-// the port sshd answers on takes the host away from the run that applied it.
 func TestActivateFirewallRefusesToLockItselfOut(t *testing.T) {
 	spec := validDeterministicFirewallSpec()
 	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 8080, Action: "accept"}}
@@ -2208,8 +2143,6 @@ func TestActivateFirewallAcceptsANonStandardSSHPort(t *testing.T) {
 	}
 }
 
-// A source-scoped accept keeps one network in, not the operator applying the
-// profile, so it must not satisfy the guard.
 func TestActivateFirewallIgnoresANarrowedAccept(t *testing.T) {
 	spec := validDeterministicFirewallSpec()
 	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "accept"}}
@@ -2241,7 +2174,6 @@ func TestActivateFirewallFailsClosedWithoutAnSSHProbe(t *testing.T) {
 	}
 }
 
-// An accept policy needs no guard: nothing is being shut out.
 func TestActivateFirewallSkipsTheGuardForAnAcceptPolicy(t *testing.T) {
 	spec := validDeterministicFirewallSpec()
 	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}

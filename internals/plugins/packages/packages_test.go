@@ -231,8 +231,6 @@ func TestValidateNames(t *testing.T) {
 	if err := ValidateNames(re, []string{"vim", "g++", "libc6.1"}); err != nil {
 		t.Fatalf("expected valid names to pass, got %v", err)
 	}
-	// The caller's rule is the whole rule: this one is lower-case only, so a
-	// name another backend would accept is rejected here.
 	if err := ValidateNames(re, []string{"ImageMagick"}); err == nil {
 		t.Fatal("expected an upper-case name to fail a lower-case-only pattern")
 	}
@@ -310,11 +308,6 @@ func TestLockProbe(t *testing.T) {
 		t.Error("a quoted glob would make fuser look for a file named *")
 	}
 
-	// Requiring psmisc would make a minimal host unmanageable, including for
-	// the one transaction that would have installed it, so the probe answers
-	// from /proc where fuser is absent. It still refuses to answer at all when
-	// /proc cannot be read, since "no holder" and "nothing looked" print the
-	// same thing.
 	for _, want := range []string{
 		"/proc/[0-9]*/fd/*",
 		"[ -d /proc/1/fd ]",
@@ -524,9 +517,6 @@ func TestRPMQuery(t *testing.T) {
 	})
 
 	t.Run("a spec satisfied by a provide is not absent", func(t *testing.T) {
-		// dnf resolves a spec through Provides and obsoletes, so a name that no
-		// rpm carries can still be installed. Recording it as absent would leave
-		// rollback nothing to undo.
 		var cmd string
 		host := hostStub{runRootWithOutput: func(c string) (string, error) {
 			cmd = c
@@ -588,9 +578,6 @@ func TestRPMPatterns(t *testing.T) {
 			t.Errorf("expected %q to be a valid NEVRA", ok)
 		}
 	}
-	// The pattern is a bound on what may reach a root command, not a proof of
-	// NEVRA ordering: rpm itself composes the pin from %{NAME} and %{ARCH}, so
-	// what matters here is that nothing shell-significant gets through.
 	for _, bad := range []string{
 		"bash", "bash-x.y.z.x86_64", "-bash-1.0-1.x86_64",
 		"bash-5.1.8-9.el9.x86_64 --allowerasing", "bash-5.1.8;id.x86_64",
@@ -704,7 +691,6 @@ func TestRenderPlan(t *testing.T) {
 				t.Errorf("diff missing %q\ngot:\n%s", want, joined)
 			}
 		}
-		// The explicit request must not be double-counted as a dependency.
 		if strings.Contains(joined, `package "curl": absent -> installed (dependency)`) {
 			t.Error("an explicitly requested package was also counted as a dependency")
 		}
@@ -760,8 +746,6 @@ func TestRenderPlan(t *testing.T) {
 		if !strings.Contains(joined, "no packages would be upgraded") {
 			t.Errorf("details missing the empty-upgrade note:\n%s", joined)
 		}
-		// After an upgrade the autoremove set can still change, and the plan
-		// has to say so rather than promise a no-op.
 		if !strings.Contains(joined, "may change after upgrade") {
 			t.Errorf("details missing the post-upgrade caveat:\n%s", joined)
 		}

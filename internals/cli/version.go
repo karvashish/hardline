@@ -97,7 +97,6 @@ func validPrerelease(s string) bool {
 	return true
 }
 
-// prerelease is ignored: an rc satisfies the same min_hardline as its final release.
 func CompareSemVer(a, b string) (int, error) {
 	va, err := ParseSemVer(a)
 	if err != nil {

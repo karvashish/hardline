@@ -19,14 +19,6 @@ var (
 	resolveOverrides    = cli.ResolveOverrides
 )
 
-// VerifiedBundle is the immutable result of a passed verify phase. Plan, apply
-// and rollback take this instead of a directory path so they operate on the
-// profile whose signature was checked, rather than re-reading a directory that
-// may have changed since.
-//
-// Overrides are carried here for the same reason, even though they are
-// deliberately unsigned: resolving them separately in each phase lets apply act
-// on values the plan never displayed.
 type VerifiedBundle struct {
 	ProfileDir     string
 	ManifestDigest string
@@ -63,10 +55,6 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 		return nil, logger.Wrap(err, "step validation failed")
 	}
 
-	// A reference outside the signed tree is unsigned content reached through a
-	// signed pointer. The profile is already loaded from the snapshot, so an
-	// uncovered action would have failed above; templates are loaded lazily and
-	// this is where they are proven covered.
 	if err := assertManifestCoverage(manifest, "action", p.Actions); err != nil {
 		return nil, err
 	}
@@ -81,9 +69,6 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 	}, nil
 }
 
-// assertManifestCoverage is what makes "signed" mean "every file we read is
-// hashed" rather than "the file list is hashed". A reference outside the hashed
-// tree is unsigned content reached through a signed pointer.
 func assertManifestCoverage(manifest *VerifiedManifest, kind string, rels []string) error {
 	for _, rel := range rels {
 		normalized, err := normalizeManifestPath(rel)

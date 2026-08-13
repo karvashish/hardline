@@ -9,9 +9,6 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-// writeSchema reflects v and writes it out. transform, when set, gets the
-// decoded schema so generated constraints the reflector cannot express (the
-// per-plugin config rules) can be attached before encoding.
 func writeSchema(path string, v any, transform func(map[string]any)) {
 	r := new(jsonschema.Reflector)
 	s := r.Reflect(v)

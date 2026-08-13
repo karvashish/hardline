@@ -221,9 +221,6 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capture failed: %v", err)
 	}
-	// Apply appends the include to the main config, so both files are
-	// journalled, main config first so reverse-order rollback restores the
-	// managed file before the include that points at its directory.
 	if rec.RollbackMode != "deterministic" || len(rec.Objects) != 2 {
 		t.Fatalf("unexpected rollback record: %+v", rec)
 	}

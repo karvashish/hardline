@@ -13,8 +13,6 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-// No -D: a 99- file that clears the ruleset deletes rules this profile does not
-// own, and the preflight refuses it.
 const sampleRules = `## hardline audit rules
 -b 8192
 -w /etc/passwd -p wa -k identity
@@ -23,12 +21,6 @@ const sampleRules = `## hardline audit rules
 -e 1
 `
 
-// loadedSample is what auditctl -l prints for sampleRules. It re-renders every
-// rule it prints, and each difference here is one the comparison has to
-// reconcile or the step fails right after a load that worked: a syscall rule's
-// key comes back as an ordinary field, the sentinel a file writes as
-// 4294967295 comes back as unset, and a directory watch loses its trailing
-// separator.
 const loadedSample = `-w /etc/passwd -p wa -k identity
 -a always,exit -F arch=b64 -S adjtimex -F auid>=1000 -F auid!=unset -F key=time_change
 -w /etc/audit -p wa -k audit_config
@@ -98,9 +90,6 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 	return "", nil
 }
 
-// statPathFromCmd pulls the quoted path back out of the stat command the
-// snapshot helper builds. The path is the last quoted word; the format string
-// is quoted too, so scanning from the left finds the wrong one.
 func statPathFromCmd(cmd string) string {
 	end := strings.LastIndex(cmd, "'")
 	if end < 0 {
@@ -197,8 +186,6 @@ func TestApplyWritesAndLoads(t *testing.T) {
 }
 
 func TestApplyLoadsWhenTheFileIsAlreadyCorrectButUnloaded(t *testing.T) {
-	// This is the failure the plugin exists to prevent: rules sitting on disk
-	// that the running kernel has never been told about.
 	var cmds []string
 	host := hostStub{cmds: &cmds, files: map[string]string{dest: sampleRules}, loaded: ""}
 	if err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec()); err == nil {
@@ -226,8 +213,6 @@ func TestApplyIsANoOpWhenLoaded(t *testing.T) {
 }
 
 func TestApplyRewritesCorrectContentAtTheWrongMode(t *testing.T) {
-	// The right bytes at 0666 are an audit policy any user can rewrite, so mode
-	// drift is drift even when the content and the loaded policy both match.
 	var cmds []string
 	host := hostStub{cmds: &cmds, files: map[string]string{dest: sampleRules}, mode: "666",
 		loaded: loadedSample}
@@ -266,8 +251,6 @@ func TestApplyReportsAnUnverifiedLoad(t *testing.T) {
 	}
 }
 
-// TestApplyRefusesARuleThatOnlyShareTheKey is what key-based verification could
-// not see: the kernel is running a different rule under the same label.
 func TestApplyRefusesARuleThatOnlySharesTheKey(t *testing.T) {
 	host := hostStub{files: map[string]string{}, loaded: `-w /etc/shadow -p wa -k identity
 -a always,exit -F arch=b64 -S adjtimex -F key=time_change
@@ -456,8 +439,6 @@ func TestRestoreReloadsAfterPuttingTheFileBack(t *testing.T) {
 	if writeAt < 0 || loadAt < 0 {
 		t.Fatalf("expected both a restore and a reload, got %v", cmds)
 	}
-	// The reload has to follow the restore, or the kernel keeps running the
-	// rules that were just taken off disk.
 	if loadAt < writeAt {
 		t.Fatalf("reload ran before the restore: %v", cmds)
 	}
@@ -517,7 +498,6 @@ func TestPluginWiring(t *testing.T) {
 }
 
 func TestParseRulesReconcilesBothSpellings(t *testing.T) {
-	// The same rule as a file writes it, and as auditctl prints it back.
 	fileForm, err := ParseRules([]byte("-a always,exit -F arch=b64 -S adjtimex,settimeofday -k time_change\n"))
 	if err != nil {
 		t.Fatalf("parse file form: %v", err)
@@ -530,7 +510,6 @@ func TestParseRulesReconcilesBothSpellings(t *testing.T) {
 		t.Fatalf("the same rule must compare equal:\n file: %s\n list: %s", fileForm[0].Canonical(), listForm[0].Canonical())
 	}
 
-	// Permission order is not a difference either.
 	a, err := ParseRules([]byte("-w /etc/passwd -p wa -k identity\n"))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -544,10 +523,6 @@ func TestParseRulesReconcilesBothSpellings(t *testing.T) {
 	}
 }
 
-// Each pair here is one rule in the two spellings it appears in: the left is
-// what a rules file writes, the right is what auditctl -l prints back for it.
-// A pair that does not compare equal fails the step right after a load that
-// worked, which is the one failure mode the readback exists to rule out.
 func TestParseRulesReconcilesAuditctlRewrites(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -598,9 +573,6 @@ func TestParseRulesReconcilesAuditctlRewrites(t *testing.T) {
 	}
 }
 
-// The fold back into the watch form only covers what a -w rule can express. A
-// syscall rule that happens to carry a path comparison is not a watch, and
-// collapsing it into one would make two different rules compare equal.
 func TestParseRulesKeepsANarrowedPathRuleASyscallRule(t *testing.T) {
 	rules, err := ParseRules([]byte("-a always,exit -F path=/etc/passwd -F perm=wa -F auid>=1000 -F key=identity\n"))
 	if err != nil {
@@ -714,9 +686,6 @@ func TestRuleStringRendersBothKinds(t *testing.T) {
 	}
 }
 
-// The running policy is not this profile's file: it carries whatever else the
-// host loaded, and a rule shape this parser does not model is one of those. It
-// is skipped rather than failing the step, and the rules around it still count.
 func TestLoadedRulesSkipsRulesItCannotModel(t *testing.T) {
 	host := hostStub{loaded: "-z nonsense\n" + loadedSample}
 	rules, err := loadedRules(host)

@@ -11,9 +11,6 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-// Spec is the common configuration contract for package-manager plugins.
-// PurgeAlsoRemoves is the profile's explicit acknowledgement of collateral:
-// every package the resolved purge takes beyond Purge must be named there.
 type Spec struct {
 	Update           string   `json:"update,omitempty"`
 	Upgrade          string   `json:"upgrade,omitempty"`
@@ -23,18 +20,12 @@ type Spec struct {
 	PurgeAlsoRemoves []string `json:"purge_also_removes,omitempty"`
 }
 
-// QueryFunc returns whether a package is installed, its current version and
-// the backend-specific exact pin that can restore that version.
 type QueryFunc func(pluginapi.Host, string) (bool, string, string, error)
 
-// PackagesPreviewFunc previews an operation on an explicit package list.
 type PackagesPreviewFunc func(pluginapi.Host, []string) ([]string, error)
 
-// OperationPreviewFunc previews a package-manager-wide operation.
 type OperationPreviewFunc func(pluginapi.Host) ([]string, error)
 
-// Commands contains the command prefixes whose execution differs by package
-// manager. RollbackRemove may be empty when rollback uses Purge unchanged.
 type Commands struct {
 	Update         string
 	Upgrade        string
@@ -44,8 +35,6 @@ type Commands struct {
 	RollbackRemove string
 }
 
-// Previews contains the parsers and commands that are genuinely backend
-// specific. RollbackRemove may be nil when rollback uses Purge unchanged.
 type Previews struct {
 	Upgrade        OperationPreviewFunc
 	Install        PackagesPreviewFunc
@@ -54,9 +43,6 @@ type Previews struct {
 	RollbackRemove PackagesPreviewFunc
 }
 
-// Backend is the small package-manager-specific boundary around the shared
-// package lifecycle. It deliberately contains mechanics, not lifecycle hooks:
-// ordering, safety checks, journalling and conflict rules live below once.
 type Backend struct {
 	Name        string
 	NamePattern *regexp.Regexp
@@ -67,7 +53,6 @@ type Backend struct {
 	Previews    Previews
 }
 
-// Plugin returns the complete pluginapi adapter for a package backend.
 func (b Backend) Plugin() pluginapi.Plugin {
 	if err := b.validateConfiguration(); err != nil {
 		panic(fmt.Sprintf("invalid package backend: %v", err))
@@ -171,7 +156,6 @@ func (b Backend) validateConfiguration() error {
 	return nil
 }
 
-// decode parses and validates a package step.
 func (b Backend) decode(step profile.Step) (*Spec, error) {
 	var spec Spec
 	if err := step.Decode(&spec); err != nil {
@@ -187,7 +171,6 @@ func (b Backend) decode(step profile.Step) (*Spec, error) {
 	return &spec, nil
 }
 
-// validate checks the common operation modes and backend package syntax.
 func (b Backend) validate(spec *Spec) error {
 	for _, op := range []struct{ field, val string }{
 		{"update", spec.Update},
@@ -227,7 +210,6 @@ func (b Backend) infos(host pluginapi.Host, names []string) ([]PkgInfo, error) {
 	return out, nil
 }
 
-// apply executes one package step using the shared ordering and safety rules.
 func (b Backend) apply(ctx pluginapi.Context, spec *Spec) error {
 	logger.Debugf("%s: update=%q upgrade=%q install=%v purge=%v autoremove=%q\n",
 		b.Name, spec.Update, spec.Upgrade, spec.Install, spec.Purge, spec.Autoremove)
@@ -278,8 +260,6 @@ func (b Backend) apply(ctx pluginapi.Context, spec *Spec) error {
 		}
 	}
 	if len(spec.Purge) > 0 {
-		// Resolve this after update, upgrade and install so the preview describes
-		// exactly the dependency graph from which the purge will run.
 		preview, err := b.Previews.Purge(ctx.Host, spec.Purge)
 		if err != nil {
 			return fmt.Errorf("preview purge transaction (%s): %w", strings.Join(spec.Purge, ","), err)
@@ -307,7 +287,6 @@ func (b Backend) apply(ctx pluginapi.Context, spec *Spec) error {
 	return nil
 }
 
-// plan previews one package step without changing the host.
 func (b Backend) plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 	logger.Debugf("%s plan: update=%q upgrade=%q install=%v purge=%v autoremove=%q\n",
 		b.Name, spec.Update, spec.Upgrade, spec.Install, spec.Purge, spec.Autoremove)
@@ -364,15 +343,12 @@ func (b Backend) plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, 
 	return RenderPlan(in), nil
 }
 
-// capture records package state needed by rollback and conflict detection.
 func (b Backend) capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.CaptureResult, error) {
 	record := pluginapi.CaptureResult{}
 	if ctx.Host == nil {
 		return record, fmt.Errorf("%s step: host context is required", b.Name)
 	}
 
-	// Declared collateral is journalled like an explicit purge so rollback can
-	// attempt to restore what the purge transaction dragged out with it.
 	purgeTargets := append(append([]string(nil), spec.Purge...), spec.PurgeAlsoRemoves...)
 	names, installSet, purgeSet := Targets(spec.Install, purgeTargets)
 	records := make([]pluginapi.ObjectRecord, 0, len(names))
@@ -416,7 +392,6 @@ func (b Backend) rollbackRemoveCommand() string {
 	return b.Commands.Purge
 }
 
-// restore reverses the requested install or purge represented by one snapshot.
 func (b Backend) restore(host pluginapi.Host, p pluginapi.PackageState) error {
 	name := strings.TrimSpace(p.Name)
 	if name == "" {
@@ -454,7 +429,6 @@ func (b Backend) restore(host pluginapi.Host, p pluginapi.PackageState) error {
 	return nil
 }
 
-// conflict reports drift from the package state recorded after apply.
 func (b Backend) conflict(host pluginapi.Host, p pluginapi.PackageState) []string {
 	name := strings.TrimSpace(p.Name)
 	if name == "" {

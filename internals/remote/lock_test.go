@@ -39,8 +39,6 @@ func TestMutationLock_AcquireAndRelease(t *testing.T) {
 	if len(sessions) != 2 {
 		t.Fatalf("expected two remote commands, got %d", len(sessions))
 	}
-	// mkdir without -p on the lock itself is what makes the claim atomic: with
-	// -p an existing lock directory would succeed and both runs would proceed.
 	if !strings.Contains(sessions[0].cmd, "&& mkdir ") || !strings.Contains(sessions[0].cmd, MutationLockDir) {
 		t.Fatalf("expected an atomic mkdir of the lock dir, got %q", sessions[0].cmd)
 	}
@@ -52,9 +50,6 @@ func TestMutationLock_AcquireAndRelease(t *testing.T) {
 	}
 }
 
-// TestMutationLock_ContentionNamesBothCommands pins that the contention message
-// covers rollback too: apply and rollback share this lock, so a message naming
-// only apply sends the operator looking for the wrong process.
 func TestMutationLock_ContentionNamesBothCommands(t *testing.T) {
 	prevNewSession := newSession
 	defer func() { newSession = prevNewSession }()

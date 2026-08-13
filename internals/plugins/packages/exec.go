@@ -10,28 +10,19 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
-// PkgTimeoutSeconds is the per-command deadline applied to every package
-// manager invocation via the shell timeout(1) utility. This prevents wedged
-// package operations from blocking automation indefinitely.
-const PkgTimeoutSeconds = 1800 // 30 minutes
+const PkgTimeoutSeconds = 1800
 
-// sshTimeout is the SSH session deadline for package commands. It must exceed
-// PkgTimeoutSeconds so the shell-level timeout fires first and returns a
-// meaningful error; the SSH deadline is the outer safety net.
 var sshTimeout = time.Duration(PkgTimeoutSeconds)*time.Second + 5*time.Minute
 
-// RunRoot runs one package manager command under the outer SSH deadline.
 func RunRoot(host pluginapi.Host, cmd string) error {
 	_, err := host.RunRootWithTimeout(cmd, sshTimeout)
 	return err
 }
 
-// TimeoutCmd applies the per-command deadline to a command tail.
 func TimeoutCmd(tail string) string {
 	return fmt.Sprintf("timeout %d %s", PkgTimeoutSeconds, tail)
 }
 
-// AppendPackages quotes and appends package names to a command.
 func AppendPackages(cmd string, pkgs []string) string {
 	quoted := make([]string, len(pkgs))
 	for i, p := range pkgs {
@@ -40,24 +31,10 @@ func AppendPackages(cmd string, pkgs []string) string {
 	return cmd + " " + strings.Join(quoted, " ")
 }
 
-// lockProbeMarker prefixes the probe's answer. The marker is what separates
-// "fuser reported no holder" from "the probe never ran": the two look identical
-// on stdout, and only one of them means the lock is free.
 const lockProbeMarker = "HL-LOCK:"
 
-// lockPathRe bounds what a lock path may look like. The paths go into the probe
-// unquoted, because one backend's lock is a glob and quoting it would make fuser
-// look for a file named "*". They are compile-time constants of this repository
-// and never profile input, so the shape is asserted at init and a violation is a
-// build bug rather than something to handle at runtime.
 var lockPathRe = regexp.MustCompile(`^/[A-Za-z0-9._*/-]+$`)
 
-// LockProbe builds the lock probe for a backend's own lock paths. It answers
-// with fuser where psmisc is installed and by reading /proc where it is not:
-// requiring psmisc would make a minimal host unmanageable, including for the
-// one transaction that would have installed it. It still fails closed, because
-// a host that cannot answer the question has not answered it, and package
-// operations must not start on an unanswered lock check.
 func LockProbe(paths ...string) string {
 	if len(paths) == 0 {
 		panic("packages.LockProbe: no lock paths")
@@ -73,10 +50,6 @@ func LockProbe(paths ...string) string {
 		"else " + procLockHolders(joined) + "; fi; echo"
 }
 
-// procLockHolders is what fuser does, in the shell: walk every process's open
-// descriptors and print the ones pointing at a lock file. It refuses rather
-// than reporting an empty answer when /proc cannot be read, since "no holder"
-// and "nothing looked" are the same output otherwise.
 func procLockHolders(joined string) string {
 	return "{ [ -d /proc/1/fd ] || { echo 'cannot read /proc to check the package manager lock, and fuser is not installed (package psmisc)' >&2; exit 3; }; " +
 		"for fd in /proc/[0-9]*/fd/*; do " +
@@ -88,10 +61,6 @@ func procLockHolders(joined string) string {
 		"done; done; }"
 }
 
-// CheckLock reports the package manager's lock as held, using a probe built by
-// LockProbe. A probe that fails or returns no verdict is an error: treating it
-// as "unlocked" starts a transaction against a package manager that is already
-// running one.
 func CheckLock(host pluginapi.Host, lockCheck, lockHint string) error {
 	if host == nil {
 		return fmt.Errorf("host context is required to check the package manager lock")
@@ -110,11 +79,6 @@ func CheckLock(host pluginapi.Host, lockCheck, lockHint string) error {
 	return nil
 }
 
-// GuardPurgeTransaction refuses a purge whose real transaction reaches past
-// what the step declared. A purge is resolved outwards by every backend here,
-// so the names in the profile are a request, not the transaction: the only
-// honest way to run one is to read the transaction back first and stop when it
-// contains a package nobody signed off on.
 func GuardPurgeTransaction(purge, alsoRemoves, preview []string) error {
 	var want []string
 	want = append(want, purge...)
@@ -129,7 +93,6 @@ func GuardPurgeTransaction(purge, alsoRemoves, preview []string) error {
 		strings.Join(purge, ", "), strings.Join(extra, ", "))
 }
 
-// FirstLines trims a command's output down to something an error can carry.
 func FirstLines(out string, n int) string {
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) > n {
@@ -138,8 +101,6 @@ func FirstLines(out string, n int) string {
 	return strings.Join(lines, "; ")
 }
 
-// Targets is the sorted set of packages a step touches, with the two membership
-// sets capture needs to record what was requested.
 func Targets(installList, purgeList []string) (names []string, install, purge map[string]struct{}) {
 	all := map[string]struct{}{}
 	install = map[string]struct{}{}
@@ -170,8 +131,6 @@ func Targets(installList, purgeList []string) (names []string, install, purge ma
 	return names, install, purge
 }
 
-// CaptureNotes are the irreversibility notes every backend records for the
-// operations that cannot be undone exactly.
 func CaptureNotes(update, upgrade, autoremove string) []string {
 	var notes []string
 	if update != "" && update != "never" {

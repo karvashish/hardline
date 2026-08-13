@@ -19,7 +19,6 @@ func (e wrappedError) Unwrap() error {
 	return e.err
 }
 
-// Wrap adds context while preserving the original error for unwrapping.
 func Wrap(err error, msg string) error {
 	if err == nil {
 		return nil

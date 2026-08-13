@@ -19,9 +19,6 @@ import (
 
 var runClock = func() time.Time { return time.Now().UTC() }
 
-// emitRunHeader writes a single-line run banner right after the log file is
-// opened so every apply/plan/verify/rollback invocation starts with a stable
-// anchor line (subcommand, profile, host, version, timestamp).
 func emitRunHeader(subcmd string, c cli.Command) {
 	ver, _, err := resolveVerCmd()
 	version := "unknown"
@@ -46,9 +43,6 @@ func emitPhase(name string) {
 	logInfof("%s== PHASE: %s ==%s\n", logger.ColorCyan+logger.ColorBold, name, logger.ColorReset)
 }
 
-// runVerifyPhase emits the VERIFY banner, runs the verification pipeline, and
-// on a clean pass prints a confirmation line so the phase never renders as an
-// empty section.
 func runVerifyPhase(c cli.Command) (*verify.VerifiedBundle, error) {
 	emitPhase("VERIFY")
 	bundle, err := runVerify(c)

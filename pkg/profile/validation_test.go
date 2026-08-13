@@ -8,9 +8,6 @@ import (
 	"testing/fstest"
 )
 
-// bundleProfile builds a profile straight from the byte snapshot a passed
-// integrity check would have produced, which is the only way a profile is
-// constructed at runtime.
 func bundleProfile(t *testing.T, files map[string]string) *Profile {
 	t.Helper()
 	snapshot := make(map[string][]byte, len(files))
@@ -174,8 +171,6 @@ func TestAffirm_SchemaReadAndParseErrors(t *testing.T) {
 
 func TestAffirm_ActionFileErrors(t *testing.T) {
 	t.Run("action file outside the signed set", func(t *testing.T) {
-		// LoadFromBundle already refuses this, so Affirm is exercised against a
-		// hand-built profile: the check has to hold on its own.
 		p := &Profile{
 			profilePath: "/srv/profile",
 			Actions:     []string{"actions/missing.json"},
@@ -221,9 +216,6 @@ func TestAffirm_ActionFileErrors(t *testing.T) {
 	})
 }
 
-// TestSchemasLoadFromEmbeddedFS makes no assumption about a source tree on
-// disk: a release archive ships the binary alone, so this is what proves a
-// released hardline can still validate a profile.
 func TestSchemasLoadFromEmbeddedFS(t *testing.T) {
 	for _, name := range []string{profileSchemaName, actionFileSchemaName} {
 		if _, err := loadResolvedSchema(name); err != nil {
@@ -292,9 +284,6 @@ func setSchemaFSForTest(t *testing.T, fsys fs.FS) {
 	})
 }
 
-// TestAffirm_RejectsPluginConfigInjection pins the schema layer of the
-// injection defence: a hostile value must fail at verify, before hardline
-// connects to any host, not later when the plugin builds a root command.
 func TestAffirm_RejectsPluginConfigInjection(t *testing.T) {
 	cases := map[string]string{
 		"service": `{"id":"s","plugin":"service","config":{"name":"ssh$(touch /tmp/hardline-pwn)"}}`,
@@ -348,8 +337,6 @@ func TestAffirm_RejectsPluginConfigInjection(t *testing.T) {
 	}
 }
 
-// TestAffirm_AcceptsOrdinaryPluginConfig guards the same patterns against
-// being so tight that a real profile stops validating.
 func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
 	p := bundleProfile(t, map[string]string{
 		"profile.json": `{
@@ -376,8 +363,6 @@ func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
 	}
 }
 
-// graphProfile builds a two-action-file profile so the step graph is checked
-// across files, which is the order a run executes them in.
 func graphProfile(t *testing.T, first, second string) *Profile {
 	t.Helper()
 	return bundleProfile(t, map[string]string{

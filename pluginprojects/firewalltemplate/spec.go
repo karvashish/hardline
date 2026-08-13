@@ -6,9 +6,7 @@ type AllowRule struct {
 }
 
 type Spec struct {
-	Backend string `json:"backend" jsonschema:"enum=nftables"`
-	// MainConfig is the file the host's nftables service loads; it differs per
-	// distribution family, so the profile states it.
+	Backend      string      `json:"backend" jsonschema:"enum=nftables"`
 	MainConfig   string      `json:"main_config" jsonschema:"enum=/etc/nftables.conf,enum=/etc/sysconfig/nftables.conf"`
 	Policy       string      `json:"policy" jsonschema:"enum=allow,enum=deny,enum=reject,enum=drop"`
 	TemplateSrc  string      `json:"template_src"`

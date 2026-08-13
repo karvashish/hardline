@@ -122,8 +122,6 @@ func TestPlugin_AppliesAllowTCPPortsOverride(t *testing.T) {
 		},
 	}
 
-	// The override adds a rule, so the ruleset the kernel reports back has to
-	// carry it too: activation refuses a load that did not take what was asked.
 	live := mustLiveRulesetJSON(&Spec{
 		Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter",
 		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",

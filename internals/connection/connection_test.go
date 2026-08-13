@@ -46,7 +46,6 @@ func TestNormalizeHostPort(t *testing.T) {
 		})
 	}
 
-	// Custom port tests
 	portTests := []struct {
 		name string
 		host string
@@ -465,8 +464,6 @@ func TestCheckRemoteOS(t *testing.T) {
 		}
 	})
 
-	// A host that publishes no VARIANT_ID - the whole RHEL family, and Ubuntu -
-	// cannot contradict the profile, so it must not be refused on a guess.
 	t.Run("host without VARIANT_ID passes", func(t *testing.T) {
 		prev := runWithOutput
 		runWithOutput = func(_ *remote.Client, _ string) (string, error) {

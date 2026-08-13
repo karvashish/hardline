@@ -85,8 +85,6 @@ func validateSpec(spec *Spec) error {
 	if err := pluginapi.EnforceManagedPath(spec.Path); err != nil {
 		return err
 	}
-	// sshd only reads the drop-in directory its main config includes, so a path
-	// anywhere else would be written and then never read.
 	if !strings.HasPrefix(spec.Path, "/etc/ssh/sshd_config.d/") {
 		return fmt.Errorf("ssh path %q must be under /etc/ssh/sshd_config.d/, which is what sshd includes", spec.Path)
 	}

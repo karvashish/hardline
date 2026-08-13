@@ -17,9 +17,6 @@ func TestEnforceManagedPath(t *testing.T) {
 	if err := EnforceManagedPath("/etc/nftables.d/99-hardline-firewall.nft"); err != nil {
 		t.Fatalf("expected managed path to pass: %v", err)
 	}
-	// sshd keeps the first value obtained from its lexically expanded includes,
-	// so a managed drop-in there has to sort before any vendor or cloud-init
-	// file rather than after it.
 	if err := EnforceManagedPath("/etc/ssh/sshd_config.d/00-hardline-ssh.conf"); err != nil {
 		t.Fatalf("expected an early-ordering managed path to pass: %v", err)
 	}
@@ -33,8 +30,6 @@ func TestEnforceManagedPath(t *testing.T) {
 		{path: "/etc/ssh/../sshd_config.d/99-hardline-ssh.conf", wantErr: "normalized"},
 		{path: "/etc/ssh/sshd_config.d/10-ssh.conf", wantErr: "hardline prefix"},
 		{path: "/etc/ssh/sshd_config.d/50-cloud-init.conf", wantErr: "hardline prefix"},
-		// Only the two hardline prefixes are accepted; a plausible-looking
-		// middle number is not a managed file.
 		{path: "/etc/ssh/sshd_config.d/01-hardline-ssh.conf", wantErr: "hardline prefix"},
 		{path: "/etc/ssh/sshd_config.d/99-hardline-ssh.txt", wantErr: "unsupported extension"},
 		{path: "/etc/ssh/sshd_config.d/00-hardline-ssh.txt", wantErr: "unsupported extension"},
@@ -106,8 +101,6 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
-	// A managed path that is no longer a regular file is a host that changed
-	// under hardline, not a file to read and later rewrite.
 	t.Run("refuses non-regular files", func(t *testing.T) {
 		_, err := SnapshotRemoteFile(statStub("character special file|666|root|root|0", nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
@@ -145,8 +138,6 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 }
 
-// statStub serves one stat line and optional read/run behaviour, which is the
-// whole surface SnapshotRemoteFile touches.
 func statStub(statLine string, read func(string) (string, error), run func(string) error) pluginAPIHostStub {
 	return pluginAPIHostStub{
 		runRoot:           run,
@@ -309,8 +300,6 @@ func TestFileSnapshotConflict(t *testing.T) {
 		t.Fatalf("matching state should report no conflict, got %v", c)
 	}
 
-	// The E17 regression: a journal recording absence plus a file that exists
-	// now is drift, because rolling back would delete someone else's file.
 	appeared := FileSnapshotConflict(live("644", "root", "root", "new"), FileSnapshot{Path: managedTestPath, Existed: false})
 	if len(appeared) != 1 || !strings.Contains(appeared[0], "created since apply") {
 		t.Fatalf("expected an appeared-file conflict, got %v", appeared)
@@ -337,8 +326,6 @@ func TestFileSnapshotConflict(t *testing.T) {
 		t.Fatalf("expected drift conflict, got %v", drift)
 	}
 
-	// Mode and ownership drift are conflicts in their own right: the bytes can
-	// be untouched while the file has been made world-writable.
 	modeDrift := FileSnapshotConflict(live("666", "root", "root", "expected"), recorded)
 	if len(modeDrift) != 1 || !strings.Contains(modeDrift[0], "mode is 666") {
 		t.Fatalf("expected mode drift conflict, got %v", modeDrift)
@@ -379,9 +366,6 @@ func TestCapturesDifferFileMeta(t *testing.T) {
 	}
 }
 
-// TestCapturesDiffer_ModeOnlyChange is the E09 regression: a step that only
-// changed permissions used to report ALIGNED, which also withheld the trigger
-// from any service watching it with restart_policy: on_change.
 func TestCapturesDiffer_ModeOnlyChange(t *testing.T) {
 	before := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFile,
 		File: &FileSnapshot{Existed: true, Mode: "666", Owner: "root", Group: "root", ContentB64: "eA=="}}}}
@@ -403,8 +387,6 @@ func TestCapturesDiffer_ModeOnlyChange(t *testing.T) {
 	}
 }
 
-// TestCapturesDiffer_PackageUpgrade covers the other half of E09: an upgrade
-// leaves WasInstalled true on both sides.
 func TestCapturesDiffer_PackageUpgrade(t *testing.T) {
 	before := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectPackage,
 		Package: &PackageState{Name: "curl", WasInstalled: true, Version: "8.5.0-1", PinSpec: "curl=8.5.0-1"}}}}
@@ -419,8 +401,6 @@ func TestCapturesDiffer_PackageUpgrade(t *testing.T) {
 	}
 }
 
-// TestCapturesDiffer_ExactServiceState covers E15: masked and disabled are both
-// "not enabled", but moving between them changes the unit's configuration.
 func TestCapturesDiffer_ExactServiceState(t *testing.T) {
 	masked := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectService,
 		Service: &ServiceState{Unit: "telnet.socket", Known: true, EnabledState: "masked", ActiveState: "inactive"}}}}
@@ -435,8 +415,6 @@ func TestCapturesDiffer_ExactServiceState(t *testing.T) {
 	}
 }
 
-// A step whose only change is wiring an include line reports ALIGNED without a
-// config-line comparison, and restart_policy: on_change never fires for it.
 func TestCapturesDiffer_ConfigLine(t *testing.T) {
 	absent := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine,
 		ConfigLine: &ConfigLineSnapshot{Path: "/etc/nftables.conf", Line: `include "/etc/nftables.d/99-hardline.nft"`, FileExisted: true, Added: true}}}}
@@ -459,8 +437,6 @@ func TestCapturesDiffer_ConfigLine(t *testing.T) {
 	}
 }
 
-// TestRestoreFileSnapshot_RestoresOwnership pins that a restore puts ownership
-// back: the right bytes under the wrong owner is not the pre-apply state.
 func TestRestoreFileSnapshot_RestoresOwnership(t *testing.T) {
 	var cmds []string
 	host := pluginAPIHostStub{
@@ -484,8 +460,6 @@ func TestRestoreFileSnapshot_RestoresOwnership(t *testing.T) {
 	}
 }
 
-// An ownership-free snapshot is a journal this hardline never wrote, and
-// restoring content without ownership is not a restoration.
 func TestRestoreFileSnapshot_RejectsUnrecordedOwnership(t *testing.T) {
 	err := RestoreFileSnapshot(pluginAPIHostStub{
 		runRoot: func(string) error { return nil },
@@ -498,9 +472,6 @@ func TestRestoreFileSnapshot_RejectsUnrecordedOwnership(t *testing.T) {
 	}
 }
 
-// TestParseFileMode pins that there is no tolerated default. A record that
-// cannot say what mode a file had must not restore it as 0600, which would
-// invent a state the host never had.
 func TestParseFileMode(t *testing.T) {
 	rejects := map[string]string{
 		"empty":        "",
@@ -526,8 +497,6 @@ func TestParseFileMode(t *testing.T) {
 	}
 }
 
-// TestRestoreFileSnapshot_RejectsUnrecordedMode is the other half: a journal
-// with no usable mode cannot drive a restore.
 func TestRestoreFileSnapshot_RejectsUnrecordedMode(t *testing.T) {
 	err := RestoreFileSnapshot(pluginAPIHostStub{
 		runRoot: func(string) error { return nil },

@@ -15,13 +15,8 @@ import (
 	"github.com/karvashish/hardline/pkg/logger"
 )
 
-// profileFileName is the profile-relative key of the profile manifest itself
-// inside the signed snapshot.
 const profileFileName = "profile.json"
 
-// OSInfo is the target declaration the runner checks /etc/os-release against.
-// Family and Version are pattern-bound so a missing or malformed value cannot
-// silently disable either half of the check in a signed profile.
 type OSInfo struct {
 	Family  string `json:"family" jsonschema:"pattern=^[a-z][a-z0-9._-]*$"`
 	Version string `json:"version" jsonschema:"pattern=^[0-9]+(\\.[0-9]+)*$"`
@@ -29,10 +24,6 @@ type OSInfo struct {
 }
 
 type Profile struct {
-	// id becomes a directory component of the remote journal path, and
-	// actions/templates entries are read as signed content, so both are
-	// pattern-bound here to fail a hostile profile at verify. resolve()
-	// still enforces the ".." and symlink rules a pattern cannot express.
 	ID               string   `json:"id" jsonschema:"pattern=^[A-Za-z0-9][A-Za-z0-9._-]*$"`
 	DisplayName      string   `json:"display_name"`
 	Version          string   `json:"version"`
@@ -61,10 +52,6 @@ type ActionFile struct {
 	Path  string `json:"-"`
 }
 
-// LoadFromBundle decodes a profile out of the byte snapshot the integrity check
-// authenticated, keyed by profile-relative path. dir is retained for messages
-// only: nothing here opens a file, because a second read of a path whose bytes
-// were already signed reads whatever is on disk now rather than what was signed.
 func LoadFromBundle(dir string, files map[string][]byte) (*Profile, error) {
 	logger.Debugf("profile.LoadFromBundle: dir=%q files=%d\n", dir, len(files))
 
@@ -97,11 +84,6 @@ func LoadFromBundle(dir string, files map[string][]byte) (*Profile, error) {
 	return &p, nil
 }
 
-// resolve turns a profile-supplied reference into the profile-relative key the
-// signed snapshot is indexed by. The snapshot covers only files under the
-// profile directory, so a reference that escapes - through an absolute path or
-// a .. segment - names something the signature never covered, and is rejected
-// here rather than looked up and missed.
 func (p *Profile) resolve(rel string) (string, error) {
 	clean := filepath.ToSlash(strings.TrimSpace(rel))
 	if clean == "" {
@@ -121,9 +103,6 @@ func (p *Profile) resolve(rel string) (string, error) {
 	return path.Clean(clean), nil
 }
 
-// signedBytes returns the authenticated content for a profile-relative
-// reference. A reference the manifest did not cover is an error, not a miss:
-// the only way to reach content outside the snapshot is to name it.
 func (p *Profile) signedBytes(rel string) ([]byte, error) {
 	key, err := p.resolve(rel)
 	if err != nil {

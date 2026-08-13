@@ -429,8 +429,6 @@ func TestCollectProfileFiles_ErrorBranches(t *testing.T) {
 	}
 }
 
-// TestCollectProfileFiles_Bounds covers the limits that keep an unsigned
-// directory from being read into memory without a ceiling.
 func TestCollectProfileFiles_Bounds(t *testing.T) {
 	t.Run("single file over the per-file limit", func(t *testing.T) {
 		dir := t.TempDir()
@@ -463,9 +461,6 @@ func TestCollectProfileFiles_Bounds(t *testing.T) {
 	})
 }
 
-// TestVerifyProfileIntegrity_ReturnsSignedBytes is what makes the snapshot
-// trustworthy: the map handed to later phases has to be the content that was
-// hashed, not a second read of the same paths.
 func TestVerifyProfileIntegrity_ReturnsSignedBytes(t *testing.T) {
 	profileDir := copySignedFixtureProfile(t)
 
@@ -779,7 +774,6 @@ func TestVerifyProfileIntegrity_WithLocalKey(t *testing.T) {
 	statFunc = os.Stat
 	defer func() { statFunc = origStat }()
 
-	// Build a simple profile signed with the local key
 	profileDir := t.TempDir()
 	writeTestFile(t, filepath.Join(profileDir, "a.txt"), []byte("hello"))
 
@@ -790,15 +784,6 @@ func TestVerifyProfileIntegrity_WithLocalKey(t *testing.T) {
 	}
 	writeSignedManifest(t, profileDir, manifest, priv)
 
-	// Temporarily override the local key path constant by patching loadLocalPublicKey
-	// We can't change the const, so we override resolvePublicKey's behavior via
-	// the statFunc and by reading from our temp key.
-	// Actually, we need to call loadLocalPublicKey directly or patch things.
-	// The simplest approach: override the VerifyProfileIntegrity to use local key
-	// by passing useLocalKey=true and patching the LocalKeyPath.
-
-	// Since LocalKeyPath is a const, we need a different approach for the e2e test.
-	// Let's verify directly with the loaded key.
 	pubKey, err := loadLocalPublicKey(keyPath)
 	if err != nil {
 		t.Fatalf("load local key: %v", err)
@@ -829,8 +814,6 @@ func mustGenerateRSAPublicPEM(t *testing.T) []byte {
 	})
 }
 
-// integrityErr adapts the two-value VerifyProfileIntegrity for the many
-// tests that only assert on the error.
 func integrityErr(profileDir string, useLocalKey bool) error {
 	_, err := VerifyProfileIntegrity(profileDir, useLocalKey)
 	return err

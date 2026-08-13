@@ -74,8 +74,6 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 		return fmt.Errorf("sudo preflight failed: %w", err)
 	}
 
-	// The same host lock apply takes. Without it a rollback can revert steps an
-	// apply is concurrently writing, and neither run ends up authoritative.
 	if err := acquireMutationLock(client); err != nil {
 		return err
 	}
@@ -97,10 +95,6 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 		logger.Infof("journal %s (run %s applied %s):\n%s\n", profileID, journal.RunID, journal.CreatedAt, string(data))
 	}
 
-	// Claim the journal before the first revert. If this run dies partway
-	// through, the journal is left saying "rolling_back", and the next rollback
-	// refuses it on the status check rather than replaying a set of before
-	// states that have already been half-applied.
 	if err := claimJournal(client, c, journal); err != nil {
 		return err
 	}
@@ -110,9 +104,6 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 		return err
 	}
 
-	// Consuming the journal is part of the rollback, not an afterthought: a
-	// journal that survives a completed rollback can be replayed against a host
-	// whose state it no longer describes.
 	if err := consumeJournal(client, c, journal); err != nil {
 		return err
 	}
@@ -124,17 +115,12 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 	return nil
 }
 
-// loadRollbackJournal picks the journal this rollback is undoing. The
-// runner-side copy is only consulted when asked for, because it exists exactly
-// when apply could not commit the target journal.
 func loadRollbackJournal(client *remote.Client, c cli.Command, profileID string) (*Journal, error) {
 	if c.LocalJournal {
 		journal, err := loadLocalJournal(c.Host, profileID)
 		if err != nil {
 			return nil, fmt.Errorf("read runner-side journal for profile %q on host %q: %w", profileID, c.Host, err)
 		}
-		// The journal records the host it was written for, so a local file
-		// cannot be pointed at a different machine by changing --host alone.
 		if journal.Host != strings.TrimSpace(c.Host) {
 			return nil, fmt.Errorf("runner-side journal was written for host %q, not %q", journal.Host, c.Host)
 		}
@@ -144,9 +130,6 @@ func loadRollbackJournal(client *remote.Client, c cli.Command, profileID string)
 	return loadRemoteJournal(client, profileID)
 }
 
-// claimJournal marks the journal as being consumed, before anything is
-// reverted. Status is the same field the load path checks, so a journal left
-// behind by an interrupted rollback is refused by the existing status gate.
 func claimJournal(client *remote.Client, c cli.Command, journal *Journal) error {
 	restore := journal.Status
 	journal.Status = "rolling_back"
@@ -225,8 +208,6 @@ func stepActuallyChanged(step StepRecord) bool {
 	return string(beforeJSON) != string(afterJSON)
 }
 
-// serviceReloadTriggered re-runs a reload/restart on rollback when its config dep
-// is reverted: on_change fires on a dep delta, always/absent unconditionally.
 func serviceReloadTriggered(step StepRecord, all []StepRecord) bool {
 	r := step.Reload
 	if r == nil || !isServiceReloadAction(r.Action) {
@@ -261,8 +242,6 @@ func stepChangedByID(steps []StepRecord, id string) bool {
 	return false
 }
 
-// RollbackSteps is the automatic revert apply runs when a step fails. It holds
-// the mutation lock apply already took, so it does not take it again.
 func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	if err := ensureRollbackSudo(client); err != nil {
 		return fmt.Errorf("sudo preflight failed: %w", err)
@@ -278,10 +257,6 @@ func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 }
 
 func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgress bool, strictBestEffort bool, forceRollback bool) ([]string, error) {
-	// Every conflict is found before the first restore. Checking a step and
-	// immediately reverting it means a conflict on an early step surfaces only
-	// after later steps have already been undone, leaving the host in a state
-	// that is neither the profile's nor the one it had before the run.
 	if err := preflightRollbackConflicts(client, steps, forceRollback); err != nil {
 		return nil, err
 	}
@@ -325,18 +300,11 @@ func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgres
 	return degraded, nil
 }
 
-// rollbackStepApplies reports whether a journalled step has anything to undo.
 func rollbackStepApplies(step StepRecord, all []StepRecord) bool {
 	return stepActuallyChanged(step) || serviceReloadTriggered(step, all)
 }
 
-// preflightRollbackConflicts collects the drift across every step that would be
-// reverted and reports all of it at once, so the operator decides against the
-// complete picture rather than one step at a time.
 func preflightRollbackConflicts(client *remote.Client, steps []StepRecord, forceRollback bool) error {
-	// Every plugin the rollback will need has to exist before anything is
-	// reverted. Discovering a missing plugin partway through leaves the host
-	// half-restored, which is the failure this preflight exists to prevent.
 	for i := len(steps) - 1; i >= 0; i-- {
 		step := steps[i]
 		if !rollbackStepApplies(step, steps) || step.RollbackMode == pluginapi.ModeNoop {
@@ -412,7 +380,6 @@ func countRollbackSteps(steps []StepRecord) int {
 	return len(steps)
 }
 
-// formatRollbackDuration matches the apply-step duration format.
 func formatRollbackDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0
@@ -429,9 +396,6 @@ func formatRollbackDuration(d time.Duration) string {
 	return strconv.Itoa(minutes) + "m" + strconv.Itoa(seconds) + "s"
 }
 
-// checkStepConflicts delegates to the step's owning plugin to compare the
-// journal's after snapshot against live remote state. A non-empty result means
-// the state changed after this profile ran.
 func checkStepConflicts(client *remote.Client, step StepRecord) []string {
 	plug, ok := lookupPlugin(step.Type)
 	if !ok {
@@ -453,9 +417,6 @@ func stepHasServiceObjects(step StepRecord) bool {
 	return false
 }
 
-// rollbackStepWithMode reverts one step. Failures a best-effort step is allowed
-// to absorb are returned as degraded notes rather than swallowed: a rollback
-// that could not restore everything it recorded must not report as if it did.
 func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffort bool) (degraded []string, err error) {
 	if step.RollbackMode == pluginapi.ModeNoop {
 		return nil, nil

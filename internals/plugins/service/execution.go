@@ -278,9 +278,6 @@ func serviceReloadRecord(spec *Spec) *pluginapi.ServiceReload {
 	return reload
 }
 
-// restartPolicySuppressed reports whether an on_change policy has nothing to
-// act on. The enum is closed at validation, so only on_change reaches the
-// suppression logic: "always" and an absent policy both mean run it.
 func restartPolicySuppressed(s *Spec, stepChanges map[string]bool, unit string, host pluginapi.Host) bool {
 	p := s.RestartPolicy
 	if p == nil || strings.ToLower(strings.TrimSpace(p.Type)) != "on_change" {
@@ -302,10 +299,6 @@ func restartPolicySuppressed(s *Spec, stepChanges map[string]bool, unit string, 
 	return true
 }
 
-// serviceUnitPattern is the whitelist for unit names reaching systemctl as
-// root. It covers every character systemd itself allows in a unit name and
-// nothing else, and the leading alphanumeric rejects a name like --force that
-// would otherwise be read as an option rather than an operand.
 var serviceUnitPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$`)
 
 func validateServiceUnit(unit string) error {
@@ -331,13 +324,6 @@ func serviceIsActive(host pluginapi.Host, unit string) bool {
 	return host.RunRoot(cmd) == nil
 }
 
-// serviceUnitPresent reports whether a unit fragment file exists. It uses
-// systemctl cat, which reads the actual unit file: it produces output for a
-// real unit and nothing when no fragment exists. is-enabled and is-active are
-// unreliable here — purging a package removes its unit file but leaves the
-// runtime enable symlink dangling, so is-enabled still reports a state and
-// is-active still prints "inactive". Used to skip restoring a unit that no
-// longer exists (e.g. its package was purged earlier in the same rollback).
 func serviceUnitPresent(host pluginapi.Host, unit string) bool {
 	if host == nil {
 		return false
@@ -371,10 +357,6 @@ func snapshotServiceState(host pluginapi.Host, unit string) (pluginapi.ServiceSt
 	}, nil
 }
 
-// unitStateWord runs one systemctl query. `|| true` keeps a non-zero exit from
-// failing the command, because "disabled" and "inactive" are answers systemctl
-// reports through the exit status; a transport failure still returns an error
-// rather than an empty state that would journal as "unknown".
 func unitStateWord(host pluginapi.Host, verb, unit string) (string, error) {
 	out, err := host.RunRootWithOutput("systemctl " + verb + " " + pluginapi.ShellArg(unit) + " 2>/dev/null || true")
 	if err != nil {
@@ -383,10 +365,6 @@ func unitStateWord(host pluginapi.Host, verb, unit string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// restorableUnitFileStates are the enablement states hardline can put back with
-// enable/disable. The rest describe a unit whose enablement is not hardline's
-// to set: masked needs unmask, static and generated have no enable symlink to
-// restore, and indirect is decided by another unit's WantedBy.
 var restorableUnitFileStates = map[string]struct{}{
 	"enabled":         {},
 	"enabled-runtime": {},

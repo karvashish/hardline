@@ -85,7 +85,6 @@ func MarkRan(host pluginapi.Host, stateFile string) {
 	}
 }
 
-// Decision is one operation's run/skip verdict and the reason plan prints for it.
 type Decision struct {
 	WillRun bool
 	Reason  string
@@ -133,8 +132,6 @@ func FormatElapsed(d time.Duration) string {
 	return fmt.Sprintf("%dm", int(d.Minutes()))
 }
 
-// NeedsWouldChange reports whether any op mode is "once", which is the only
-// mode whose decision depends on the current package state.
 func NeedsWouldChange(update, upgrade, autoremove string) bool {
 	return update == "once" || upgrade == "once" || autoremove == "once"
 }

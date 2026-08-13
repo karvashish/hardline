@@ -14,8 +14,6 @@ import (
 	"github.com/karvashish/hardline/pkg/profile"
 )
 
-// fakeBehavior scripts a plugin's rollback/conflict behavior for orchestration
-// tests. Nil funcs default to no-ops, mirroring the required-but-trivial contract.
 type fakeBehavior struct {
 	rollback       func(pluginapi.Host, pluginapi.ObjectRecord) error
 	detectConflict func(pluginapi.Host, pluginapi.ObjectRecord) []string
@@ -700,8 +698,6 @@ func stubRollbackHooks() func() {
 	}
 }
 
-// rollbackBundleProfile is the profile the stubbed verify phase hands to
-// rollback; nil stands in for a run with no verified bundle.
 var rollbackBundleProfile = &profile.Profile{ID: "profile"}
 
 func rollbackBundle() *verify.VerifiedBundle {
@@ -719,9 +715,6 @@ func rollbackWithBundleTop(c cli.Command) {
 	Rollback(c, rollbackBundle())
 }
 
-// TestRollbackCommand_TakesMutationLock pins that explicit rollback holds the
-// same host lock apply takes. Without it, a rollback can revert steps an apply
-// is concurrently writing.
 func TestRollbackCommand_TakesMutationLock(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
@@ -775,9 +768,6 @@ func TestRollbackCommand_LockContentionAborts(t *testing.T) {
 	}
 }
 
-// TestPreflightRollbackConflicts_ChecksEverythingFirst is the E07 regression:
-// a conflict on a step that is reverted late must be found before any step is
-// reverted, not after the earlier ones are already undone.
 func TestPreflightRollbackConflicts_ChecksEverythingFirst(t *testing.T) {
 	var reverted []string
 	installPlugins(t, map[string]fakeBehavior{
@@ -795,8 +785,6 @@ func TestPreflightRollbackConflicts_ChecksEverythingFirst(t *testing.T) {
 		},
 	})
 
-	// Steps revert in reverse order, so the conflicted first step is the last
-	// one that would be touched.
 	steps := []StepRecord{
 		changedFileStep("first", "/etc/first.conf"),
 		changedFileStep("second", "/etc/second.conf"),
@@ -840,8 +828,6 @@ func TestPreflightRollbackConflicts_ForceReportsEveryConflict(t *testing.T) {
 	}
 }
 
-// TestExecuteRollbackSteps_ReportsDegradedRestoration pins E21: a best-effort
-// step that could not restore an object must say so rather than pass silently.
 func TestExecuteRollbackSteps_ReportsDegradedRestoration(t *testing.T) {
 	installPlugins(t, map[string]fakeBehavior{
 		"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error {
@@ -861,7 +847,6 @@ func TestExecuteRollbackSteps_ReportsDegradedRestoration(t *testing.T) {
 		t.Fatalf("expected a degraded note, got %+v", degraded)
 	}
 
-	// The automatic rollback apply runs must surface the same degradation.
 	prevSudo := ensureRollbackSudo
 	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
 	defer func() { ensureRollbackSudo = prevSudo }()
@@ -871,9 +856,6 @@ func TestExecuteRollbackSteps_ReportsDegradedRestoration(t *testing.T) {
 	}
 }
 
-// TestRollbackCommand_LocalJournalRecovery covers E10: when apply could not
-// commit the target journal, the runner-side copy is what makes the run
-// recoverable.
 func TestRollbackCommand_LocalJournalRecovery(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
@@ -907,8 +889,6 @@ func TestRollbackCommand_LocalJournalRecovery(t *testing.T) {
 	}
 }
 
-// TestRollbackCommand_LocalJournalRejectsForeignHost keeps a local journal from
-// being replayed against a machine it does not describe.
 func TestRollbackCommand_LocalJournalRejectsForeignHost(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
@@ -931,9 +911,6 @@ func TestRollbackCommand_LocalJournalRejectsForeignHost(t *testing.T) {
 	}
 }
 
-// TestConsumeJournal_DeleteFailureIsFatal pins that a journal surviving a
-// completed rollback is an error: it can otherwise be replayed against a host
-// whose state it no longer describes.
 func TestConsumeJournal_DeleteFailureIsFatal(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()
@@ -962,8 +939,6 @@ func successJournal() *Journal {
 	return j
 }
 
-// changedFileStep is a journalled step whose before/after differ, which is what
-// makes rollback treat it as having something to undo.
 func changedFileStep(id, path string) StepRecord {
 	return StepRecord{
 		ID:           id,
@@ -978,9 +953,6 @@ func changedFileStep(id, path string) StepRecord {
 	}
 }
 
-// TestPreflightRejectsUnregisteredPlugin closes the hole in the E07 preflight:
-// a step whose plugin is missing used to report "no conflict", pass preflight,
-// and then fail partway through leaving the host half-restored.
 func TestPreflightRejectsUnregisteredPlugin(t *testing.T) {
 	var reverted []string
 	installPlugins(t, map[string]fakeBehavior{
@@ -1003,16 +975,11 @@ func TestPreflightRejectsUnregisteredPlugin(t *testing.T) {
 		t.Fatalf("expected nothing to be reverted, got %+v", reverted)
 	}
 
-	// --force-rollback overrides drift, not a missing plugin: there is no way
-	// to revert a step whose plugin does not exist.
 	if _, err := executeRollbackSteps(nil, steps, false, false, true); err == nil {
 		t.Fatal("expected --force-rollback not to bypass a missing plugin")
 	}
 }
 
-// TestClaimJournalBeforeRevert covers the transactional half of E21: the
-// journal is marked consumed before the first restore, so an interrupted
-// rollback cannot be replayed against a host it has already half-reverted.
 func TestClaimJournalBeforeRevert(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()

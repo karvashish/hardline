@@ -19,10 +19,6 @@ var (
 	newSFTPWriter = func(client *ssh.Client) (*sftp.Client, error) { return sftp.NewClient(client) }
 )
 
-// Client is the one remote-execution surface. It wraps an SSH connection and
-// exposes every operation the rest of the codebase performs against the
-// remote host. It also satisfies pluginapi.Host so it can be handed directly
-// to plugins via BuildContext.
 type Client struct {
 	ssh *ssh.Client
 }

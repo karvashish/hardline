@@ -14,10 +14,7 @@ const (
 	ModeDeterministic = "deterministic"
 	ModeBestEffort    = "best_effort"
 	ModeNoop          = "noop"
-	// ModeIrreversible is plan vocabulary only: it describes work no journal
-	// can undo, such as a package index refresh, so it never names a capture's
-	// rollback mode.
-	ModeIrreversible = "irreversible"
+	ModeIrreversible  = "irreversible"
 
 	ObjectFile       = "file"
 	ObjectFileMeta   = "file_meta"
@@ -27,10 +24,6 @@ const (
 	ObjectConfigLine = "config_line"
 )
 
-// FileSnapshot is the recorded state of a managed file. Owner and group are
-// carried alongside content because restoring the right bytes under the wrong
-// ownership is not a restoration, and a change of ownership alone is still a
-// change to the host.
 type FileSnapshot struct {
 	Path       string `json:"path"`
 	Existed    bool   `json:"existed"`
@@ -40,8 +33,6 @@ type FileSnapshot struct {
 	ContentB64 string `json:"content_b64,omitempty"`
 }
 
-// FileMetaSnapshot records path metadata for file-meta rollback; unlike
-// FileSnapshot it carries no file content.
 type FileMetaSnapshot struct {
 	Path    string `json:"path"`
 	Existed bool   `json:"existed"`
@@ -51,11 +42,6 @@ type FileMetaSnapshot struct {
 	Attrs   string `json:"attrs,omitempty"`
 }
 
-// ServiceState is the recorded state of a systemd unit. Enabled and Active are
-// the booleans rollback acts on; EnabledState and ActiveState carry what
-// systemctl actually reported, because "not enabled" covers disabled, masked,
-// static, indirect and generated, and restoring those as a plain "disable" is
-// not the same unit configuration the host had.
 type ServiceState struct {
 	Unit         string `json:"unit"`
 	Enabled      bool   `json:"enabled"`
@@ -65,7 +51,6 @@ type ServiceState struct {
 	Known        bool   `json:"known"`
 }
 
-// ServiceReload is step-level service intent (not observed state) the rollback consults to re-run the action.
 type ServiceReload struct {
 	Action        string   `json:"action,omitempty"`
 	RestartPolicy string   `json:"restart_policy,omitempty"`
@@ -73,34 +58,19 @@ type ServiceReload struct {
 }
 
 type PackageState struct {
-	Name         string `json:"name"`
-	WasInstalled bool   `json:"was_installed"`
-	// Version is the human-readable version, used for display and for detecting
-	// a change since apply. PinSpec is the same state in the capturing
-	// backend's own exact-install syntax, which is the only form that restores
-	// a specific version: apt wants name=version, rpm a full NEVRA. The plugin
-	// that wrote the record is identified by the journalled step type, so
-	// neither field has to name a backend.
+	Name             string `json:"name"`
+	WasInstalled     bool   `json:"was_installed"`
 	Version          string `json:"version"`
 	PinSpec          string `json:"pin_spec"`
 	RequestedInstall bool   `json:"requested_install,omitempty"`
 	RequestedPurge   bool   `json:"requested_purge,omitempty"`
 }
 
-// ConfigLineSnapshot records a single line this run added to a file it does not
-// own. Restoring such a file wholesale is wrong once more than one profile
-// writes to it: the later profile's line would be erased by the earlier
-// profile's rollback. Undoing exactly the line that was added leaves every
-// other owner's lines in place.
 type ConfigLineSnapshot struct {
-	Path string `json:"path"`
-	Line string `json:"line"`
-	// FileExisted distinguishes "we appended to someone's file" from "we
-	// created the file", which rollback undoes by deleting it.
-	FileExisted bool `json:"file_existed"`
-	// Added is false when the line was already there, which makes the rollback
-	// a no-op rather than a removal of something this run did not do.
-	Added bool `json:"added"`
+	Path        string `json:"path"`
+	Line        string `json:"line"`
+	FileExisted bool   `json:"file_existed"`
+	Added       bool   `json:"added"`
 }
 
 type ObjectRecord struct {
@@ -140,49 +110,31 @@ type Host interface {
 }
 
 type Context struct {
-	Host      Host
-	Profile   *profile.Profile
-	Overrides map[string]json.RawMessage
-	// StepChanges maps step IDs to whether the step caused (or will cause) a
-	// state change. In plan mode, this reflects the plugin's prediction
-	// (WillChange from PlanResult). In apply mode, this reflects the actual
-	// outcome measured by comparing before/after captures via CapturesDiffer.
-	// Service restart policies with type=on_change consult this map to decide
-	// whether to restart.
+	Host        Host
+	Profile     *profile.Profile
+	Overrides   map[string]json.RawMessage
 	StepChanges map[string]bool
 }
 
 type PlanResult struct {
-	Summary         string
-	Details         []string
-	Diff            []string
-	WillChange      bool
-	OperatorSummary string
-	Highlights      []string
-	// RollbackFidelity is what a rollback of this step would actually restore:
-	// ModeDeterministic, ModeBestEffort or ModeIrreversible. A plan that
-	// announces rollback as available for a package upgrade or an index refresh
-	// promises something no rollback can deliver, so a step that will change
-	// state has to say which of the three it is.
+	Summary          string
+	Details          []string
+	Diff             []string
+	WillChange       bool
+	OperatorSummary  string
+	Highlights       []string
 	RollbackFidelity string
 }
 
 type Plugin struct {
 	Name               string
 	InternalValidation bool
-	// Validate decodes and checks a step without touching a host, so a typo in
-	// a signed profile fails at verify rather than partway through an apply
-	// that has already changed the machine. It gets the same resolved
-	// overrides the run will use, because a step is only as valid as the
-	// values it will actually run with. A plugin that claims
-	// InternalValidation must supply it; the checks it runs are the same ones
-	// Apply, Plan and Capture run.
-	Validate       func(profile.Step, map[string]json.RawMessage) error
-	Apply          func(Context, profile.Step) error
-	Plan           func(Context, profile.Step) (PlanResult, error)
-	Capture        func(Context, profile.Step) (CaptureResult, error)
-	Rollback       func(Host, ObjectRecord) error
-	DetectConflict func(Host, ObjectRecord) []string
+	Validate           func(profile.Step, map[string]json.RawMessage) error
+	Apply              func(Context, profile.Step) error
+	Plan               func(Context, profile.Step) (PlanResult, error)
+	Capture            func(Context, profile.Step) (CaptureResult, error)
+	Rollback           func(Host, ObjectRecord) error
+	DetectConflict     func(Host, ObjectRecord) []string
 }
 
 type Registry struct {
@@ -272,11 +224,6 @@ func RequireStepPlugin(r *Registry, step profile.Step) (Plugin, error) {
 	return plugin, nil
 }
 
-// ValidateProfileSteps is the verify-time pass over every step: the plugin has
-// to exist, the step has to satisfy the validation policy, and the plugin's own
-// decoder has to accept the config. Schema validation alone leaves the semantic
-// rules - a dest augenrules never compiles, a mode nothing can parse - to be
-// discovered on the host, mid-apply.
 func ValidateProfileSteps(r *Registry, p *profile.Profile, overrides map[string]json.RawMessage) error {
 	if p == nil {
 		return fmt.Errorf("profile is nil")

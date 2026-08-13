@@ -1,6 +1,3 @@
-// Package dnf5 is the packages_dnf5 plugin: package management through dnf5,
-// as shipped on Fedora 41 or later and RHEL 10. It is separate from dnf4
-// because the generations print different upgrade and transaction output.
 package dnf5
 
 import (

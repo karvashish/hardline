@@ -16,8 +16,6 @@ import (
 
 const DefaultManagedDestination = "/etc/nftables.d/99-hardline-firewall.nft"
 
-// The nftables service reads a different main config per distribution family,
-// so the profile states which one this host uses.
 const (
 	MainConfigDebian = "/etc/nftables.conf"
 	MainConfigRHEL   = "/etc/sysconfig/nftables.conf"
@@ -263,10 +261,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
-	// Apply also appends the include line to the main config, so that file has
-	// to be journalled too. Without it rollback leaves the include behind, and
-	// an include-only apply produces equal before/after captures, which lets an
-	// on_change service dependency skip the restart the include requires.
 	mainConfig := strings.TrimSpace(spec.MainConfig)
 	if !validMainConfig(mainConfig) {
 		return record, fmt.Errorf("step %q (type=firewall_template): unsupported main_config %q", stepID, spec.MainConfig)
@@ -277,8 +271,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
-	// Rollback walks Before in reverse, so listing the main config first
-	// restores the managed file before the include that points at its directory.
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &mainSnap},
 		{Kind: pluginapi.ObjectFile, File: &snap},
@@ -286,11 +278,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// restoreMainConfig reverts the nftables main config to its pre-apply bytes,
-// which is what removes the include line apply appended. It skips
-// EnforceManagedPath, whose 99-hardline naming rule this file cannot satisfy,
-// and checks the two-entry whitelist instead: a tampered journal must not be
-// able to name any other path here.
 func restoreMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
 	if host == nil {
 		return fmt.Errorf("firewall_template rollback: host is required")

@@ -107,9 +107,6 @@ func Plan(ctx pluginapi.Context, t *Spec) (pluginapi.PlanResult, error) {
 	var diff []string
 	var highlights []string
 
-	// Plan parses the mode as strictly as apply does. Swallowing the error here
-	// showed the operator a plan for 0600 and then failed at apply, which is the
-	// one thing a plan must never do.
 	mode, err := pluginapi.ParseFileMode(t.Mode)
 	if err != nil {
 		return pluginapi.PlanResult{}, fmt.Errorf("template %q: %w", t.Src, err)
@@ -257,9 +254,6 @@ func templateCurrentSuffix(existed bool) string {
 	return " (absent)"
 }
 
-// templateDiffMaxLines bounds the inputs to the LCS diff so a malicious or
-// corrupt remote file can't trigger an O(n*m) DP table large enough to OOM the
-// local process. Beyond this, the diff degrades to a notice line.
 const templateDiffMaxLines = 2000
 
 func diffTemplateLines(current string, desired string) []templateDiffEdit {

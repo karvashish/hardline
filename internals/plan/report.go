@@ -337,8 +337,6 @@ func rollbackCommand(profileID string, host string) string {
 	return cmd
 }
 
-// shellArg renders s as a copy-pastable shell argument, leaving simple values
-// unquoted and POSIX single-quoting anything with shell-unsafe characters.
 func shellArg(s string) string {
 	if s != "" && isShellSafe(s) {
 		return s

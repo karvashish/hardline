@@ -6,11 +6,7 @@ import (
 )
 
 const (
-	// OverrideKeyAllowTCPPorts opens the listed TCP ports on the input chain
-	// in addition to whatever rules the profile already declares. Profile authors
-	// must list this key in allowed_overrides for it to be accepted.
 	OverrideKeyAllowTCPPorts = "allow_tcp_ports"
-	// OverrideKeyAllowUDPPorts is the UDP counterpart to OverrideKeyAllowTCPPorts.
 	OverrideKeyAllowUDPPorts = "allow_udp_ports"
 )
 

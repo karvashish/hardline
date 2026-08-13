@@ -8,23 +8,16 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
-// PkgInfo is one requested package and whether the host currently has it.
 type PkgInfo struct {
 	Name      string
 	Installed bool
 }
 
-// Preview is what a backend's preview command produced. A failure is carried
-// rather than returned: a package manager that cannot preview is a warning on
-// the plan, not a reason to abandon it.
 type Preview struct {
 	Packages []string
 	Err      error
 }
 
-// PlanInputs is everything RenderPlan needs, already computed by the caller.
-// It carries results only: no commands, no functions, nothing that would let
-// the rendering dispatch back into a backend.
 type PlanInputs struct {
 	UpdateMode     string
 	UpgradeMode    string
@@ -37,22 +30,14 @@ type PlanInputs struct {
 	Upgrade    Decision
 	Autoremove Decision
 
-	// UpgradePreview and AutoremovePreview are only consulted when the matching
-	// decision says the operation will run; InstallPreview and PurgePreview only
-	// when there are packages to install or purge.
 	UpgradePreview    Preview
 	InstallPreview    Preview
 	PurgePreview      Preview
 	AutoremovePreview Preview
 
-	// PurgeAlsoRemoves is the collateral removal set the step declares it
-	// accepts. Anything the purge transaction removes that is named neither here
-	// nor in purge is what apply refuses on.
 	PurgeAlsoRemoves []string
 }
 
-// WouldChange reports whether install or purge alone would change the host,
-// which is what the "once" op mode keys off.
 func WouldChange(installInfos, purgeInfos []PkgInfo) bool {
 	for _, info := range installInfos {
 		if !info.Installed {
@@ -67,9 +52,6 @@ func WouldChange(installInfos, purgeInfos []PkgInfo) bool {
 	return false
 }
 
-// RenderPlan turns the computed state into the plan every package plugin
-// prints. It lives here so the report reads identically whichever package
-// manager produced it.
 func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 	var details []string
 	var diff []string
@@ -351,10 +333,6 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 	}
 }
 
-// planRollbackFidelity states what a rollback of this step would really
-// restore. A package index refresh leaves nothing to put back, and every other
-// package operation restores what the journal recorded rather than the exact
-// transaction, so only a step that does nothing at all is deterministic.
 func planRollbackFidelity(in PlanInputs) string {
 	if in.Update.WillRun {
 		return pluginapi.ModeIrreversible

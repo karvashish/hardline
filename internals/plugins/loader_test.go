@@ -350,9 +350,6 @@ func validLoaderPlugin(name string) pluginapi.Plugin {
 	}
 }
 
-// TestLoadFromDirRejectsUntrustedArtifacts covers the per-file half of the trust
-// model: a directory nobody else can write to can still hold a file that was
-// planted before it was tightened, and every one of these runs as root.
 func TestLoadFromDirRejectsUntrustedArtifacts(t *testing.T) {
 	t.Run("symlinked plugin", func(t *testing.T) {
 		restore := stubLoaderDeps()
@@ -395,8 +392,6 @@ func TestLoadFromDirRejectsUntrustedArtifacts(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "foreign.so")
 		mustWrite(t, path)
-		// Nothing here can chown, so the check is driven from the other side:
-		// the same file read as though hardline ran as a different user.
 		currentUID = func() int { return os.Geteuid() + 1 }
 
 		err := LoadFromDir(dir)

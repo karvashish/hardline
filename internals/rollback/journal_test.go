@@ -434,7 +434,6 @@ func TestRemoteJournalSaveAndLoad(t *testing.T) {
 		return nil
 	}
 	runRemoteRootWithOutput = func(_ *remote.Client, _ string) (string, error) {
-		// Return the filename portion of wrotePath so LoadRemoteLast can reconstruct it.
 		return path.Base(wrotePath) + "\n", nil
 	}
 	readRemoteRootFile = func(_ *remote.Client, remotePath string) (string, error) {
@@ -611,9 +610,6 @@ func stubJournalHooks() func() {
 	}
 }
 
-// TestLoadRemoteLast_IgnoresForeignFilenames pins that only names this hardline
-// wrote are considered. The selected file is read back as the instruction set
-// for a root-level restore, so a stray or planted name must not be picked.
 func TestLoadRemoteLast_IgnoresForeignFilenames(t *testing.T) {
 	restore := stubJournalHooks()
 	defer restore()

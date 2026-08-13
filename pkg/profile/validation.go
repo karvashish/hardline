@@ -17,13 +17,8 @@ const (
 	actionFileSchemaName = "action-file.schema.json"
 )
 
-// schemaFS is the embedded schema set. It is a variable only so tests can swap
-// in a fixture FS; nothing at runtime replaces it.
 var schemaFS fs.FS = schema.FS
 
-// Affirm schema-checks the profile against the same authenticated bytes the
-// profile was decoded from. It does not re-read the profile directory: a schema
-// pass over content other than what will be applied proves nothing.
 func (p *Profile) Affirm() error {
 	if p.profilePath == "" {
 		return fmt.Errorf("profile path is empty; load profile before validation")
@@ -75,12 +70,6 @@ func (p *Profile) Affirm() error {
 	return p.validateStepGraph()
 }
 
-// validateStepGraph checks the step list the run will execute: action files in
-// declared order, steps in file order. A duplicate ID overwrites the other
-// step's entry in the change map and makes the rollback dependency lookup
-// ambiguous, and a restart dependency on a step that does not exist, or has not
-// run yet, can never register a change - so the restart it was meant to trigger
-// silently never happens.
 func (p *Profile) validateStepGraph() error {
 	position := make(map[string]int, 16)
 	order := 0
@@ -127,10 +116,6 @@ func (p *Profile) validateStepGraph() error {
 	return nil
 }
 
-// watchedSteps returns the step IDs this step's restart policy watches. Only
-// the service plugin declares them, and reading its config here is deliberate:
-// the graph is a profile-level property, and routing it through a plugin hook
-// would buy indirection for a single caller.
 func (s Step) watchedSteps() ([]string, error) {
 	if s.PluginName() != "service" {
 		return nil, nil
@@ -159,9 +144,6 @@ func (s Step) watchedSteps() ([]string, error) {
 	return out, nil
 }
 
-// loadResolvedSchema reads name from the embedded schema FS. $ref targets
-// resolve through the same FS, keyed on the base name, so no schema is ever
-// read from the filesystem at runtime.
 func loadResolvedSchema(name string) (*jsonschema.Resolved, error) {
 	loader := func(uri *url.URL) (*jsonschema.Schema, error) {
 		base := path.Base(uri.Path)

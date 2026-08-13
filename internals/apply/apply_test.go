@@ -757,7 +757,6 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 			},
 		}
 		journal := rollback.NewJournal("example.com", "p", "profile")
-		// Append a fake completed step so rollback has something to replay.
 		journal.Steps = append(journal.Steps, rollback.StepRecord{ID: "prior"})
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -953,8 +952,6 @@ func mustLoadApplyFixtureProfile(t *testing.T, f applyProfileFixture) *profile.P
 	return p
 }
 
-// applyBundleProfile and applyBundleOverrides are what the stubbed verify phase
-// hands to Apply.
 var (
 	applyBundleProfile   *profile.Profile
 	applyBundleOverrides map[string]json.RawMessage

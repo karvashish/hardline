@@ -10,9 +10,6 @@ import (
 	"strings"
 )
 
-// ShellArg wraps s as a single POSIX sh word. Unlike strconv.Quote, which
-// emits Go double-quoted syntax, single quotes suppress command substitution
-// and parameter expansion, so profile-supplied values cannot execute as root.
 func ShellArg(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
@@ -31,9 +28,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.File == nil || a.File == nil {
 				return b.File != a.File
 			}
-			// Mode, owner and group count as much as content: a step that only
-			// tightened permissions changed the host, and reporting it ALIGNED
-			// also withholds the trigger from restart_policy: on_change.
 			if b.File.Existed != a.File.Existed ||
 				b.File.ContentB64 != a.File.ContentB64 ||
 				b.File.Mode != a.File.Mode ||
@@ -56,8 +50,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.Service == nil || a.Service == nil {
 				return b.Service != a.Service
 			}
-			// Compare the exact states, not only the booleans: static -> enabled
-			// and failed -> inactive are both changes the booleans cannot see.
 			if b.Service.Active != a.Service.Active ||
 				b.Service.Enabled != a.Service.Enabled ||
 				b.Service.EnabledState != a.Service.EnabledState ||
@@ -68,8 +60,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.Package == nil || a.Package == nil {
 				return b.Package != a.Package
 			}
-			// An upgrade leaves WasInstalled true on both sides, so comparing
-			// only that reports a whole upgrade transaction as ALIGNED.
 			if b.Package.WasInstalled != a.Package.WasInstalled ||
 				b.Package.Version != a.Package.Version ||
 				b.Package.PinSpec != a.Package.PinSpec {
@@ -79,9 +69,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 			if b.ConfigLine == nil || a.ConfigLine == nil {
 				return b.ConfigLine != a.ConfigLine
 			}
-			// Added flips from true to false when the run appends the line, so a
-			// step whose only change was wiring an include reports ALIGNED without
-			// this, and restart_policy: on_change never fires for it.
 			if b.ConfigLine.Path != a.ConfigLine.Path ||
 				b.ConfigLine.Line != a.ConfigLine.Line ||
 				b.ConfigLine.FileExisted != a.ConfigLine.FileExisted ||
@@ -93,9 +80,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 	return false
 }
 
-// managedPathPattern is the whitelist for every root-executed destination path.
-// It excludes $, backtick, parentheses, quotes, backslash, glob characters and
-// whitespace, so an accepted path cannot alter a command even before quoting.
 var managedPathPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 
 func EnforceManagedPath(dest string) error {
@@ -114,14 +98,6 @@ func EnforceManagedPath(dest string) error {
 		return fmt.Errorf("destination %q is not a normalized absolute path", p)
 	}
 
-	// Drop-in directories resolve a conflict in one of two opposite ways, and a
-	// managed file has to sort on the winning side of whichever one it is in.
-	// sysctl.d, journald.conf.d and the rest take the last value, so 99-hardline
-	// sorts last and wins. sshd reads its includes lexically and, unless a
-	// keyword says otherwise, keeps the first value obtained, so there a
-	// 99-hardline file loses to any earlier vendor or cloud-init drop-in and
-	// 00-hardline is what wins. Both prefixes are hardline's own; nothing else
-	// is accepted, so a managed file stays recognizable either way.
 	base := path.Base(p)
 	if !strings.HasPrefix(base, "99-hardline") && !strings.HasPrefix(base, "00-hardline") {
 		return fmt.Errorf("destination %q must use a hardline prefix: 00-hardline* where the first match wins (sshd_config.d), 99-hardline* otherwise", p)
@@ -136,15 +112,8 @@ func EnforceManagedPath(dest string) error {
 	}
 }
 
-// MaxSnapshotBytes bounds a single journalled file. The journal is held in
-// memory, written to the runner and written again to the target, so a managed
-// drop-in that is suddenly enormous is a reason to stop rather than something
-// to read three more times. Real /etc drop-ins are kilobytes.
 const MaxSnapshotBytes = 1 << 20
 
-// ParseFileMode turns a journalled octal mode into a FileMode. There is no
-// default: a record that cannot say what mode a file had cannot be used to
-// restore it, and quietly substituting 0600 invents a state the host never had.
 func ParseFileMode(raw string) (os.FileMode, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -167,9 +136,6 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	// One stat, with -c and no dereference: test -e follows symlinks, so a
-	// compromised host could point a managed path at /dev/zero or at a file
-	// outside the managed scope and have hardline read and later rewrite it.
 	statOut, err := host.RunRootWithOutput("stat -L -c '%F|%a|%U|%G|%s' " + ShellArg(remotePath) + " 2>/dev/null || true")
 	if err != nil {
 		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
@@ -195,9 +161,6 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, size, MaxSnapshotBytes)
 	}
 
-	// A symlink whose target is a regular file still passes the check above, so
-	// the link itself is rejected separately: restoring it would replace the
-	// link with a file and silently unmanage whatever it pointed at.
 	if err := host.RunRoot("test ! -L " + ShellArg(remotePath)); err != nil {
 		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)
 	}
@@ -218,10 +181,6 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	return snap, nil
 }
 
-// RestoreFileSnapshot reverts a managed file to the state captured in snap:
-// deleting it when it did not previously exist, otherwise rewriting its content
-// and mode. Shared by the template and firewall plugins, which both emit
-// ObjectFile.
 func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 	if err := EnforceManagedPath(snap.Path); err != nil {
 		return err
@@ -261,16 +220,12 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 	return nil
 }
 
-// FileSnapshotConflict reports whether the remote file drifted from the
-// post-apply state recorded in snap. An empty result means no conflict.
 func FileSnapshotConflict(host Host, snap FileSnapshot) []string {
 	current, err := SnapshotRemoteFile(host, snap.Path)
 	if err != nil {
 		return []string{fmt.Sprintf("%s: cannot be inspected (%v)", snap.Path, err)}
 	}
 
-	// "The journal says this file was absent and it now exists" is drift, not
-	// the absence of drift: rollback would delete a file someone else created.
 	if !snap.Existed {
 		if current.Existed {
 			return []string{fmt.Sprintf("%s: journal recorded no file here but one exists now (created since apply); rolling back deletes it", snap.Path)}

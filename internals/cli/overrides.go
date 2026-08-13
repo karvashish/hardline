@@ -9,14 +9,8 @@ import (
 	"strings"
 )
 
-// DefaultOverridesFilename is the single auto-discovered overrides file inside a
-// profile directory (analogous to terraform.tfvars). When --overrides-file is
-// set, that path wins instead.
 const DefaultOverridesFilename = "profile.overrides.json"
 
-// ResolveOverrides loads runtime overrides for the given command. When
-// --overrides-file is set, only that file is read. Otherwise, if
-// <profile>/profile.overrides.json exists, it is loaded automatically.
 func ResolveOverrides(c Command) (map[string]json.RawMessage, error) {
 	if explicit := strings.TrimSpace(c.OverridesFile); explicit != "" {
 		return loadOverridesFile(explicit)

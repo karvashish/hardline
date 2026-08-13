@@ -76,6 +76,34 @@ EOJSON
   echo "${dir}"
 }
 
+# The collateral argument is a space-separated package list: what the purge
+# transaction really drags out is a property of the target image, so the
+# scenario reads it from the package manager rather than hard-coding it.
+make_profile_packages_purge_collateral() {
+  local name="$1" pkg="$2" collateral_list="$3"
+  local collateral="" sep=""
+  for c in ${collateral_list}; do
+    collateral="${collateral}${sep}\"${c}\""
+    sep=", "
+  done
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-packages.json"], "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-packages.json" <<EOJSON
+{ "steps": [{ "id": "purge-${pkg}", "plugin": "${PKG_PLUGIN}",
+  "config": { "purge": ["${pkg}"], "purge_also_removes": [${collateral}] } }] }
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
 make_profile_packages_update_always() {
   local name="$1" pkg="$2"
   local dir="${DYNAMIC_PROFILES_DIR}/${name}"

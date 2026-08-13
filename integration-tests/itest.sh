@@ -134,7 +134,7 @@ SCENARIOS=(
   # Template
   template-apply-idempotent-rollback template-conflict-force managed-path-enforcement
   # Packages
-  package-lifecycle package-rollback
+  package-lifecycle package-collateral package-rollback
   # Firewall
   firewall-basic-rollback firewall-advanced firewall-external-plugin
   # Service

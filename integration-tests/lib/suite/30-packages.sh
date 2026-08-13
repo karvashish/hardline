@@ -44,6 +44,72 @@ EOF
   scenario_end
 }
 
+# ── package-collateral: an undeclared collateral removal is refused with the
+#    host untouched; declaring it lets the purge run and rollback restore both.
+scenario_package_collateral() {
+  local dir="${ARTIFACT_ROOT}/package-collateral"
+  reset_dir "${dir}"
+  scenario_start "package-collateral: undeclared purge collateral refused, declared collateral journalled"
+  guard_can_sign || return
+
+  # Installing ${COLLATERAL_PARENT} pulls ${COLLATERAL_CHILD}, so purging the
+  # child drags the parent out. How much else comes with it is a property of the
+  # image (dnf also collects dependencies the removal leaves unused), so the set
+  # is read from the package manager rather than hard-coded.
+  pkg_install "${COLLATERAL_PARENT}" || true
+  must_remote "collateral pair installed for setup" <<EOF
+$(pkg_installed_test "${COLLATERAL_PARENT}")
+$(pkg_installed_test "${COLLATERAL_CHILD}")
+EOF
+
+  local collateral; collateral="$(pkg_collateral_of "${COLLATERAL_CHILD}")"
+  collateral="$(echo "${collateral}" | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+  case " ${collateral} " in
+    *" ${COLLATERAL_PARENT} "*) ;;
+    *)
+      note_fail "fixture assumption broken: purging ${COLLATERAL_CHILD} removes '${collateral}', expected it to include ${COLLATERAL_PARENT}"
+      pkg_purge "${COLLATERAL_PARENT}" || true
+      scenario_end
+      return
+      ;;
+  esac
+  echo "  collateral of ${COLLATERAL_CHILD}: ${collateral}"
+
+  local present_test="" absent_test=""
+  for c in ${COLLATERAL_CHILD} ${collateral}; do
+    present_test="${present_test}$(pkg_installed_test "${c}")"$'\n'
+    absent_test="${absent_test}$(pkg_absent_test "${c}")"$'\n'
+  done
+
+  # Undeclared: apply must refuse, and nothing may be removed.
+  local p_bare; p_bare=$(make_profile_packages_purge "pkg-collateral-bare" "${COLLATERAL_CHILD}")
+  expect_hl_fail "${dir}/undeclared.log" "purge refused with undeclared collateral" -- \
+    apply "${p_bare}" "${remote_args[@]}"
+  must_remote "nothing removed by the refused purge" <<EOF
+${present_test}
+EOF
+
+  # Declared: apply proceeds and the whole transaction goes.
+  local p_declared
+  p_declared=$(make_profile_packages_purge_collateral \
+    "pkg-collateral-declared" "${COLLATERAL_CHILD}" "${collateral}")
+  must_hl "${dir}/declared.log" "purge with declared collateral (keep-local)" -- \
+    apply "${p_declared}" "${remote_args[@]}" --keep-local-rollback
+  must_remote "purge and declared collateral absent" <<EOF
+${absent_test}
+EOF
+
+  # The collateral is journalled like an explicit purge, so rollback restores it.
+  must_hl "${dir}/rollback.log" "rollback restores purge and collateral" -- \
+    rollback "${p_declared}" "${remote_args[@]}"
+  must_remote "purge and declared collateral reinstalled after rollback" <<EOF
+${present_test}
+EOF
+
+  pkg_purge "${COLLATERAL_PARENT}" || true
+  scenario_end
+}
+
 # ── package-rollback: static profile install+journal, rollback purges;
 #    rollback reinstalls a purged package; drift conflict needs --force-rollback.
 scenario_package_rollback() {

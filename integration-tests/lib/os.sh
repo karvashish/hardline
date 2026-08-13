@@ -37,6 +37,7 @@ itest_os_init() {
         "etc/audit/rules.d/99-hardline.rules|templates/40-audit-hardening-rules.tmpl|640"
         "etc/systemd/journald.conf.d/99-hardline.conf|templates/50-journald-hardening.conf.tmpl|644"
       )
+      COLLATERAL_CHILD="nmap-common"; COLLATERAL_PARENT="nmap"
       BASE_PKGS_PRESENT=(nftables auditd fail2ban unattended-upgrades)
       BASE_PKGS_ABSENT=(telnet rsh-client ftp tftp cups rpcbind nfs-common snapd whoopsie apport landscape-client)
       BASE_UNITS_RUNNING=(ssh chrony nftables fail2ban auditd)
@@ -57,6 +58,7 @@ itest_os_init() {
         "etc/audit/rules.d/99-hardline.rules|templates/40-audit-hardening-rules.tmpl|640"
         "etc/systemd/journald.conf.d/99-hardline.conf|templates/50-journald-hardening.conf.tmpl|644"
       )
+      COLLATERAL_CHILD="nmap-ncat"; COLLATERAL_PARENT="nmap"
       BASE_PKGS_PRESENT=(nftables audit dnf-automatic)
       BASE_PKGS_ABSENT=(telnet rsh ftp tftp cups rpcbind nfs-utils)
       BASE_UNITS_RUNNING=(sshd chronyd nftables auditd)
@@ -72,6 +74,7 @@ itest_os_init() {
       TIMESYNC_UNIT="chronyd"
       CRON_UNIT="crond"
       AUDIT_PKG="audit"
+      COLLATERAL_CHILD="nmap-ncat"; COLLATERAL_PARENT="nmap"
       # dnf5 is verified through the dynamic fixtures; no starter profile ships
       # for Fedora, so the base-profile scenario skips itself.
       BASE_PROFILE=""
@@ -143,6 +146,27 @@ pkg_purge() {
   case "${PKG_BACKEND}" in
     apt) ssh_cmd "sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y '$1' >/dev/null 2>&1" ;;
     *)   ssh_cmd "sudo dnf -y remove '$1' >/dev/null 2>&1" ;;
+  esac
+}
+
+# pkg_collateral_of asks the package manager itself which other installed
+# packages come out with the named one, and prints them space-separated. It is
+# the independent oracle the collateral scenario builds its expectation from, so
+# it must never go through hardline.
+#
+# It has to be the real transaction, not the reverse-dependency set: dnf removes
+# dependent packages AND then collects dependencies the removal leaves unused,
+# so whatrequires under-reports. The dnf dry run is read by keeping only the
+# tokens that name a currently installed package, which avoids depending on
+# where dnf4 and dnf5 put their section headings.
+pkg_collateral_of() {
+  case "${PKG_BACKEND}" in
+    apt)
+      ssh_cmd "apt-get -s purge -y '$1' 2>/dev/null | awk '/^(Purg|Remv) /{print \$2}' | grep -vx '$1' | sort -u | tr '\n' ' '"
+      ;;
+    *)
+      ssh_cmd "sudo dnf -y remove --assumeno '$1' 2>/dev/null | awk '{print \$1}' | grep -vx '$1' | sort -u | while read -r n; do rpm -q \"\$n\" >/dev/null 2>&1 && echo \"\$n\"; done | sort -u | tr '\n' ' '"
+      ;;
   esac
 }
 

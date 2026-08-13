@@ -147,7 +147,7 @@ scenario_plugin_dir_rejected() {
   chmod 0755 "${plugin_dir}"
 
   [ "${ec}" -ne 0 ] || note_fail "plan accepted a world-writable plugin dir"
-  grep -q "world-writable" "${dir}/plan.log" || note_fail "error did not mention 'world-writable'"
+  grep -q "writable by group or others" "${dir}/plan.log" || note_fail "error did not say why the plugin dir was refused"
 
   scenario_end
 }

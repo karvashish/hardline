@@ -1598,13 +1598,25 @@ func DecodeNftStringValues(raw json.RawMessage) []string {
 	}
 
 	values := []string{}
-	appendOne := func(v any) {
+	var appendOne func(v any)
+	appendOne = func(v any) {
 		switch t := v.(type) {
 		case string:
 			for _, part := range strings.Split(t, ",") {
 				s := strings.ToLower(strings.TrimSpace(part))
 				if s != "" {
 					values = append(values, s)
+				}
+			}
+		case map[string]any:
+			// nft -j renders a CIDR as {"prefix":{"addr":...,"len":...}} rather
+			// than as a string, so a masked address reads back as nothing at all
+			// unless it is reassembled here.
+			if prefix, ok := t["prefix"].(map[string]any); ok {
+				addr, addrOK := prefix["addr"].(string)
+				length, lenOK := prefix["len"].(float64)
+				if addrOK && lenOK {
+					appendOne(fmt.Sprintf("%s/%d", addr, int(length)))
 				}
 			}
 		}
@@ -1618,6 +1630,8 @@ func DecodeNftStringValues(raw json.RawMessage) []string {
 					appendOne(v)
 				}
 			}
+		} else {
+			appendOne(t)
 		}
 	case []any:
 		for _, v := range t {

@@ -2139,3 +2139,16 @@ func TestActivateFirewallGuards(t *testing.T) {
 		t.Fatal("expected a foreign main config to be refused")
 	}
 }
+
+func TestDecodeNftValuesReadsACIDRPrefix(t *testing.T) {
+	if got := DecodeNftStringValue([]byte(`{"prefix":{"addr":"10.0.0.0","len":8}}`)); got != "10.0.0.0/8" {
+		t.Fatalf("masked address read back as %q, want 10.0.0.0/8", got)
+	}
+	if got := DecodeNftStringValue([]byte(`"10.0.0.1"`)); got != "10.0.0.1" {
+		t.Fatalf("bare address read back as %q", got)
+	}
+	vals := DecodeNftStringValues([]byte(`{"set":[{"prefix":{"addr":"192.168.0.0","len":16}},"10.0.0.1"]}`))
+	if len(vals) != 2 || vals[0] != "10.0.0.1" || vals[1] != "192.168.0.0/16" {
+		t.Fatalf("set of addresses read back as %#v", vals)
+	}
+}

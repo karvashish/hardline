@@ -9,9 +9,9 @@ my-profile/
   manifest.sig
   actions/
     00-base.json
-    10-ssh.json
+    10-journald.json
   templates/
-    10-ssh-sshd-config.tmpl
+    50-journald-hardening.conf.tmpl
   profile.overrides.json
 ```
 
@@ -41,10 +41,10 @@ Example:
   "min_hardline": "0.0.1",
   "actions": [
     "actions/00-packages.json",
-    "actions/10-ssh.json"
+    "actions/10-journald.json"
   ],
   "templates": [
-    "templates/10-ssh-sshd-config.tmpl"
+    "templates/50-journald-hardening.conf.tmpl"
   ],
   "allowed_overrides": [
     "ssh_port"

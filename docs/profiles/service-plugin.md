@@ -6,15 +6,15 @@ Example:
 
 ```json
 {
-  "id": "ssh-service-reload",
+  "id": "journald-service-restart",
   "plugin": "service",
   "config": {
-    "name": "ssh",
+    "name": "systemd-journald",
     "enabled": true,
-    "state": "reloaded",
+    "state": "restarted",
     "restart_policy": {
       "type": "on_change",
-      "steps": ["ssh-template-apply"]
+      "steps": ["journald-hardening"]
     }
   }
 }

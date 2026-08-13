@@ -6,12 +6,12 @@ Each action file is a JSON object with a `steps` array:
 {
   "steps": [
     {
-      "id": "ssh-template-apply",
+      "id": "journald-hardening",
       "plugin": "template",
       "config": {
-        "src": "templates/10-ssh-sshd-config.tmpl",
-        "dest": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
-        "mode": "0600"
+        "src": "templates/50-journald-hardening.conf.tmpl",
+        "dest": "/etc/systemd/journald.conf.d/99-hardline.conf",
+        "mode": "0644"
       }
     }
   ]

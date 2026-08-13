@@ -10,5 +10,6 @@ manager parses and pins packages its own way.
 - [Firewall Plugin](firewall-plugin.md)
 - [File Meta Plugin](file-meta-plugin.md)
 - [Audit Plugin](audit-plugin.md)
+- [SSH Plugin](ssh-plugin.md)
 
 Use these pages as the configuration reference for step `config` blocks.

@@ -142,6 +142,8 @@ Plugins declare a `RollbackMode` in their capture result. Today the important mo
 - `firewall`
 - `service`
 - `file_meta`
+- `audit`
+- `ssh`
 
 `best_effort` means the step can be meaningfully reversed, but not with strong transactional guarantees. The built-in `packages` plugin uses this mode because package-manager operations like `apt update`, `upgrade`, and `autoremove` are not losslessly reversible.
 
@@ -152,6 +154,7 @@ In practice:
 - file rollback restores the previous file contents and mode, or removes the file if it did not exist before
 - file-metadata rollback restores the previous mode/owner/group and managed `i`/`a` attrs on the existing path; it clears managed attrs first so an immutable target does not reject the restoring `chmod`/`chown`, and it never re-creates a path that has since been deleted
 - service rollback restores enabled/active state
+- sshd rollback restores the drop-in, parses the result with `sshd -t`, and reloads the journalled unit in one step, so the daemon is never left running a policy the rollback has already removed from disk
 - package rollback removes packages that this run installed when they were absent before, reinstalls packages that this run purged when they were present before, prefers the recorded pre-apply version when available, and skips no-op runs whose before/after package state is identical
 
 The package plugin also records notes when rollback is inherently lossy, such as:

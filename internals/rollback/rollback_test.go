@@ -704,7 +704,7 @@ func rollbackBundle() *verify.VerifiedBundle {
 	if rollbackBundleProfile == nil {
 		return nil
 	}
-	return &verify.VerifiedBundle{ProfileDir: "profile", Profile: rollbackBundleProfile}
+	return &verify.VerifiedBundle{Profile: rollbackBundleProfile}
 }
 
 func rollbackWithBundle(c cli.Command) error {

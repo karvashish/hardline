@@ -958,7 +958,6 @@ var (
 
 func applyWithBundle(ctx context.Context, c cli.Command) error {
 	return Apply(ctx, c, &verify.VerifiedBundle{
-		ProfileDir:     c.Profile,
 		ManifestDigest: "digest",
 		Profile:        applyBundleProfile,
 		Overrides:      applyBundleOverrides,

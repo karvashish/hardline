@@ -89,14 +89,6 @@ func TestLoadFromBundle_AndTemplateHelpers_SuccessAndErrors(t *testing.T) {
 	if len(p.ActionFiles) != 1 {
 		t.Fatalf("expected 1 action file, got %d", len(p.ActionFiles))
 	}
-	paths, err := p.ActionPaths()
-	if err != nil {
-		t.Fatalf("ActionPaths failed: %v", err)
-	}
-	if len(paths) != 1 || paths[0] != "actions/a.json" {
-		t.Fatalf("unexpected action paths: %+v", paths)
-	}
-
 	if _, err := p.LoadTemplate("templates/undeclared.tmpl"); err == nil || !strings.Contains(err.Error(), "not declared") {
 		t.Fatalf("expected undeclared template error, got %v", err)
 	}

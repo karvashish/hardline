@@ -749,33 +749,6 @@ func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 	return nil
 }
 
-func restoreNftablesMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
-	if host == nil {
-		return fmt.Errorf("firewall rollback: host is required")
-	}
-	if !ValidMainConfig(snap.Path) {
-		return fmt.Errorf("firewall rollback: unexpected main config path %q", snap.Path)
-	}
-
-	if !snap.Existed {
-		return host.RunRoot("rm -f " + pluginapi.ShellArg(snap.Path))
-	}
-
-	mode, err := pluginapi.ParseFileMode(snap.Mode)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: restore %q: %w", snap.Path, err)
-	}
-
-	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-	if err != nil {
-		return fmt.Errorf("decode snapshot content for %q: %w", snap.Path, err)
-	}
-	if err := host.WriteRootFile(snap.Path, content, mode); err != nil {
-		return fmt.Errorf("restore file %q: %w", snap.Path, err)
-	}
-	return nil
-}
-
 func ManagedDestination(fw *Spec) string {
 	if fw == nil {
 		return ""

@@ -8,6 +8,7 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/karvashish/hardline/pkg/profile"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ const (
 
 var (
 	testIncludeCheck    = includeCheckCmd(testMainConfig, testDest)
-	testLegacyGlobCheck = legacyGlobCheckCmd(testMainConfig, testDest)
+	testLegacyGlobCheck = includeCheckCmd(testMainConfig, path.Dir(testDest)+"/*.nft")
 )
 
 func TestNormalizeDesiredSpec(t *testing.T) {

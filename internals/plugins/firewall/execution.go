@@ -39,12 +39,6 @@ func includeCheckCmd(mainConfig, dest string) string {
 		escapeIncludeRegex(dest), pluginapi.ShellArg(mainConfig))
 }
 
-func legacyGlobCheckCmd(mainConfig, dest string) string {
-	glob := escapeIncludeRegex(path.Dir(dest) + "/*.nft")
-	return fmt.Sprintf(`grep -E -q '^[[:space:]]*include[[:space:]]+"?%s"?[[:space:]]*$' %s 2>/dev/null`,
-		glob, pluginapi.ShellArg(mainConfig))
-}
-
 func escapeIncludeRegex(p string) string {
 	var b strings.Builder
 	for _, r := range p {
@@ -864,7 +858,7 @@ func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
 	}
-	if err := host.RunRoot(legacyGlobCheckCmd(mainConfig, dest)); err == nil {
+	if err := host.RunRoot(includeCheckCmd(mainConfig, path.Dir(dest)+"/*.nft")); err == nil {
 		return fmt.Errorf(
 			"%s still contains the directory-wide include %q written by an older hardline; "+
 				"remove that line so %s is included once, by name",

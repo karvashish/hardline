@@ -82,8 +82,8 @@ func TestAdapter(t *testing.T) {
 	}
 
 	p := Plugin()
-	if p.Name != "packages_apt" || !p.InternalValidation {
-		t.Fatalf("plugin identity is wrong: name=%q validation=%v", p.Name, p.InternalValidation)
+	if p.Name != "packages_apt" {
+		t.Fatalf("plugin identity is wrong: name=%q", p.Name)
 	}
 }
 

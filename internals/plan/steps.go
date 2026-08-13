@@ -22,17 +22,9 @@ func planStepWithRegistry(reg *pluginapi.Registry, client *remote.Client, p *pro
 	if err != nil {
 		return plan, err
 	}
-	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
-		return plan, err
-	}
-
 	result, err := plugin.Plan(remote.BuildContext(client, p, stepChanges), s)
 	if err != nil {
 		return plan, err
-	}
-	if !plugin.InternalValidation && s.AllowUnvalidated {
-		result.Details = append(result.Details, "validation: explicitly disabled for this step (allow_unvalidated=true)")
-		result.Highlights = append(result.Highlights, "validation is explicitly disabled for this step (allow_unvalidated=true)")
 	}
 	plan.PlanResult = result
 

@@ -11,9 +11,5 @@ func captureStepRecordWithRegistry(reg *pluginapi.Registry, client *remote.Clien
 	if err != nil {
 		return pluginapi.CaptureResult{}, err
 	}
-	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
-		return pluginapi.CaptureResult{}, err
-	}
-
 	return plugin.Capture(remote.BuildContext(client, p, nil), s)
 }

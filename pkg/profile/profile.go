@@ -41,10 +41,9 @@ type Profile struct {
 }
 
 type Step struct {
-	ID               string         `json:"id"`
-	Plugin           string         `json:"plugin"`
-	Config           map[string]any `json:"config,omitempty"`
-	AllowUnvalidated bool           `json:"allow_unvalidated,omitempty"`
+	ID     string         `json:"id"`
+	Plugin string         `json:"plugin"`
+	Config map[string]any `json:"config,omitempty"`
 }
 
 type ActionFile struct {

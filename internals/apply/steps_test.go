@@ -15,9 +15,8 @@ func TestHandleStepDispatch(t *testing.T) {
 
 	called := false
 	err := reg.Register(pluginapi.Plugin{
-		Name:               "fake",
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Name:     "fake",
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Apply: func(ctx pluginapi.Context, s profile.Step) error {
 			called = true
 			if ctx.Profile == nil || ctx.Profile.ID != "p1" {
@@ -69,40 +68,6 @@ func TestHandleStepWrapperAndReset(t *testing.T) {
 	}
 }
 
-func TestHandleStepValidationPolicy(t *testing.T) {
-	reg := pluginapi.NewRegistry()
-	err := reg.Register(pluginapi.Plugin{
-		Name:               "external",
-		InternalValidation: false,
-		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
-		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{}, nil
-		},
-		Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
-			return pluginapi.CaptureResult{}, nil
-		},
-		Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
-		DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
-	})
-	if err != nil {
-		t.Fatalf("register external plugin failed: %v", err)
-	}
-
-	err = handleStepWithRegistry(reg, nil, &profile.Profile{}, profile.Step{ID: "x", Plugin: "external"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "allow_unvalidated=true") {
-		t.Fatalf("expected validation policy error, got %v", err)
-	}
-
-	err = handleStepWithRegistry(reg, nil, &profile.Profile{}, profile.Step{
-		ID:               "x",
-		Plugin:           "external",
-		AllowUnvalidated: true,
-	}, nil)
-	if err != nil {
-		t.Fatalf("expected allow_unvalidated to permit external plugin, got %v", err)
-	}
-}
-
 func TestNewDefaultRegistries(t *testing.T) {
 	reg := registry.NewDefaultRegistry()
 	for _, name := range []string{"packages_apt", "packages_dnf4", "packages_dnf5", "template", "service", "firewall"} {
@@ -110,8 +75,8 @@ func TestNewDefaultRegistries(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing builtin plugin %q", name)
 		}
-		if !plugin.InternalValidation {
-			t.Fatalf("expected builtin plugin %q to validate internally", name)
+		if plugin.Validate == nil {
+			t.Fatalf("expected builtin plugin %q to supply Validate", name)
 		}
 	}
 
@@ -127,10 +92,9 @@ func TestNewDefaultRegistries(t *testing.T) {
 func TestRegisterPlugin(t *testing.T) {
 	reg := pluginapi.NewRegistry()
 	err := reg.Register(pluginapi.Plugin{
-		Name:               "rb",
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
+		Name:     "rb",
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Apply:    func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},

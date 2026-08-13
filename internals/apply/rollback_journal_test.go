@@ -22,10 +22,9 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 	registry := pluginapi.NewRegistry()
 	called := false
 	err := registry.Register(pluginapi.Plugin{
-		Name:               "fake",
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
+		Name:     "fake",
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Apply:    func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
@@ -56,10 +55,9 @@ func TestCaptureStepRecord_DelegatesToRegistry(t *testing.T) {
 func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 	registry := pluginapi.NewRegistry()
 	err := registry.Register(pluginapi.Plugin{
-		Name:               "fake",
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
+		Name:     "fake",
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Apply:    func(pluginapi.Context, profile.Step) error { return nil },
 		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 			return pluginapi.PlanResult{}, nil
 		},
@@ -75,30 +73,5 @@ func TestCaptureStepRecord_HandlerErrorBubbles(t *testing.T) {
 	_, gotErr := captureStepRecordWithRegistry(registry, nil, nil, profile.Step{ID: "f1", Plugin: "fake"})
 	if gotErr == nil || !strings.Contains(gotErr.Error(), "capture boom") {
 		t.Fatalf("expected capture error, got %v", gotErr)
-	}
-}
-
-func TestCaptureStepRecord_ValidationPolicy(t *testing.T) {
-	registry := pluginapi.NewRegistry()
-	err := registry.Register(pluginapi.Plugin{
-		Name:               "external",
-		InternalValidation: false,
-		Apply:              func(pluginapi.Context, profile.Step) error { return nil },
-		Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
-			return pluginapi.PlanResult{}, nil
-		},
-		Capture: func(pluginapi.Context, profile.Step) (pluginapi.CaptureResult, error) {
-			return pluginapi.CaptureResult{}, nil
-		},
-		Rollback:       func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
-		DetectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string { return nil },
-	})
-	if err != nil {
-		t.Fatalf("register plugin failed: %v", err)
-	}
-
-	_, gotErr := captureStepRecordWithRegistry(registry, nil, nil, profile.Step{ID: "x", Plugin: "external"})
-	if gotErr == nil || !strings.Contains(gotErr.Error(), "allow_unvalidated=true") {
-		t.Fatalf("expected validation policy error, got %v", gotErr)
 	}
 }

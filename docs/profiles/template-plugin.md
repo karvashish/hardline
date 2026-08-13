@@ -6,12 +6,12 @@ Example:
 
 ```json
 {
-  "id": "ssh-template-apply",
+  "id": "journald-hardening",
   "plugin": "template",
   "config": {
-    "src": "templates/10-ssh-sshd-config.tmpl",
-    "dest": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
-    "mode": "0600"
+    "src": "templates/50-journald-hardening.conf.tmpl",
+    "dest": "/etc/systemd/journald.conf.d/99-hardline.conf",
+    "mode": "0644"
   }
 }
 ```
@@ -21,6 +21,11 @@ Config fields:
 - `src`: required. Template path declared in `profile.json` and covered by the signed manifest
 - `dest`: required. Managed destination path on the target host
 - `mode`: optional octal file mode string such as `0644`. Defaults to `0600` when omitted
+
+Do not use this plugin for `sshd_config.d`. Writing an sshd drop-in as opaque
+bytes leaves nothing to check that it parses, that the daemon took it, or that a
+`Match` block did not override it. The [SSH Plugin](ssh-plugin.md) owns that
+file and verifies all three.
 
 Important detail:
 

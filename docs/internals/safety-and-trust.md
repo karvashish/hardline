@@ -34,6 +34,9 @@ A signed profile is trusted input, but its values still reach a root shell, so e
 | Package name | `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$` |
 | Package version read back from `dpkg-query` | `^[A-Za-z0-9.+:~-]{1,128}$` |
 | systemd unit name | `^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$` |
+| `ssh` service unit | `ssh` or `sshd`, in the profile and again when read back from the journal |
+| `ssh` keyword and value | a closed keyword whitelist, each with its own enum or numeric range |
+| `ssh` verify context fields | `^[A-Za-z0-9._:-]{1,255}$`, so none can carry the `,` or `=` that separate a connection spec |
 | Host and profile ID in journal paths | `[A-Za-z0-9._-]`, everything else replaced with `_` |
 
 The sets deliberately exclude `$`, backticks, parentheses, quotes, backslashes, glob characters, and whitespace, so an accepted value cannot alter a command even before quoting. The leading-alphanumeric requirement on package and unit names stops a value like `--force` from being read as an option rather than an operand.

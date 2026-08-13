@@ -58,6 +58,7 @@ Rollback capture is object-based instead of plugin-specific string output. A `Ca
 - `file_meta` objects
 - `service` objects
 - `package` objects
+- `config_line` objects
 - `validate` no-op records
 
 The rollback modes exposed in `pkg/pluginapi` are:
@@ -72,11 +73,13 @@ The rollback modes exposed in `pkg/pluginapi` are:
 
 Registered in `internals/registry/registry.go`, in this order:
 
-- `packages`
+- `packages_apt`, `packages_dnf4`, `packages_dnf5`
 - `template`
 - `service`
 - `firewall`
 - `file_meta`
+- `audit`
+- `ssh`
 
 The shared registry is built once at package init; a built-in that fails to register panics rather than degrading silently.
 
@@ -87,6 +90,8 @@ Notable behavior:
 - `service` uses `StepChanges` to suppress restarts and reloads when `restart_policy.type=on_change`
 - `firewall` normalizes nftables policy into a deterministic include file
 - `file_meta` re-stamps mode, owner, group, and the `i`/`a` chattr flags on paths that already exist
+- `audit` writes the rules file and runs `augenrules --load`, then reads the loaded policy back with `auditctl`
+- `ssh` renders the sshd drop-in, parses it with `sshd -t`, guards management access, reloads, and verifies the result with `sshd -T`
 
 ## External Plugin Loading
 

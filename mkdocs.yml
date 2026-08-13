@@ -79,6 +79,7 @@ nav:
       - Firewall Plugin: profiles/firewall-plugin.md
       - File Meta Plugin: profiles/file-meta-plugin.md
       - Audit Plugin: profiles/audit-plugin.md
+      - SSH Plugin: profiles/ssh-plugin.md
       - Coverage Ledger: profiles/coverage-ledger.md
       - Overrides And Signing: profiles/overrides-and-signing.md
       - External Plugins: profiles/external-plugins.md

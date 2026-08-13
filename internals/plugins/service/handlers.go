@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "service",
-		InternalValidation: true,
+		Name: "service",
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			spec, err := decodeServiceSpec(step)
 			if err != nil {
@@ -58,8 +57,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("service rollback: missing service snapshot")
 				}
 				return restoreServiceState(host, *obj.Service)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("service plugin cannot roll back kind %q", obj.Kind)
 			}

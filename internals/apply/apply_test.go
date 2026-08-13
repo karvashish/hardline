@@ -484,7 +484,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 				RollbackMode: pluginapi.ModeDeterministic,
 				Objects: []pluginapi.ObjectRecord{
 					{
-						Kind:    pluginapi.ObjectValidate,
+						Kind:    pluginapi.ObjectFile,
 						Message: message,
 					},
 				},
@@ -649,7 +649,7 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 				return pluginapi.CaptureResult{
 					RollbackMode: pluginapi.ModeDeterministic,
 					Objects: []pluginapi.ObjectRecord{
-						{Kind: pluginapi.ObjectValidate, Message: "before"},
+						{Kind: pluginapi.ObjectFile, Message: "before"},
 					},
 				}, nil
 			}
@@ -693,10 +693,9 @@ func TestApplyProfile_StepLoop(t *testing.T) {
 
 		registry := pluginapi.NewRegistry()
 		if err := registry.Register(pluginapi.Plugin{
-			Name:               "failing",
-			InternalValidation: true,
-			Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-			Apply:              func(pluginapi.Context, profile.Step) error { return nil },
+			Name:     "failing",
+			Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+			Apply:    func(pluginapi.Context, profile.Step) error { return nil },
 			Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, nil
 			},

@@ -13,9 +13,6 @@ func TestPluginMetadata(t *testing.T) {
 	if p.Name != "file_meta" {
 		t.Fatalf("unexpected name %q", p.Name)
 	}
-	if !p.InternalValidation {
-		t.Fatal("expected internal validation")
-	}
 }
 
 func TestValidateSpec(t *testing.T) {

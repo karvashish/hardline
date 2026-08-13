@@ -166,8 +166,8 @@ func TestBackendPlugin(t *testing.T) {
 	f := newEngineFixture()
 	b := f.backend()
 	p := b.Plugin()
-	if p.Name != b.Name || !p.InternalValidation {
-		t.Fatalf("plugin identity is wrong: name=%q internal_validation=%v", p.Name, p.InternalValidation)
+	if p.Name != b.Name {
+		t.Fatalf("plugin identity is wrong: name=%q", p.Name)
 	}
 	for name, fn := range map[string]any{
 		"Validate": p.Validate, "Apply": p.Apply, "Plan": p.Plan,
@@ -206,9 +206,6 @@ func TestBackendPlugin(t *testing.T) {
 		t.Fatalf("Capture failed: %v", err)
 	}
 
-	if err := p.Rollback(f.host(), pluginapi.ObjectRecord{Kind: pluginapi.ObjectValidate}); err != nil {
-		t.Fatalf("validate rollback failed: %v", err)
-	}
 	requireEngineError(t,
 		p.Rollback(f.host(), pluginapi.ObjectRecord{Kind: pluginapi.ObjectPackage}),
 		"missing package snapshot")

@@ -20,7 +20,6 @@ const (
 	ObjectFileMeta   = "file_meta"
 	ObjectService    = "service"
 	ObjectPackage    = "package"
-	ObjectValidate   = "validate"
 	ObjectConfigLine = "config_line"
 )
 
@@ -127,14 +126,13 @@ type PlanResult struct {
 }
 
 type Plugin struct {
-	Name               string
-	InternalValidation bool
-	Validate           func(profile.Step, map[string]json.RawMessage) error
-	Apply              func(Context, profile.Step) error
-	Plan               func(Context, profile.Step) (PlanResult, error)
-	Capture            func(Context, profile.Step) (CaptureResult, error)
-	Rollback           func(Host, ObjectRecord) error
-	DetectConflict     func(Host, ObjectRecord) []string
+	Name           string
+	Validate       func(profile.Step, map[string]json.RawMessage) error
+	Apply          func(Context, profile.Step) error
+	Plan           func(Context, profile.Step) (PlanResult, error)
+	Capture        func(Context, profile.Step) (CaptureResult, error)
+	Rollback       func(Host, ObjectRecord) error
+	DetectConflict func(Host, ObjectRecord) []string
 }
 
 type Registry struct {
@@ -169,8 +167,8 @@ func preparePlugin(p Plugin) (Plugin, error) {
 	if p.DetectConflict == nil {
 		return Plugin{}, fmt.Errorf("plugin %q is missing DetectConflict func", name)
 	}
-	if p.InternalValidation && p.Validate == nil {
-		return Plugin{}, fmt.Errorf("plugin %q claims internal validation but is missing Validate func", name)
+	if p.Validate == nil {
+		return Plugin{}, fmt.Errorf("plugin %q is missing Validate func", name)
 	}
 	p.Name = name
 	return p, nil
@@ -235,12 +233,6 @@ func ValidateProfileSteps(r *Registry, p *profile.Profile, overrides map[string]
 			if err != nil {
 				return err
 			}
-			if err := EnsureValidationPolicy(step, plugin); err != nil {
-				return err
-			}
-			if plugin.Validate == nil {
-				continue
-			}
 			if err := plugin.Validate(step, overrides); err != nil {
 				return fmt.Errorf("step %q (%s): %w", step.ID, step.PluginName(), err)
 			}
@@ -248,28 +240,4 @@ func ValidateProfileSteps(r *Registry, p *profile.Profile, overrides map[string]
 	}
 
 	return nil
-}
-
-func NoopCapture(_ profile.Step, message string) CaptureResult {
-	return CaptureResult{
-		RollbackMode: ModeNoop,
-		Objects: []ObjectRecord{
-			{
-				Kind:    ObjectValidate,
-				Message: message,
-			},
-		},
-	}
-}
-
-func EnsureValidationPolicy(step profile.Step, plugin Plugin) error {
-	if plugin.InternalValidation || step.AllowUnvalidated {
-		return nil
-	}
-	return fmt.Errorf(
-		"step %q (%s): plugin %q does not internally validate; set allow_unvalidated=true to acknowledge it",
-		step.ID,
-		step.PluginName(),
-		plugin.Name,
-	)
 }

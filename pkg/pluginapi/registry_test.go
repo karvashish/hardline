@@ -13,10 +13,9 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 	r := NewRegistry()
 
 	err := r.Register(Plugin{
-		Name:               "  TEMPLATE  ",
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-		Apply:              func(Context, profile.Step) error { return nil },
+		Name:     "  TEMPLATE  ",
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Apply:    func(Context, profile.Step) error { return nil },
 		Plan: func(Context, profile.Step) (PlanResult, error) {
 			return PlanResult{Summary: "ok"}, nil
 		},
@@ -37,9 +36,6 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 	if plugin.Name != "template" {
 		t.Fatalf("expected normalized plugin name, got %q", plugin.Name)
 	}
-	if !plugin.InternalValidation {
-		t.Fatal("expected internal validation metadata to be preserved")
-	}
 }
 
 func TestRegistryRegisterErrors(t *testing.T) {
@@ -55,9 +51,8 @@ func TestRegistryRegisterErrors(t *testing.T) {
 	}
 
 	err = r.Register(Plugin{
-		Name:               "x",
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Name:     "x",
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
 		Plan: func(Context, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},
@@ -91,13 +86,12 @@ func TestRegistryRegisterErrors(t *testing.T) {
 	}
 
 	err = r.Register(Plugin{
-		Name:               "x",
-		InternalValidation: true,
-		Apply:              func(Context, profile.Step) error { return nil },
-		Plan:               func(Context, profile.Step) (PlanResult, error) { return PlanResult{}, nil },
-		Capture:            func(Context, profile.Step) (CaptureResult, error) { return CaptureResult{}, nil },
-		Rollback:           func(Host, ObjectRecord) error { return nil },
-		DetectConflict:     func(Host, ObjectRecord) []string { return nil },
+		Name:           "x",
+		Apply:          func(Context, profile.Step) error { return nil },
+		Plan:           func(Context, profile.Step) (PlanResult, error) { return PlanResult{}, nil },
+		Capture:        func(Context, profile.Step) (CaptureResult, error) { return CaptureResult{}, nil },
+		Rollback:       func(Host, ObjectRecord) error { return nil },
+		DetectConflict: func(Host, ObjectRecord) []string { return nil },
 	})
 	if err == nil || !strings.Contains(err.Error(), "missing Validate func") {
 		t.Fatalf("expected missing validate error, got %v", err)
@@ -133,25 +127,6 @@ func TestRegistryRegisterMultiplePlugins(t *testing.T) {
 	}
 	if _, ok := r.Lookup("y"); !ok {
 		t.Fatal("expected plugin y in registry")
-	}
-}
-
-func TestEnsureValidationPolicy(t *testing.T) {
-	step := profile.Step{ID: "s1", Plugin: "pkg"}
-
-	if err := EnsureValidationPolicy(step, Plugin{Name: "pkg", InternalValidation: true}); err != nil {
-		t.Fatalf("expected internally validating plugin to pass, got %v", err)
-	}
-
-	step.AllowUnvalidated = true
-	if err := EnsureValidationPolicy(step, Plugin{Name: "pkg", InternalValidation: false}); err != nil {
-		t.Fatalf("expected explicit allow_unvalidated to pass, got %v", err)
-	}
-
-	step.AllowUnvalidated = false
-	err := EnsureValidationPolicy(step, Plugin{Name: "pkg", InternalValidation: false})
-	if err == nil || !strings.Contains(err.Error(), "allow_unvalidated=true") {
-		t.Fatalf("expected explicit unvalidated policy error, got %v", err)
 	}
 }
 
@@ -240,22 +215,11 @@ func TestValidateProfileSteps_RunsPluginValidator(t *testing.T) {
 	}
 }
 
-func TestNoopCapture(t *testing.T) {
-	record := NoopCapture(profile.Step{ID: "s1", Plugin: "template"}, "noop")
-	if record.RollbackMode != ModeNoop {
-		t.Fatalf("unexpected noop capture: %+v", record)
-	}
-	if len(record.Objects) != 1 || record.Objects[0].Message != "noop" {
-		t.Fatalf("unexpected noop capture objects: %+v", record.Objects)
-	}
-}
-
 func validPlugin(name string) Plugin {
 	return Plugin{
-		Name:               name,
-		InternalValidation: true,
-		Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-		Apply:              func(Context, profile.Step) error { return nil },
+		Name:     name,
+		Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+		Apply:    func(Context, profile.Step) error { return nil },
 		Plan: func(Context, profile.Step) (PlanResult, error) {
 			return PlanResult{}, nil
 		},

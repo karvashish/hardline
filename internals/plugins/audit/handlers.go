@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "audit",
-		InternalValidation: true,
+		Name: "audit",
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			_, err := decodeSpec(step)
 			return err
@@ -45,8 +44,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("audit rollback: missing file snapshot")
 				}
 				return Restore(host, *obj.File)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("audit plugin cannot roll back kind %q", obj.Kind)
 			}

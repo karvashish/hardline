@@ -58,8 +58,7 @@ func (b Backend) Plugin() pluginapi.Plugin {
 		panic(fmt.Sprintf("invalid package backend: %v", err))
 	}
 	return pluginapi.Plugin{
-		Name:               b.Name,
-		InternalValidation: true,
+		Name: b.Name,
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			_, err := b.decode(step)
 			return err
@@ -92,8 +91,6 @@ func (b Backend) Plugin() pluginapi.Plugin {
 					return fmt.Errorf("%s rollback: missing package snapshot", b.Name)
 				}
 				return b.restore(host, *obj.Package)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("%s plugin cannot roll back kind %q", b.Name, obj.Kind)
 			}

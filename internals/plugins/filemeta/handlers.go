@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "file_meta",
-		InternalValidation: true,
+		Name: "file_meta",
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			spec, err := decodeSpec(step)
 			if err != nil {
@@ -57,8 +56,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("file_meta rollback: missing file metadata snapshot")
 				}
 				return restoreFileMeta(host, *obj.FileMeta)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("file_meta plugin cannot roll back kind %q", obj.Kind)
 			}

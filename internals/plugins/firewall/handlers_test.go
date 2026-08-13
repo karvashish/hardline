@@ -13,10 +13,6 @@ import (
 func TestPlugin_MetadataAndValidation(t *testing.T) {
 	plugin := Plugin()
 
-	if !plugin.InternalValidation {
-		t.Fatal("expected firewall plugin to declare internal validation")
-	}
-
 	err := plugin.Apply(pluginapi.Context{Host: firewallHelperRuntimeStub{runRootWithOutput: "644 12", readContent: "stale"}}, profile.Step{
 		ID:     "fw",
 		Plugin: "firewall",

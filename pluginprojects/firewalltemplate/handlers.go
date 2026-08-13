@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "firewall_template",
-		InternalValidation: true,
+		Name: "firewall_template",
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			spec, err := decodeFirewallTemplateSpec(step)
 			if err != nil {
@@ -61,8 +60,6 @@ func Plugin() pluginapi.Plugin {
 					return restoreMainConfig(host, *obj.File)
 				}
 				return pluginapi.RestoreFileSnapshot(host, *obj.File)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("firewall_template plugin cannot roll back kind %q", obj.Kind)
 			}

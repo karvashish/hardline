@@ -389,7 +389,7 @@ func TestRollbackStepModes(t *testing.T) {
 			ID:           "tmpl",
 			Type:         "template",
 			RollbackMode: pluginapi.ModeDeterministic,
-			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectValidate, Message: "noop"}},
+			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, Message: "noop"}},
 			After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: nil}},
 		}
 		if _, err := rollbackStepWithMode(nil, step, false); err != nil {

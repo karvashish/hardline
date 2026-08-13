@@ -14,9 +14,6 @@ func TestPluginRollbackDispatch(t *testing.T) {
 	if err := plugin.Rollback(fwTemplateRuntimeStub{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile}); err == nil || !strings.Contains(err.Error(), "missing file snapshot") {
 		t.Fatalf("expected missing snapshot error, got %v", err)
 	}
-	if err := plugin.Rollback(fwTemplateRuntimeStub{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectValidate}); err != nil {
-		t.Fatalf("expected validate noop, got %v", err)
-	}
 	if err := plugin.Rollback(fwTemplateRuntimeStub{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectService}); err == nil || !strings.Contains(err.Error(), "cannot roll back kind") {
 		t.Fatalf("expected unsupported kind error, got %v", err)
 	}

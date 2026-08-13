@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "firewall",
-		InternalValidation: true,
+		Name: "firewall",
 		Validate: func(step profile.Step, overrides map[string]json.RawMessage) error {
 			spec, err := decodeFirewallSpec(step)
 			if err != nil {
@@ -88,8 +87,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("firewall rollback: missing include record")
 				}
 				return RestoreNftablesInclude(host, *obj.ConfigLine)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("firewall plugin cannot roll back kind %q", obj.Kind)
 			}

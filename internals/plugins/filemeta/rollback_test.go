@@ -138,12 +138,6 @@ func TestPluginRollbackDispatch(t *testing.T) {
 		}
 	})
 
-	t.Run("validate noop", func(t *testing.T) {
-		if err := plugin.Rollback(&fakeHost{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectValidate}); err != nil {
-			t.Fatalf("expected validate noop, got %v", err)
-		}
-	})
-
 	t.Run("unsupported kind", func(t *testing.T) {
 		err := plugin.Rollback(&fakeHost{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectService})
 		if err == nil || !strings.Contains(err.Error(), "cannot roll back kind") {

@@ -1,8 +1,6 @@
-// Package packages holds the leaf helpers the package plugins share. It
-// registers no plugin of its own: apt/, dnf4/ and dnf5/ each own a complete
-// plugin, declare their own config spec, and name their own commands. Nothing
-// here knows which package manager is running, and nothing here is part of a
-// plugin's config contract.
+// Package packages holds the lifecycle engine and leaf helpers shared by the
+// apt, dnf4 and dnf5 package plugins. It registers no plugin of its own; each
+// backend supplies its package syntax, commands, query and preview parsers.
 package packages
 
 import (

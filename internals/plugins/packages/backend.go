@@ -201,6 +201,9 @@ func (b Backend) validate(spec *Spec) error {
 	if len(spec.PurgeAlsoRemoves) > 0 && len(spec.Purge) == 0 {
 		return fmt.Errorf("%s: purge_also_removes has no effect without purge", b.Name)
 	}
+	if err := ValidatePurgeCollateral(spec.Install, spec.Purge, spec.PurgeAlsoRemoves); err != nil {
+		return err
+	}
 	if err := ValidateNames(b.NamePattern, spec.PurgeAlsoRemoves); err != nil {
 		return err
 	}
@@ -368,7 +371,10 @@ func (b Backend) capture(ctx pluginapi.Context, stepID string, spec *Spec) (plug
 		return record, fmt.Errorf("%s step: host context is required", b.Name)
 	}
 
-	names, installSet, purgeSet := Targets(spec.Install, spec.Purge)
+	// Declared collateral is journalled like an explicit purge so rollback can
+	// attempt to restore what the purge transaction dragged out with it.
+	purgeTargets := append(append([]string(nil), spec.Purge...), spec.PurgeAlsoRemoves...)
+	names, installSet, purgeSet := Targets(spec.Install, purgeTargets)
 	records := make([]pluginapi.ObjectRecord, 0, len(names))
 	for _, name := range names {
 		was, version, pin, err := b.Query(ctx.Host, name)

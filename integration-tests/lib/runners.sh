@@ -91,6 +91,21 @@ ensure_base_bootstrap() {
   grep -F -q 'ip6 nexthdr icmpv6 accept' "${remote_file}" || { rm -rf "${check_dir}"; fail "missing nftables icmpv6 rule"; }
   rm -rf "${check_dir}"
 
+  # The sshd policy is read back out of sshd, not off the disk. The drop-in
+  # only has to carry the mode; whether the daemon is running what it says is
+  # what sshd -T answers, and nothing else on the host can answer it.
+  ssh_cmd "test \"\$(sudo stat -c %a /etc/ssh/sshd_config.d/00-hardline-ssh.conf)\" = 600" \
+    || fail "unexpected mode for the hardline sshd drop-in"
+  if [ "${#BASE_SSH_EFFECTIVE[@]}" -gt 0 ]; then
+    local effective
+    effective="$(ssh_cmd "sudo sshd -T")" || fail "sshd -T failed on the target"
+    local expectation
+    for expectation in "${BASE_SSH_EFFECTIVE[@]}"; do
+      printf '%s\n' "${effective}" | grep -qix -- "${expectation}" \
+        || fail "sshd -T does not report '${expectation}'"
+    done
+  fi
+
   # Package and service checks. The package query and unit names come from
   # os.sh; the sysctl and nftables assertions are target-independent.
   {

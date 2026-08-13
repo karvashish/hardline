@@ -117,7 +117,7 @@ Also note: `profile.overrides.json` is deliberately excluded from the signed man
 
 ### `package manager lock is held by another process (PIDs: ...)`
 
-Another package operation is already running on the target: `apt-get`/`dpkg`/`unattended-upgrades` on Debian-family hosts, `dnf`/`dnf-automatic` on RHEL-family ones. Hardline checks the selected backend's locks with `fuser` (`/var/lib/dpkg/lock`, `/var/lib/apt/lists/lock`, `/var/lib/dpkg/lock-frontend` for `apt`; the rpm and dnf metadata locks for `dnf4`/`dnf5`) and does not wait: it fails fast with the holding PIDs so you can investigate. Wait a minute and retry, or inspect:
+Another package operation is already running on the target: `apt-get`/`dpkg`/`unattended-upgrades` on Debian-family hosts, `dnf`/`dnf-automatic` on RHEL-family ones. Hardline checks the selected backend's locks (`/var/lib/dpkg/lock`, `/var/lib/apt/lists/lock`, `/var/lib/dpkg/lock-frontend` for `apt`; the rpm and dnf metadata locks for `dnf4`/`dnf5`) and does not wait: it fails fast with the holding PIDs so you can investigate. The check uses `fuser` where psmisc is installed and reads `/proc` where it is not, so a minimal host is still manageable; it refuses to run at all if neither can answer. Wait a minute and retry, or inspect:
 
 ```bash
 sudo lsof /var/lib/dpkg/lock   # or /var/lib/rpm/.rpm.lock on RHEL-family hosts

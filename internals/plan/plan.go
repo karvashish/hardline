@@ -290,6 +290,7 @@ func writePlanSummary(b *strings.Builder, steps []StepPlan) {
 // can deliver, so the worst case is what the summary names.
 func plannedRollbackFidelity(steps []StepPlan) (string, string) {
 	worst := ""
+	unknown := false
 	for _, step := range steps {
 		if !step.WillChange {
 			continue
@@ -305,9 +306,15 @@ func plannedRollbackFidelity(steps []StepPlan) (string, string) {
 			}
 		default:
 			// A changing step whose plugin says nothing is not evidence that a
-			// rollback would restore it.
-			return "UNKNOWN (a step did not report its rollback fidelity)", logger.ColorYellow
+			// rollback would restore it. The scan continues rather than reporting
+			// it here, because a later irreversible step outranks it and would
+			// otherwise be hidden behind this one.
+			unknown = true
 		}
+	}
+
+	if unknown {
+		return "UNKNOWN (a step did not report its rollback fidelity)", logger.ColorYellow
 	}
 
 	switch worst {

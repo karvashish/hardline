@@ -69,7 +69,11 @@ Apply runs in this order:
    value.
 
 Any failure from step 4 onward restores the previous drop-in, so a refusal never
-leaves the host carrying a configuration the next reboot would apply.
+leaves the host carrying a configuration the next reboot would apply. A failure
+at step 7 or 8, once the daemon has already been reloaded, also reloads it back
+off the restored file: putting the bytes back is not enough on its own, because
+sshd would keep running the policy that was just refused. A reload that reports
+an error counts as having happened, since it may have taken effect anyway.
 
 A host whose file already matches **and** whose effective policy already carries
 every declared keyword gets no write and no reload. The file matching on its own

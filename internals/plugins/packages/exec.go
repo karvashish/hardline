@@ -52,9 +52,12 @@ const lockProbeMarker = "HL-LOCK:"
 // build bug rather than something to handle at runtime.
 var lockPathRe = regexp.MustCompile(`^/[A-Za-z0-9._*/-]+$`)
 
-// LockProbe builds the lock probe for a backend's own lock paths. fuser must be
-// present: a host that cannot answer the question has not answered it, and
-// package operations must not start on an unanswered lock check.
+// LockProbe builds the lock probe for a backend's own lock paths. It answers
+// with fuser where psmisc is installed and by reading /proc where it is not:
+// requiring psmisc would make a minimal host unmanageable, including for the
+// one transaction that would have installed it. It still fails closed, because
+// a host that cannot answer the question has not answered it, and package
+// operations must not start on an unanswered lock check.
 func LockProbe(paths ...string) string {
 	if len(paths) == 0 {
 		panic("packages.LockProbe: no lock paths")
@@ -64,9 +67,25 @@ func LockProbe(paths ...string) string {
 			panic("packages.LockProbe: unsupported lock path " + p)
 		}
 	}
-	return "command -v fuser >/dev/null 2>&1 || { echo 'fuser is not installed (package psmisc)' >&2; exit 3; }; " +
-		"printf '%s' " + pluginapi.ShellArg(lockProbeMarker) + "; " +
-		"fuser " + strings.Join(paths, " ") + " 2>/dev/null; echo"
+	joined := strings.Join(paths, " ")
+	return "printf '%s' " + pluginapi.ShellArg(lockProbeMarker) + "; " +
+		"if command -v fuser >/dev/null 2>&1; then fuser " + joined + " 2>/dev/null; " +
+		"else " + procLockHolders(joined) + "; fi; echo"
+}
+
+// procLockHolders is what fuser does, in the shell: walk every process's open
+// descriptors and print the ones pointing at a lock file. It refuses rather
+// than reporting an empty answer when /proc cannot be read, since "no holder"
+// and "nothing looked" are the same output otherwise.
+func procLockHolders(joined string) string {
+	return "{ [ -d /proc/1/fd ] || { echo 'cannot read /proc to check the package manager lock, and fuser is not installed (package psmisc)' >&2; exit 3; }; " +
+		"for fd in /proc/[0-9]*/fd/*; do " +
+		`target=$(readlink "$fd" 2>/dev/null) || continue; ` +
+		"for lock in " + joined + "; do " +
+		`if [ "$target" = "$lock" ]; then ` +
+		"pid=${fd#/proc/}; pid=${pid%%/*}; " +
+		`printf '%s ' "$pid"; break; fi; ` +
+		"done; done; }"
 }
 
 // CheckLock reports the package manager's lock as held, using a probe built by

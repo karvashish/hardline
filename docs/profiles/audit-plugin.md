@@ -48,11 +48,26 @@ rule body rather than by label: every rule written is parsed and must appear in
 `auditctl -l` with the same watch path and permissions, or the same list,
 syscalls and field comparisons. A key alone proves nothing, because two rules
 can carry the same `-k` and watch entirely different things. The two spellings
-are reconciled: a file writes `-S a,b` and `-k name` where `auditctl` prints
-`-S a -S b` and, for a syscall rule, `-F key=name`. A rule the kernel is not
-running is named in the failure. A file that declares no rules at all is
-refused, because a load with nothing to check reports success without proving
-anything.
+are reconciled, because `auditctl` re-renders every rule it prints and each
+difference would otherwise fail the step right after a load that worked:
+
+| A rules file writes | `auditctl -l` prints back |
+| --- | --- |
+| `-S a,b` | `-S a -S b` |
+| `-k name`, on a syscall rule | `-F key=name` |
+| `-F auid!=4294967295` | `-F auid!=unset`, or `-F auid!=-1` |
+| `-w /etc/audit/` | `-w /etc/audit` |
+| `-w /etc/passwd`, with no `-p` | `-w /etc/passwd -p rwxa` |
+| `-w /etc/passwd -p wa` | that, or its `-F path= -F perm=` form |
+
+A rule the kernel is not running is named in the failure. A file that declares
+no rules at all is refused, because a load with nothing to check reports success
+without proving anything.
+
+The running policy carries whatever else the host loaded, so a rule in
+`auditctl -l` that this comparison cannot model is ignored rather than failing
+the step: it belongs to another owner and is never compared. Only the rules the
+profile declares have to parse, and those are refused outright if they do not.
 
 Before anything is written, apply refuses three states it cannot honestly act
 on:

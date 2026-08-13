@@ -288,6 +288,11 @@ func TestPlannedRollbackFidelity(t *testing.T) {
 			steps: []StepPlan{changing(pluginapi.ModeDeterministic), changing("")},
 			want:  "UNKNOWN",
 		},
+		{
+			name:  "a silent plugin does not hide a later irreversible step",
+			steps: []StepPlan{changing(""), changing(pluginapi.ModeIrreversible)},
+			want:  "IRREVERSIBLE",
+		},
 	}
 
 	for _, tc := range cases {

@@ -435,6 +435,30 @@ func TestCapturesDiffer_ExactServiceState(t *testing.T) {
 	}
 }
 
+// A step whose only change is wiring an include line reports ALIGNED without a
+// config-line comparison, and restart_policy: on_change never fires for it.
+func TestCapturesDiffer_ConfigLine(t *testing.T) {
+	absent := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine,
+		ConfigLine: &ConfigLineSnapshot{Path: "/etc/nftables.conf", Line: `include "/etc/nftables.d/99-hardline.nft"`, FileExisted: true, Added: true}}}}
+	present := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine,
+		ConfigLine: &ConfigLineSnapshot{Path: "/etc/nftables.conf", Line: `include "/etc/nftables.d/99-hardline.nft"`, FileExisted: true, Added: false}}}}
+
+	if !CapturesDiffer(absent, present) {
+		t.Fatal("appending the include line is a change")
+	}
+	if CapturesDiffer(present, present) {
+		t.Fatal("identical config-line state must not report a change")
+	}
+
+	missing := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine}}}
+	if !CapturesDiffer(missing, present) {
+		t.Fatal("a record that lost its payload is not the same as one that kept it")
+	}
+	if CapturesDiffer(missing, missing) {
+		t.Fatal("two empty config-line records are the same")
+	}
+}
+
 // TestRestoreFileSnapshot_RestoresOwnership pins that a restore puts ownership
 // back: the right bytes under the wrong owner is not the pre-apply state.
 func TestRestoreFileSnapshot_RestoresOwnership(t *testing.T) {

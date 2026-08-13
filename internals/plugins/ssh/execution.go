@@ -303,6 +303,7 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 	// From here the file is in place but the daemon still runs the old policy.
 	// Every failure restores what was there before, so a refusal never leaves
 	// the host carrying a configuration the next reload or reboot would apply.
+	reloaded := false
 	activate := func() error {
 		if err := checkMainConfig(ctx.Host, bin); err != nil {
 			return err
@@ -314,6 +315,10 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 		if err := assertManagementAccess(prospective, user, groups); err != nil {
 			return err
 		}
+		// Marked before the reload runs, not after: a reload that reports an
+		// error may still have made the daemon take the new policy, and the
+		// restore has to assume it did.
+		reloaded = true
 		if err := reload(ctx.Host, spec.Service); err != nil {
 			return err
 		}
@@ -321,12 +326,28 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 	}
 
 	if err := activate(); err != nil {
-		if restoreErr := pluginapi.RestoreFileSnapshot(ctx.Host, before); restoreErr != nil {
+		if restoreErr := restorePrevious(ctx.Host, bin, before, spec.Service, reloaded); restoreErr != nil {
 			return fmt.Errorf("%w (and restoring the previous %s failed: %v)", err, spec.Path, restoreErr)
 		}
 		return err
 	}
 	return nil
+}
+
+// restorePrevious undoes a refused activation. Putting the file back is enough
+// only while the daemon has not been reloaded; once it has, sshd keeps running
+// the policy that was just refused until it is reloaded off the restored file.
+func restorePrevious(host pluginapi.Host, bin string, before pluginapi.FileSnapshot, service string, reloaded bool) error {
+	if err := pluginapi.RestoreFileSnapshot(host, before); err != nil {
+		return err
+	}
+	if !reloaded {
+		return nil
+	}
+	if err := checkMainConfig(host, bin); err != nil {
+		return fmt.Errorf("after restoring %s: %w", before.Path, err)
+	}
+	return reload(host, service)
 }
 
 func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {

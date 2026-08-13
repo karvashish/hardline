@@ -106,6 +106,33 @@ func ParseRules(data []byte) ([]Rule, error) {
 	return out, nil
 }
 
+// ParseLoadedRules turns auditctl -l output into comparable rules. The running
+// policy carries whatever else the host loaded, so a rule this parser cannot
+// model is skipped rather than failing the step: it belongs to another owner
+// and is never compared. The skipped lines are returned so the caller can say
+// what it ignored.
+func ParseLoadedRules(data []byte) ([]Rule, []string) {
+	var out []Rule
+	var skipped []string
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		tokens := strings.Fields(line)
+		if ControlLine(tokens) {
+			continue
+		}
+		rule, err := parseRuleTokens(tokens)
+		if err != nil {
+			skipped = append(skipped, line)
+			continue
+		}
+		out = append(out, rule)
+	}
+	return out, skipped
+}
+
 func parseRuleTokens(tokens []string) (Rule, error) {
 	var rule Rule
 	for i := 0; i < len(tokens); i++ {
@@ -120,7 +147,7 @@ func parseRuleTokens(tokens []string) (Rule, error) {
 			if value == "" {
 				return Rule{}, fmt.Errorf("-w needs a path")
 			}
-			rule.Watch = value
+			rule.Watch = normalizeWatchPath(value)
 			i++
 		case "-p":
 			if value == "" {
@@ -155,7 +182,7 @@ func parseRuleTokens(tokens []string) (Rule, error) {
 			if name, ok := strings.CutPrefix(value, "key="); ok {
 				rule.Key = name
 			} else {
-				rule.Fields = append(rule.Fields, value)
+				rule.Fields = append(rule.Fields, normalizeField(value))
 			}
 			i++
 		default:
@@ -168,7 +195,91 @@ func parseRuleTokens(tokens []string) (Rule, error) {
 	}
 	sort.Strings(rule.Syscalls)
 	sort.Strings(rule.Fields)
+	rule = foldWatchFields(rule)
+	// A watch written without -p runs with auditctl's default, which is what
+	// auditctl then prints back.
+	if rule.Watch != "" && rule.Perms == "" {
+		rule.Perms = sortedLetters("rwxa")
+	}
 	return rule, nil
+}
+
+// foldWatchFields turns the expanded spelling of a file watch back into the -w
+// form. A watch is equally legal written as a syscall rule carrying path= and
+// perm=, and which of the two auditctl -l prints depends on its version, so
+// both have to land on the same canonical rule.
+func foldWatchFields(rule Rule) Rule {
+	if rule.Watch != "" || len(rule.Syscalls) > 0 || rule.List != "always,exit" {
+		return rule
+	}
+
+	watch, perms := "", ""
+	var rest []string
+	for _, field := range rule.Fields {
+		switch {
+		case strings.HasPrefix(field, "path="):
+			watch = strings.TrimPrefix(field, "path=")
+		case strings.HasPrefix(field, "dir="):
+			watch = strings.TrimPrefix(field, "dir=")
+		case strings.HasPrefix(field, "perm="):
+			perms = sortedLetters(strings.TrimPrefix(field, "perm="))
+		default:
+			rest = append(rest, field)
+		}
+	}
+	// Any other comparison makes it a rule a -w watch cannot express, so it
+	// stays a syscall rule.
+	if watch == "" || len(rest) > 0 {
+		return rule
+	}
+
+	rule.Watch = normalizeWatchPath(watch)
+	rule.Perms = perms
+	rule.List = ""
+	rule.Fields = nil
+	return rule
+}
+
+// normalizeWatchPath drops the trailing separator a rules file may write on a
+// directory watch. auditctl -l prints the path without it, and both name the
+// same directory.
+func normalizeWatchPath(watch string) string {
+	if trimmed := strings.TrimRight(watch, "/"); trimmed != "" {
+		return trimmed
+	}
+	return watch
+}
+
+// idFields are the comparisons whose "no login id" sentinel auditctl re-spells.
+// A rules file writes 4294967295, audit 3.x prints unset, and older builds
+// print -1; all three are the same value.
+var idFields = map[string]struct{}{
+	"auid": {}, "uid": {}, "euid": {}, "suid": {}, "fsuid": {},
+	"gid": {}, "egid": {}, "sgid": {}, "fsgid": {},
+	"obj_uid": {}, "obj_gid": {},
+}
+
+// fieldOps are auditctl's comparison operators, longest first so that != is not
+// read as =.
+var fieldOps = []string{"!=", ">=", "<=", "&=", "=", ">", "<", "&"}
+
+func normalizeField(field string) string {
+	for _, op := range fieldOps {
+		i := strings.Index(field, op)
+		if i <= 0 {
+			continue
+		}
+		name, value := field[:i], field[i+len(op):]
+		if _, ok := idFields[name]; !ok {
+			return field
+		}
+		switch value {
+		case "4294967295", "-1", "unset":
+			value = "unset"
+		}
+		return name + op + value
+	}
+	return field
 }
 
 func sortedLetters(in string) string {

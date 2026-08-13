@@ -224,31 +224,34 @@ func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 		policy, joinPorts(ports))
 }
 
-// sshdListeningPorts reads the ports sshd is actually listening on. It fails
+// sshdListeningPorts reads the ports sshd is actually reachable on. It fails
 // closed: a probe that cannot answer is not evidence that a lockout is safe.
+//
+// Two arrangements have to be covered. A host running sshd as a daemon holds
+// the listening socket in sshd itself, which is what ss attributes it to. A
+// socket-activated host, which is the default on Ubuntu 24.04, has systemd
+// holding it instead, so nothing in ss names sshd at all and scanning for it
+// alone would refuse every drop policy.
 func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
 	out, err := host.RunRootWithOutput("ss -Hltnp 2>/dev/null")
 	if err != nil {
 		return nil, fmt.Errorf("probe the listening ssh ports: %w", err)
 	}
 
+	listening := make(map[int]struct{})
 	seen := make(map[int]struct{})
 	var ports []int
 	for _, line := range strings.Split(out, "\n") {
-		if !strings.Contains(line, "sshd") {
-			continue
-		}
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
-		local := fields[3]
-		idx := strings.LastIndex(local, ":")
-		if idx < 0 {
+		port, ok := listenPort(fields[3])
+		if !ok {
 			continue
 		}
-		port, convErr := strconv.Atoi(local[idx+1:])
-		if convErr != nil || port < 1 || port > 65535 {
+		listening[port] = struct{}{}
+		if !strings.Contains(line, "sshd") {
 			continue
 		}
 		if _, dup := seen[port]; dup {
@@ -257,11 +260,72 @@ func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
 		seen[port] = struct{}{}
 		ports = append(ports, port)
 	}
+
+	activated, err := sshSocketPorts(host)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range activated {
+		// Only a port something is really listening on counts. The guard passes
+		// as soon as one of these is accepted, so a port taken from a unit file
+		// and no further would weaken it into accepting a port ssh never had.
+		if _, live := listening[port]; !live {
+			continue
+		}
+		if _, dup := seen[port]; dup {
+			continue
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+
 	if len(ports) == 0 {
 		return nil, fmt.Errorf("could not determine which port sshd is listening on; refusing to load a ruleset that may lock this host out")
 	}
 	sort.Ints(ports)
 	return ports, nil
+}
+
+// sshSocketPorts reads the ports of an ssh socket unit that is currently
+// active. Only an active unit is asked: an enabled-but-stopped socket holds no
+// listener, and its ports are not ones this host answers ssh on.
+func sshSocketPorts(host pluginapi.Host) ([]int, error) {
+	const cmd = `for unit in ssh.socket sshd.socket; do ` +
+		`systemctl is-active --quiet "$unit" && systemctl show "$unit" -p Listen --value; ` +
+		`done 2>/dev/null || true`
+
+	out, err := host.RunRootWithOutput(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("probe the ssh socket units: %w", err)
+	}
+
+	var ports []int
+	for _, line := range strings.Split(out, "\n") {
+		// systemd prints one listener per line as "ADDRESS (Type)"; only a
+		// stream socket carries ssh.
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[1] != "(Stream)" {
+			continue
+		}
+		if port, ok := listenPort(fields[0]); ok {
+			ports = append(ports, port)
+		}
+	}
+	return ports, nil
+}
+
+// listenPort reads the port off a listening address, which ss and systemd both
+// print with the address first: 0.0.0.0:22, [::]:22, *:22.
+func listenPort(local string) (int, bool) {
+	idx := strings.LastIndex(local, ":")
+	if idx < 0 {
+		return 0, false
+	}
+	port, err := strconv.Atoi(local[idx+1:])
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
 }
 
 // acceptsInputPort reports whether the ruleset lets a new connection to port
@@ -674,20 +738,28 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	// Rollback walks Before in reverse, so the main-config lines are listed
 	// last to be taken back first. An include naming a file that is no longer
 	// there fails every nftables load, so the pointer has to go before what it
-	// points at, and the flush header goes with it.
+	// points at, and the flush header goes with it. The managed file is restored
+	// last, which is where the kernel is reloaded from what is left on disk; the
+	// main config rides on the record because Rollback is handed one object and
+	// nothing else, and it is re-validated on the way out.
 	record.Objects = []pluginapi.ObjectRecord{
-		{Kind: pluginapi.ObjectFile, File: &snap},
+		{Kind: pluginapi.ObjectFile, File: &snap, Message: mainConfig},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &flush},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &include},
 	}
 	return record, nil
 }
 
-// includeLineConflict reports an include this run added that is no longer
-// there. Rolling back would then be removing a line someone else already
-// removed, and the managed file has been inert since.
+// includeLineConflict reports a line this run left in the main config that is
+// no longer there. Rolling back would then be removing a line someone else
+// already removed, and the managed file has been inert since.
+//
+// The record handed here is the after snapshot, taken once apply had appended
+// the line, so Added is false on it: the line was present at capture time. An
+// after record with Added set means the line was still absent when the capture
+// ran, so its absence now is not drift.
 func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) []string {
-	if host == nil || !rec.Added {
+	if host == nil || rec.Added {
 		return nil
 	}
 	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
@@ -726,6 +798,60 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 		return RemoveNftablesFlush(host, rec.Path)
 	}
 	return RemoveNftablesInclude(host, rec.Path, rec.Line)
+}
+
+// RestoreManagedRuleset puts the managed ruleset file back and then reloads the
+// kernel from the restored main config. Apply loads the ruleset into the kernel
+// rather than leaving it for a service restart, so restoring the file alone
+// would leave the host running the very ruleset being rolled back until it next
+// boots. The main config is the authority afterwards, whatever it now says.
+func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mainConfig string) error {
+	if host == nil {
+		return fmt.Errorf("firewall rollback: host is required")
+	}
+	// The path came off the journal, so it is checked against the same closed
+	// set the profile schema accepts rather than being handed to nft as given.
+	if !ValidMainConfig(mainConfig) {
+		return fmt.Errorf("firewall rollback: the journal records an unsupported main config path %q", mainConfig)
+	}
+	if err := pluginapi.RestoreFileSnapshot(host, snap); err != nil {
+		return err
+	}
+	return reloadFromMainConfig(host, mainConfig)
+}
+
+// reloadFromMainConfig loads the main config back into the kernel. Rollback
+// takes the include line out before it gets here, so what loads is the host's
+// own configuration with this profile's ruleset no longer part of it.
+func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
+	if err := host.RunRoot("test -f " + pluginapi.ShellArg(mainConfig)); err != nil {
+		// Rollback deleted the main config because this run created it, so
+		// there is nothing left to load and the applied ruleset just goes.
+		if out, flushErr := host.RunRootWithOutput("nft flush ruleset 2>&1"); flushErr != nil {
+			if detail := firstNftLines(out, 5); detail != "" {
+				return fmt.Errorf("firewall rollback: flush the loaded ruleset: %s", detail)
+			}
+			return fmt.Errorf("firewall rollback: flush the loaded ruleset: %w", flushErr)
+		}
+		return nil
+	}
+
+	// Either way this is one transaction, so the host is never briefly without
+	// rules. A main config carrying the flush header already replaces the
+	// ruleset on its own; one without it would add to what the kernel is
+	// running, which is exactly the rules being rolled back, so the header is
+	// synthesized around the same load.
+	cmd := "nft -f " + pluginapi.ShellArg(mainConfig)
+	if !flushPresent(host, mainConfig) {
+		cmd = fmt.Sprintf(`printf 'flush ruleset\ninclude "%%s"\n' %s | nft -f -`, pluginapi.ShellArg(mainConfig))
+	}
+	if out, err := host.RunRootWithOutput(cmd + " 2>&1"); err != nil {
+		if detail := firstNftLines(out, 5); detail != "" {
+			return fmt.Errorf("firewall rollback: reload %s: %s", mainConfig, detail)
+		}
+		return fmt.Errorf("firewall rollback: reload %s: %w", mainConfig, err)
+	}
+	return nil
 }
 
 // restoreNftablesMainConfig reverts the nftables main config to its pre-apply

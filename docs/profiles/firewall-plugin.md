@@ -86,9 +86,10 @@ Behavior:
 - validation runs `nft -c -f <main_config>` on the target
 - apply then loads the config with `nft -f <main_config>`: one file, one transaction, so the flush and every table in it commit together and the host is never briefly without rules. A `systemctl restart nftables` would do the same load as stop-then-start, and the stop flushes the ruleset on its own, so a profile needs only `enabled: true` with `state: "started"` for the ruleset to survive a reboot
 - after loading, the running table is read back with `nft -j list ruleset` and compared to what was applied, including rule order; a mismatch fails the step
-- before loading, a ruleset whose `input` policy is `drop` or `reject` must accept tcp on a port sshd is listening on, or apply refuses rather than locking itself out. The probe fails closed: if the listening port cannot be determined, nothing is loaded
+- before loading, a ruleset whose `input` policy is `drop` or `reject` must accept tcp on a port sshd is listening on, or apply refuses rather than locking itself out. The port is read from `ss` where sshd holds the listener itself, and from an active `ssh.socket`/`sshd.socket` where systemd holds it instead, which is the default on Ubuntu 24.04; a port a socket unit declares counts only while something is really listening on it. The probe fails closed: if the listening port cannot be determined, nothing is loaded
 - plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`, and reports a chain whose rules match but evaluate in a different order
 - rollback removes the include before the managed file: an include naming a file that is gone fails every later nftables load
+- restoring the managed file is the last thing rollback does, and it reloads the kernel from the restored `main_config` there. Apply loads the ruleset into the kernel rather than leaving it for a service restart, so putting the files back on their own would leave the host running the ruleset being rolled back until it next boots. The load carries `flush ruleset`, synthesized around it when the restored main config no longer has the header, so the rules coming out do not survive as what the new load adds to. If rollback deleted the main config because this run created it, the ruleset is flushed and nothing is loaded
 
 ## Runtime overrides
 

@@ -85,7 +85,7 @@ func Plugin() pluginapi.Plugin {
 				if ValidMainConfig(obj.File.Path) {
 					return restoreNftablesMainConfig(host, *obj.File)
 				}
-				return pluginapi.RestoreFileSnapshot(host, *obj.File)
+				return RestoreManagedRuleset(host, *obj.File, strings.TrimSpace(obj.Message))
 			case pluginapi.ObjectConfigLine:
 				if obj.ConfigLine == nil {
 					return fmt.Errorf("firewall rollback: missing include record")

@@ -226,8 +226,14 @@ func TestApplyReloadsWhenFileMatchesButPolicyDoesNot(t *testing.T) {
 	if !strings.Contains(err.Error(), "not what the profile declares") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(host.reloads) != 1 {
-		t.Fatalf("expected one reload attempt, got %v", host.reloads)
+	// Two reloads: the one that activated the drop-in, and the one that takes
+	// the daemon back off it. Restoring only the file would leave sshd running
+	// the policy this step just refused until something else reloaded it.
+	if len(host.reloads) != 2 {
+		t.Fatalf("expected the refused policy to be reloaded back out, got %v", host.reloads)
+	}
+	if _, ok := host.writes["/etc/ssh/sshd_config.d/00-hardline-ssh.conf"]; !ok {
+		t.Fatalf("expected the previous drop-in to be restored")
 	}
 }
 

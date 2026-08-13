@@ -15,7 +15,8 @@ Example:
     "upgrade": "once",
     "autoremove": "once",
     "install": ["nftables", "fail2ban"],
-    "purge": ["telnet"]
+    "purge": ["telnet"],
+    "purge_also_removes": ["telnet-common"]
   }
 }
 ```
@@ -25,6 +26,8 @@ Config fields:
 - `update`, `upgrade`, `autoremove`: `never`, `always`, `once`, `if_<N>[hdw]_since_last`, or omitted
 - `install`: package names to install
 - `purge`: package names to purge
+- `purge_also_removes`: packages the profile permits the resolved purge
+  transaction to remove as collateral
 
 ## Choosing the plugin
 
@@ -77,6 +80,9 @@ Rules:
   (`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 - entries must not be empty, and a name cannot repeat within `install` or within `purge`
 - the same package cannot appear in both `install` and `purge`
+- `purge_also_removes` entries must be unique and cannot also appear in
+  `install` or `purge`; they acknowledge collateral rather than request a second
+  operation, and they have no effect without `purge`
 - package operations are guarded by a lock check for that package manager (dpkg locks for apt, the rpm and dnf metadata locks otherwise), which fails fast rather than waiting
 - every package command runs under a 30-minute per-command `timeout` on the target
 
@@ -97,6 +103,15 @@ transaction.
 `dnf check-update` prints obsoletes in a trailing `Obsoleting Packages` section,
 listing each replacement at column 0 with the package it replaces indented
 beneath it. `dnf upgrade` installs those replacements, so plan counts them.
+
+## Purge collateral
+
+A purge is resolved after update, upgrade, and install, so its preview describes
+the dependency graph the purge will actually run against. Apply compares that
+preview with `purge` plus `purge_also_removes` and refuses the step if the
+transaction reaches any further, naming what it would have taken. Declared
+collateral is captured in the journal like an explicit purge, so rollback can
+attempt to reinstall it too.
 
 ## Rollback
 

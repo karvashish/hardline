@@ -301,6 +301,10 @@ func TestBackendDecodeAndValidate(t *testing.T) {
 		"invalid autoremove":   {Autoremove: "sometimes"},
 		"dead collateral":      {Install: []string{"pkg"}, PurgeAlsoRemoves: []string{"dep"}},
 		"invalid collateral":   {Purge: []string{"pkg"}, PurgeAlsoRemoves: []string{"dep;id"}},
+		"empty collateral":     {Purge: []string{"pkg"}, PurgeAlsoRemoves: []string{" "}},
+		"duplicate collateral": {Purge: []string{"pkg"}, PurgeAlsoRemoves: []string{"dep", "dep"}},
+		"collateral installed": {Install: []string{"dep"}, Purge: []string{"pkg"}, PurgeAlsoRemoves: []string{"dep"}},
+		"collateral purged":    {Purge: []string{"pkg"}, PurgeAlsoRemoves: []string{"pkg"}},
 		"duplicate install":    {Install: []string{"pkg", "pkg"}},
 		"install and purge":    {Install: []string{"pkg"}, Purge: []string{"pkg"}},
 		"invalid package name": {Install: []string{"pkg;id"}},
@@ -587,6 +591,25 @@ func TestBackendCapture(t *testing.T) {
 		old.Version != "1.2" || old.PinSpec != "old=1.2" {
 		t.Fatalf("old package record is wrong: %+v", old)
 	}
+
+	t.Run("journals declared collateral like an explicit purge", func(t *testing.T) {
+		f := newEngineFixture()
+		f.queries["old"] = engineQueryResult{installed: true, version: "1.2", pin: "old=1.2"}
+		f.queries["old-dep"] = engineQueryResult{installed: true, version: "0.9", pin: "old-dep=0.9"}
+		res, err := f.backend().capture(pluginapi.Context{Host: f.host()}, "step-id", &Spec{
+			Purge: []string{"old"}, PurgeAlsoRemoves: []string{"old-dep"},
+		})
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		if len(res.Objects) != 2 {
+			t.Fatalf("expected the collateral to be journalled: %+v", res.Objects)
+		}
+		dep := res.Objects[1].Package
+		if dep.Name != "old-dep" || !dep.RequestedPurge || !dep.WasInstalled || dep.PinSpec != "old-dep=0.9" {
+			t.Fatalf("collateral record is wrong: %+v", dep)
+		}
+	})
 
 	if _, err := b.capture(pluginapi.Context{}, "step-id", &Spec{}); err == nil {
 		t.Fatal("expected a host-required error")

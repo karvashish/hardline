@@ -58,3 +58,35 @@ func ValidateLists(nameRe *regexp.Regexp, installList, purgeList []string) error
 	}
 	return ValidateNames(nameRe, purgeList)
 }
+
+// ValidatePurgeCollateral keeps purge_also_removes an acknowledgement of what
+// the purge transaction drags out, not a second list of package operations.
+func ValidatePurgeCollateral(installList, purgeList, collateralList []string) error {
+	install := make(map[string]struct{}, len(installList))
+	for _, raw := range installList {
+		install[strings.TrimSpace(raw)] = struct{}{}
+	}
+	purge := make(map[string]struct{}, len(purgeList))
+	for _, raw := range purgeList {
+		purge[strings.TrimSpace(raw)] = struct{}{}
+	}
+
+	seen := make(map[string]struct{}, len(collateralList))
+	for _, raw := range collateralList {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			return fmt.Errorf("packages purge_also_removes entries must not be empty")
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("package %q is duplicated in purge_also_removes list", name)
+		}
+		seen[name] = struct{}{}
+		if _, exists := install[name]; exists {
+			return fmt.Errorf("package %q cannot be both installed and acknowledged as purge collateral in one step", name)
+		}
+		if _, exists := purge[name]; exists {
+			return fmt.Errorf("package %q is already explicitly purged and must not also appear in purge_also_removes", name)
+		}
+	}
+	return nil
+}

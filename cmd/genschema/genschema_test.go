@@ -26,14 +26,8 @@ func TestGenerateSchemas(t *testing.T) {
 	dir := t.TempDir()
 	profilePath := filepath.Join(dir, "profile.schema.json")
 	actionPath := filepath.Join(dir, "action-file.schema.json")
-	ledgerPath := filepath.Join(dir, "coverage-ledger.schema.json")
 
-	generateSchemas(profilePath, actionPath, ledgerPath)
-
-	ledgerSchema := readSchemaObject(t, ledgerPath)
-	if _, ok := ledgerSchema["$defs"].(map[string]any)["LedgerControl"]; !ok {
-		t.Fatalf("expected a LedgerControl definition, got %#v", ledgerSchema["$defs"])
-	}
+	generateSchemas(profilePath, actionPath)
 
 	actionSchema := readSchemaObject(t, actionPath)
 	defs, ok := actionSchema["$defs"].(map[string]any)

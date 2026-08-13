@@ -42,10 +42,6 @@ type Profile struct {
 	Actions          []string `json:"actions" jsonschema:"pattern=^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$"`
 	Templates        []string `json:"templates" jsonschema:"pattern=^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$"`
 	AllowedOverrides []string `json:"allowed_overrides,omitempty" jsonschema:"pattern=^[a-z][a-z0-9_]*$"`
-	// CoverageLedger names a signed file stating what each control wants, where
-	// that state came from, and which steps produce it. A profile that claims
-	// coverage should have to say so in content that is signed with it.
-	CoverageLedger string `json:"coverage_ledger,omitempty" jsonschema:"pattern=^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+)(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|[.][A-Za-z0-9_-][A-Za-z0-9._-]*|[.][.][A-Za-z0-9._-]+))*$"`
 
 	profilePath      string                     `json:"-"`
 	ActionFiles      []ActionFile               `json:"-"`

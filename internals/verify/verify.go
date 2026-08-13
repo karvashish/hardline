@@ -73,12 +73,6 @@ func Verify(c cli.Command) (*VerifiedBundle, error) {
 	if err := assertManifestCoverage(manifest, "template", p.Templates); err != nil {
 		return nil, err
 	}
-	if p.CoverageLedger != "" {
-		if err := assertManifestCoverage(manifest, "coverage ledger", []string{p.CoverageLedger}); err != nil {
-			return nil, err
-		}
-	}
-
 	return &VerifiedBundle{
 		ProfileDir:     c.Profile,
 		ManifestDigest: manifest.Digest,

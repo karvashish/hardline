@@ -371,6 +371,17 @@ var restorableUnitFileStates = map[string]struct{}{
 	"disabled":        {},
 }
 
+// Unit-file states that carry no install state to put back: apply could not
+// have changed them, so rollback restores the active state alone instead of
+// refusing the step. "masked" is deliberately absent - undoing it needs unmask,
+// not disable, so it stays a refusal.
+var unconfigurableUnitFileStates = map[string]struct{}{
+	"static":    {},
+	"indirect":  {},
+	"generated": {},
+	"transient": {},
+}
+
 func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) error {
 	unit := strings.TrimSpace(state.Unit)
 	if unit == "" {
@@ -391,16 +402,29 @@ func restoreServiceState(host pluginapi.Host, state pluginapi.ServiceState) erro
 	if recorded == "" {
 		return fmt.Errorf("refusing to restore %q: the journal records no unit-file state", unit)
 	}
-	if _, ok := restorableUnitFileStates[recorded]; !ok {
-		return fmt.Errorf("refusing to restore %q: it was %s at apply time, which enable/disable cannot express", unit, recorded)
+	_, restorable := restorableUnitFileStates[recorded]
+	if !restorable {
+		if _, skip := unconfigurableUnitFileStates[recorded]; !skip {
+			return fmt.Errorf("refusing to restore %q: it was %s at apply time, which enable/disable cannot express", unit, recorded)
+		}
 	}
 
-	enableCmd := "systemctl disable " + pluginapi.ShellArg(unit)
-	if state.Enabled {
-		enableCmd = "systemctl enable " + pluginapi.ShellArg(unit)
-	}
-	if err := host.RunRoot(enableCmd); err != nil {
-		return fmt.Errorf("restore service enabled state for %q: %w", unit, err)
+	if restorable {
+		// Driven by the recorded state, not by a derived boolean: an
+		// enabled-runtime unit is not "enabled", and restoring it with a plain
+		// enable would turn runtime-only enablement into a persistent one.
+		var enableCmd string
+		switch recorded {
+		case "enabled":
+			enableCmd = "systemctl enable " + pluginapi.ShellArg(unit)
+		case "enabled-runtime":
+			enableCmd = "systemctl enable --runtime " + pluginapi.ShellArg(unit)
+		default:
+			enableCmd = "systemctl disable " + pluginapi.ShellArg(unit)
+		}
+		if err := host.RunRoot(enableCmd); err != nil {
+			return fmt.Errorf("restore service enabled state for %q: %w", unit, err)
+		}
 	}
 
 	activeCmd := "systemctl stop " + pluginapi.ShellArg(unit)

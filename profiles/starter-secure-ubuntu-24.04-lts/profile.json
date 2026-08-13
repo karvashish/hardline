@@ -30,7 +30,6 @@
     "templates/40-audit-hardening-rules.tmpl",
     "templates/35-fail2ban-ssh-protection.tmpl",
     "templates/50-journald-hardening.conf.tmpl",
-    "templates/10-ssh-sshd-config.tmpl",
     "templates/20-sysctl-hardening.conf.tmpl"
   ],
   "allowed_overrides": [

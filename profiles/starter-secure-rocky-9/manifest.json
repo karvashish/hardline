@@ -8,7 +8,7 @@
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "2685ffdb46a78ed5d0897f37c0a495a33edcc61376bc27d10f1c24585943de64"
+      "sha256": "8ba22ff74bace55012a30deb734e5f1964423c51d84d47727cad0c20a1de8be9"
     },
     {
       "path": "actions/15-dnf-automatic.json",
@@ -44,11 +44,7 @@
     },
     {
       "path": "profile.json",
-      "sha256": "e8ea8ce465cc5ee0cce1ed6a781ad9ab73c40e5e8acb598afe1ced4ca02c95a6"
-    },
-    {
-      "path": "templates/10-ssh-sshd-config.tmpl",
-      "sha256": "406fd7f1180b51e2c946873db4020647d7be53d91939de140c1c5a93d6464027"
+      "sha256": "cfceefda5e1a8336cc2d5f9a0967d108bcdf70eabfea0f23ffa5be30a479b365"
     },
     {
       "path": "templates/20-sysctl-hardening.conf.tmpl",

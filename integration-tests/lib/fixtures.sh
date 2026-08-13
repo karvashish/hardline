@@ -188,6 +188,35 @@ EOJSON
   echo "${dir}"
 }
 
+# An ssh-only profile. The settings are passed through so a scenario can ask for
+# a policy the plugin must refuse as well as one it must apply.
+make_profile_ssh_only() {
+  local name="$1" dest="$2" settings="$3"
+  local dir="${DYNAMIC_PROFILES_DIR}/${name}"
+  mkdir -p "${dir}/actions"
+  cat > "${dir}/profile.json" <<EOJSON
+{
+  "id": "${name}", "display_name": "Test: ${name}", "version": "1.0.0",
+  "os": { "family": "${OS_FAMILY}", "version": "${OS_VERSION}", "variant": "${OS_VARIANT}" },
+  "profile_schema": 1, "min_hardline": "0.0.1",
+  "actions": ["actions/00-ssh.json"], "templates": []
+}
+EOJSON
+  cat > "${dir}/actions/00-ssh.json" <<EOJSON
+{
+  "steps": [
+    { "id": "ssh-policy", "plugin": "ssh", "config": {
+        "path": "${dest}",
+        "mode": "0600",
+        "service": "${SSH_UNIT}",
+        "settings": ${settings} } }
+  ]
+}
+EOJSON
+  sign_profile "${dir}"
+  echo "${dir}"
+}
+
 # Firewall with advanced rules (forward chain, source CIDR, multi-port, non-lo).
 make_profile_firewall_advanced() {
   local name="$1" table="$2" dest="$3" iface="${4:-lo}"

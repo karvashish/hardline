@@ -279,3 +279,78 @@ $(nft_forget_managed "${dest}")
 EOF
   scenario_end
 }
+
+# ── ssh-policy-activation: apply proves the policy from sshd, not from the file ─
+# The drop-in sorts before the starter profile's own file, so its keywords win
+# the first-match-wins race in sshd_config.d. They are chosen not to overlap
+# with what the starter declares, so this scenario reads cleanly whether or not
+# the base profile has been applied.
+scenario_ssh_policy_activation() {
+  local dir="${ARTIFACT_ROOT}/ssh-policy-activation"
+  reset_dir "${dir}"
+  scenario_start "ssh-policy-activation: the ssh step activates the policy and verifies it with sshd -T"
+  guard_can_sign || return
+
+  local dest="/etc/ssh/sshd_config.d/00-hardline-itest-ssh.conf"
+  ssh_cmd "sudo rm -f ${dest}"
+
+  must_remote "sshd does not already report the test policy (control)" <<EOF
+if sudo sshd -T | grep -qix 'maxsessions 7'; then exit 1; fi
+EOF
+
+  local pdir; pdir=$(make_profile_ssh_only "ssh-activate" "${dest}" '{"MaxSessions": 7, "ClientAliveInterval": 300}')
+  local mark0 cur; mark0="$(svc_actmark "${SSH_UNIT}")"; cur="$(journal_cursor)"
+  must_hl "${dir}/apply.log" "apply ssh-only profile" -- apply "${pdir}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
+
+  # sshd is the witness: the running daemon has to report the policy, and the
+  # unit has to show it was actually reloaded. Neither fact comes from hardline.
+  must_remote "sshd reports the declared policy at the declared mode" <<EOF
+test "\$(sudo stat -c %a ${dest})" = "600"
+sudo sshd -T | grep -qix 'maxsessions 7'
+sudo sshd -T | grep -qix 'clientaliveinterval 300'
+EOF
+  svc_acted_since "${SSH_UNIT}" "${mark0}" "${cur}" \
+    || note_fail "sshd not reloaded on apply (independent: MainPID + StateChange unchanged, no journal reload)"
+
+  must_hl "${dir}/rollback.log" "rollback ssh-only profile" -- rollback "${pdir}" "${remote_args[@]}"
+  must_remote "rollback removes the drop-in, and sshd no longer runs its policy" <<EOF
+test ! -e ${dest}
+sudo sshd -t
+if sudo sshd -T | grep -qix 'maxsessions 7'; then exit 1; fi
+EOF
+
+  ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
+  scenario_end
+}
+
+# ── ssh-lockout-refused: a policy that would cut this run off is not activated ─
+scenario_ssh_lockout_refused() {
+  local dir="${ARTIFACT_ROOT}/ssh-lockout-refused"
+  reset_dir "${dir}"
+  scenario_start "ssh-lockout-refused: apply refuses a policy that would lock hardline out, and leaves nothing behind"
+  guard_can_sign || return
+
+  local dest="/etc/ssh/sshd_config.d/00-hardline-itest-lockout.conf"
+  ssh_cmd "sudo rm -f ${dest}"
+
+  # This run authenticates by key, so a policy disabling public keys would take
+  # the host away from the tool applying it.
+  local pdir; pdir=$(make_profile_ssh_only "ssh-lockout" "${dest}" '{"PubkeyAuthentication": "no"}')
+  expect_hl_fail "${dir}/apply.log" "apply refuses the lockout policy" -- apply "${pdir}" "${remote_args[@]}"
+
+  grep -qi "refusing to activate" "${dir}/apply.log" \
+    || note_fail "apply failed for some other reason than the lockout guard"
+
+  # The refusal has to leave the host as it was. sshd may well be reloaded on
+  # the way out, because the rollback reloads whatever is on disk once the bad
+  # drop-in is gone; what must never happen is the daemon running the policy
+  # that was refused.
+  must_remote "no drop-in survives and sshd still accepts public keys" <<EOF
+test ! -e ${dest}
+sudo sshd -t
+sudo sshd -T | grep -qix 'pubkeyauthentication yes'
+EOF
+
+  ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
+  scenario_end
+}

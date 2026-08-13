@@ -151,6 +151,8 @@ SCENARIOS=(
   # Trust boundaries
   injection-guard signed-bundle-coverage edited-profile-refused firewall-include-rollback
   firewall-include-layering firewall-activation
+  # SSH policy
+  ssh-policy-activation ssh-lockout-refused
 )
 
 # Scenarios that require the base profile applied first (nftables include +

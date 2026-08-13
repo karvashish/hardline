@@ -24,16 +24,10 @@ func testStep(mutate func(map[string]any)) profile.Step {
 	return profile.Step{ID: "ssh-policy", Plugin: "ssh", Config: config}
 }
 
-func TestPluginDeclaresInternalValidation(t *testing.T) {
+func TestPluginValidatesAGoodStep(t *testing.T) {
 	plugin := Plugin()
 	if plugin.Name != "ssh" {
 		t.Fatalf("name = %q", plugin.Name)
-	}
-	if !plugin.InternalValidation {
-		t.Fatal("expected the ssh plugin to declare internal validation")
-	}
-	if plugin.Validate == nil {
-		t.Fatal("a plugin claiming internal validation must supply Validate")
 	}
 	if err := plugin.Validate(testStep(nil), nil); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -82,9 +76,6 @@ func TestPluginRollbackDispatch(t *testing.T) {
 
 	if err := plugin.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &snap, Message: "sshd"}); err != nil {
 		t.Fatalf("Rollback: %v", err)
-	}
-	if err := plugin.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectValidate}); err != nil {
-		t.Fatalf("a validate record is nothing to undo: %v", err)
 	}
 	if err := plugin.Rollback(host, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile}); err == nil {
 		t.Fatal("expected an error for a file record with no snapshot")

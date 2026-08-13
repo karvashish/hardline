@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "template",
-		InternalValidation: true,
+		Name: "template",
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			spec, err := decodeTemplateSpec(step)
 			if err != nil {
@@ -67,8 +66,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("template rollback: missing file snapshot")
 				}
 				return pluginapi.RestoreFileSnapshot(host, *obj.File)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("template plugin cannot roll back kind %q", obj.Kind)
 			}

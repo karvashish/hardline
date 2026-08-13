@@ -460,8 +460,8 @@ func TestRestoreReloadsAfterPuttingTheFileBack(t *testing.T) {
 
 func TestPluginWiring(t *testing.T) {
 	p := Plugin()
-	if p.Name != "audit" || !p.InternalValidation {
-		t.Fatalf("unexpected plugin identity: %q internal=%v", p.Name, p.InternalValidation)
+	if p.Name != "audit" {
+		t.Fatalf("unexpected plugin identity: %q", p.Name)
 	}
 
 	bad := profile.Step{ID: "a", Plugin: "audit", Config: map[string]any{"src": "x"}}
@@ -483,9 +483,6 @@ func TestPluginWiring(t *testing.T) {
 		t.Fatal("Capture must reject an invalid config")
 	}
 
-	if err := p.Rollback(hostStub{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectValidate}); err != nil {
-		t.Fatalf("a validate record rolls back to nothing: %v", err)
-	}
 	if err := p.Rollback(hostStub{}, pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile}); err == nil {
 		t.Fatal("a file record with no snapshot must fail")
 	}

@@ -404,7 +404,7 @@ func TestStepRecordSnapshotsCloneCaptureState(t *testing.T) {
 func TestStepRecordSetAfterFromCapture_NilReceiver(t *testing.T) {
 	var step *StepRecord
 	step.SetAfterFromCapture(pluginapi.CaptureResult{
-		Objects: []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectValidate, Message: "noop"}},
+		Objects: []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, Message: "noop"}},
 	})
 }
 

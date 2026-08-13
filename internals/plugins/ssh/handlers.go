@@ -11,8 +11,7 @@ import (
 
 func Plugin() pluginapi.Plugin {
 	return pluginapi.Plugin{
-		Name:               "ssh",
-		InternalValidation: true,
+		Name: "ssh",
 		Validate: func(step profile.Step, _ map[string]json.RawMessage) error {
 			_, err := decodeSpec(step)
 			return err
@@ -49,8 +48,6 @@ func Plugin() pluginapi.Plugin {
 					return err
 				}
 				return Restore(host, *obj.File, unit)
-			case pluginapi.ObjectValidate:
-				return nil
 			default:
 				return fmt.Errorf("ssh plugin cannot roll back kind %q", obj.Kind)
 			}

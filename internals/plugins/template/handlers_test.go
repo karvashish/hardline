@@ -11,10 +11,6 @@ import (
 func TestPlugin_MetadataAndValidation(t *testing.T) {
 	plugin := Plugin()
 
-	if !plugin.InternalValidation {
-		t.Fatal("expected template plugin to declare internal validation")
-	}
-
 	err := plugin.Apply(pluginapi.Context{}, profile.Step{
 		ID:     "tmpl",
 		Plugin: "template",

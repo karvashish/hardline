@@ -178,8 +178,8 @@ scenario_firewall_include_layering() {
 
   local first_table="hardline_fw_layer_a"
   local second_table="hardline_fw_layer_b"
-  local first_dest="/etc/nftables.d/97-hardline-fw-layer-a.nft"
-  local second_dest="/etc/nftables.d/98-hardline-fw-layer-b.nft"
+  local first_dest="/etc/nftables.d/99-hardline-fw-layer-a.nft"
+  local second_dest="/etc/nftables.d/99-hardline-fw-layer-b.nft"
 
   ssh_cmd "sudo bash -seo pipefail" <<EOF
 nft delete table inet ${first_table} 2>/dev/null || true
@@ -236,7 +236,7 @@ scenario_firewall_activation() {
   guard_can_sign || return
 
   local table="hardline_fw_activate"
-  local dest="/etc/nftables.d/96-hardline-fw-activate.nft"
+  local dest="/etc/nftables.d/99-hardline-fw-activate.nft"
 
   ssh_cmd "sudo bash -seo pipefail" <<EOF
 nft delete table inet ${table} 2>/dev/null || true

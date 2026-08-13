@@ -295,7 +295,7 @@ scenario_ssh_policy_activation() {
   ssh_cmd "sudo rm -f ${dest}"
 
   must_remote "sshd does not already report the test policy (control)" <<EOF
-if sudo sshd -T | grep -qix 'maxsessions 7'; then exit 1; fi
+if grep -qix 'maxsessions 7' <<< "\$(sudo sshd -T)"; then exit 1; fi
 EOF
 
   local pdir; pdir=$(make_profile_ssh_only "ssh-activate" "${dest}" '{"MaxSessions": 7, "ClientAliveInterval": 300}')
@@ -306,8 +306,9 @@ EOF
   # unit has to show it was actually reloaded. Neither fact comes from hardline.
   must_remote "sshd reports the declared policy at the declared mode" <<EOF
 test "\$(sudo stat -c %a ${dest})" = "600"
-sudo sshd -T | grep -qix 'maxsessions 7'
-sudo sshd -T | grep -qix 'clientaliveinterval 300'
+effective="\$(sudo sshd -T)"
+grep -qix 'maxsessions 7' <<< "\${effective}"
+grep -qix 'clientaliveinterval 300' <<< "\${effective}"
 EOF
   svc_acted_since "${SSH_UNIT}" "${mark0}" "${cur}" \
     || note_fail "sshd not reloaded on apply (independent: MainPID + StateChange unchanged, no journal reload)"
@@ -316,7 +317,7 @@ EOF
   must_remote "rollback removes the drop-in, and sshd no longer runs its policy" <<EOF
 test ! -e ${dest}
 sudo sshd -t
-if sudo sshd -T | grep -qix 'maxsessions 7'; then exit 1; fi
+if grep -qix 'maxsessions 7' <<< "\$(sudo sshd -T)"; then exit 1; fi
 EOF
 
   ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true
@@ -348,7 +349,7 @@ scenario_ssh_lockout_refused() {
   must_remote "no drop-in survives and sshd still accepts public keys" <<EOF
 test ! -e ${dest}
 sudo sshd -t
-sudo sshd -T | grep -qix 'pubkeyauthentication yes'
+grep -qix 'pubkeyauthentication yes' <<< "\$(sudo sshd -T)"
 EOF
 
   ssh_cmd "sudo rm -f ${dest}" 2>/dev/null || true

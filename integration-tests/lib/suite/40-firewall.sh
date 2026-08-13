@@ -6,6 +6,18 @@
 # Sourced by itest.sh. Do not run directly.
 
 # ── firewall-basic-rollback: deploy ruleset, verify nft loaded it, roll back ─
+# Dropping the managed file without also dropping the include hardline added
+# leaves the main config pointing at a file that is gone, so nftables refuses to
+# start and every scenario after this one fails on a host it did not break.
+fw_reset_managed() {
+  local table="$1" dest="$2"
+  ssh_cmd "sudo bash -seo pipefail" >/dev/null 2>&1 <<EOF || true
+nft delete table inet ${table} 2>/dev/null || true
+$(nft_forget_managed "${dest}")
+systemctl restart nftables
+EOF
+}
+
 scenario_firewall_basic_rollback() {
   local dir="${ARTIFACT_ROOT}/firewall-basic"
   reset_dir "${dir}"
@@ -14,7 +26,7 @@ scenario_firewall_basic_rollback() {
 
   local table="hardline_fw_basic"
   local dest="/etc/nftables.d/99-hardline-fw-basic.nft"
-  ssh_cmd "sudo nft delete table inet ${table} 2>/dev/null; sudo rm -f ${dest}; sudo systemctl restart nftables" 2>/dev/null || true
+  fw_reset_managed "${table}" "${dest}"
 
   local pdir; pdir=$(make_profile_firewall "fw-basic" "${table}" "${dest}")
   must_hl "${dir}/apply.log" "apply firewall" -- apply "${pdir}" "${remote_args[@]}" --keep-local-rollback || { scenario_end; return; }
@@ -49,7 +61,7 @@ scenario_firewall_advanced() {
 
   local table="hardline_fw_adv"
   local dest="/etc/nftables.d/99-hardline-fw-adv.nft"
-  ssh_cmd "sudo nft delete table inet ${table} 2>/dev/null; sudo rm -f ${dest}; sudo systemctl restart nftables" 2>/dev/null || true
+  fw_reset_managed "${table}" "${dest}"
 
   local iface
   iface=$(ssh_cmd "ip -o link show | awk -F': ' '!/lo/{print \$2; exit}'" | tr -d '[:space:]')
@@ -68,7 +80,7 @@ echo "\${out}" | grep -q 'iif "${iface}"'
 nft -c -f ${NFT_MAIN_CONFIG}
 EOF
 
-  ssh_cmd "sudo nft delete table inet ${table} 2>/dev/null; sudo rm -f ${dest}; sudo systemctl restart nftables" 2>/dev/null || true
+  fw_reset_managed "${table}" "${dest}"
   scenario_end
 }
 

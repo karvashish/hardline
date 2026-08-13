@@ -68,7 +68,7 @@ scenario_overrides_effect() {
 
   local table="hardline_fw_ovr"
   local dest="/etc/nftables.d/99-hardline-fw-ovr.nft"
-  ssh_cmd "sudo nft delete table inet ${table} 2>/dev/null; sudo rm -f ${dest}; sudo systemctl restart nftables" 2>/dev/null || true
+  fw_reset_managed "${table}" "${dest}"
 
   local pdir; pdir=$(make_profile_firewall_overridable "fw-ovr" "${table}" "${dest}")
 
@@ -97,6 +97,6 @@ echo "\${out}" | grep -q 'udp dport 9998 accept'
 if echo "\${out}" | grep -q 'dport 9999'; then exit 1; fi
 EOF
 
-  ssh_cmd "sudo nft delete table inet ${table} 2>/dev/null; sudo rm -f ${dest}; sudo systemctl restart nftables" 2>/dev/null || true
+  fw_reset_managed "${table}" "${dest}"
   scenario_end
 }

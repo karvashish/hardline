@@ -18,17 +18,20 @@ import (
 const sampleRules = `## hardline audit rules
 -b 8192
 -w /etc/passwd -p wa -k identity
--a always,exit -F arch=b64 -S adjtimex -k time_change
+-a always,exit -F arch=b64 -S adjtimex -F auid>=1000 -F auid!=4294967295 -k time_change
 -w /etc/audit/ -p wa -k audit_config
 -e 1
 `
 
-// loadedSample is what auditctl -l prints for sampleRules: a syscall rule's key
-// comes back as an ordinary field, which is one of the two spellings the rule
-// comparison has to reconcile.
+// loadedSample is what auditctl -l prints for sampleRules. It re-renders every
+// rule it prints, and each difference here is one the comparison has to
+// reconcile or the step fails right after a load that worked: a syscall rule's
+// key comes back as an ordinary field, the sentinel a file writes as
+// 4294967295 comes back as unset, and a directory watch loses its trailing
+// separator.
 const loadedSample = `-w /etc/passwd -p wa -k identity
--a always,exit -F arch=b64 -S adjtimex -F key=time_change
--w /etc/audit/ -p wa -k audit_config
+-a always,exit -F arch=b64 -S adjtimex -F auid>=1000 -F auid!=unset -F key=time_change
+-w /etc/audit -p wa -k audit_config
 `
 
 type hostStub struct {
@@ -295,12 +298,12 @@ func TestApplyRefusesADestructiveOrLockingPolicy(t *testing.T) {
 
 func TestApplyRefusesAnAbsentWatchPath(t *testing.T) {
 	host := hostStub{files: map[string]string{}, loaded: loadedSample,
-		absent: map[string]bool{"/etc/audit/": true}}
+		absent: map[string]bool{"/etc/audit": true}}
 	err := Apply(pluginapi.Context{Host: host, Profile: testProfile(t, sampleRules)}, spec())
 	if err == nil || !strings.Contains(err.Error(), "do not exist on this host") {
 		t.Fatalf("expected the absent watch path to be named, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "/etc/audit/") {
+	if !strings.Contains(err.Error(), "/etc/audit") {
 		t.Fatalf("the error must name the path, got %v", err)
 	}
 }
@@ -541,6 +544,81 @@ func TestParseRulesReconcilesBothSpellings(t *testing.T) {
 	}
 }
 
+// Each pair here is one rule in the two spellings it appears in: the left is
+// what a rules file writes, the right is what auditctl -l prints back for it.
+// A pair that does not compare equal fails the step right after a load that
+// worked, which is the one failure mode the readback exists to rule out.
+func TestParseRulesReconcilesAuditctlRewrites(t *testing.T) {
+	cases := []struct {
+		name       string
+		file, list string
+	}{
+		{
+			name: "the unset login id sentinel",
+			file: "-a always,exit -F arch=b64 -S adjtimex -F auid>=1000 -F auid!=4294967295 -k time_change\n",
+			list: "-a always,exit -F arch=b64 -S adjtimex -F auid>=1000 -F auid!=unset -F key=time_change\n",
+		},
+		{
+			name: "the unset login id sentinel printed as -1",
+			file: "-a always,exit -F arch=b64 -S adjtimex -F auid!=4294967295 -k time_change\n",
+			list: "-a always,exit -F arch=b64 -S adjtimex -F auid!=-1 -F key=time_change\n",
+		},
+		{
+			name: "a directory watch's trailing separator",
+			file: "-w /etc/audit/ -p wa -k audit_config\n",
+			list: "-w /etc/audit -p wa -k audit_config\n",
+		},
+		{
+			name: "a watch expanded into its syscall-rule form",
+			file: "-w /etc/passwd -p wa -k identity\n",
+			list: "-a always,exit -F path=/etc/passwd -F perm=wa -F key=identity\n",
+		},
+		{
+			name: "a watch left at auditctl's default permissions",
+			file: "-w /etc/passwd -k identity\n",
+			list: "-w /etc/passwd -p rwxa -k identity\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fileForm, err := ParseRules([]byte(tc.file))
+			if err != nil {
+				t.Fatalf("parse file form: %v", err)
+			}
+			listForm, err := ParseRules([]byte(tc.list))
+			if err != nil {
+				t.Fatalf("parse auditctl form: %v", err)
+			}
+			if fileForm[0].Canonical() != listForm[0].Canonical() {
+				t.Fatalf("the same rule must compare equal:\n file: %s\n list: %s",
+					fileForm[0].Canonical(), listForm[0].Canonical())
+			}
+		})
+	}
+}
+
+// The fold back into the watch form only covers what a -w rule can express. A
+// syscall rule that happens to carry a path comparison is not a watch, and
+// collapsing it into one would make two different rules compare equal.
+func TestParseRulesKeepsANarrowedPathRuleASyscallRule(t *testing.T) {
+	rules, err := ParseRules([]byte("-a always,exit -F path=/etc/passwd -F perm=wa -F auid>=1000 -F key=identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if rules[0].Watch != "" {
+		t.Fatalf("expected a syscall rule, got a watch on %q", rules[0].Watch)
+	}
+
+	watch, err := ParseRules([]byte("-w /etc/passwd -p wa -k identity\n"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if rules[0].Canonical() == watch[0].Canonical() {
+		t.Fatalf("a narrowed rule must not compare equal to a plain watch: %s", rules[0].Canonical())
+	}
+}
+
 func TestParseRulesDistinguishesDifferentBodies(t *testing.T) {
 	rules, err := ParseRules([]byte(`-w /etc/passwd -p wa -k identity
 -w /etc/shadow -p wa -k identity
@@ -636,10 +714,22 @@ func TestRuleStringRendersBothKinds(t *testing.T) {
 	}
 }
 
-func TestLoadedRulesSurfacesUnreadablePolicy(t *testing.T) {
-	host := hostStub{loaded: "-z nonsense\n"}
-	if _, err := loadedRules(host); err == nil {
-		t.Fatal("a policy that cannot be parsed must not read as an empty one")
+// The running policy is not this profile's file: it carries whatever else the
+// host loaded, and a rule shape this parser does not model is one of those. It
+// is skipped rather than failing the step, and the rules around it still count.
+func TestLoadedRulesSkipsRulesItCannotModel(t *testing.T) {
+	host := hostStub{loaded: "-z nonsense\n" + loadedSample}
+	rules, err := loadedRules(host)
+	if err != nil {
+		t.Fatalf("a foreign rule must not fail the read: %v", err)
+	}
+
+	want, err := ParseRules([]byte(sampleRules))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if missing := MissingRules(rules, want); len(missing) > 0 {
+		t.Fatalf("the modelled rules around it must still count, missing %v", missing)
 	}
 
 	failing := hostStub{outErr: errors.New("auditctl boom")}
@@ -666,7 +756,7 @@ func TestLoadReportsAFailedAugenrules(t *testing.T) {
 
 func TestPlanSurfacesThePreflightRefusals(t *testing.T) {
 	host := hostStub{files: map[string]string{}, loaded: loadedSample,
-		status: "enabled 2 failure 1", absent: map[string]bool{"/etc/audit/": true}}
+		status: "enabled 2 failure 1", absent: map[string]bool{"/etc/audit": true}}
 	res, err := Plan(pluginapi.Context{Host: host, Profile: testProfile(t, "-D\n"+sampleRules)}, spec())
 	if err != nil {
 		t.Fatalf("plan failed: %v", err)

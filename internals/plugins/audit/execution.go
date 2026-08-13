@@ -39,9 +39,9 @@ func loadedRules(host pluginapi.Host) ([]Rule, error) {
 	if strings.Contains(out, "No rules") {
 		return nil, nil
 	}
-	rules, err := ParseRules([]byte(out))
-	if err != nil {
-		return nil, fmt.Errorf("read loaded audit rules: %w", err)
+	rules, skipped := ParseLoadedRules([]byte(out))
+	for _, line := range skipped {
+		logger.Debugf("audit: %s prints a rule this check cannot model, ignoring it: %q\n", listCmd, line)
 	}
 	return rules, nil
 }

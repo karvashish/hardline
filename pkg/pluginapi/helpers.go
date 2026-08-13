@@ -75,6 +75,19 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				b.Package.PinSpec != a.Package.PinSpec {
 				return true
 			}
+		case ObjectConfigLine:
+			if b.ConfigLine == nil || a.ConfigLine == nil {
+				return b.ConfigLine != a.ConfigLine
+			}
+			// Added flips from true to false when the run appends the line, so a
+			// step whose only change was wiring an include reports ALIGNED without
+			// this, and restart_policy: on_change never fires for it.
+			if b.ConfigLine.Path != a.ConfigLine.Path ||
+				b.ConfigLine.Line != a.ConfigLine.Line ||
+				b.ConfigLine.FileExisted != a.ConfigLine.FileExisted ||
+				b.ConfigLine.Added != a.ConfigLine.Added {
+				return true
+			}
 		}
 	}
 	return false

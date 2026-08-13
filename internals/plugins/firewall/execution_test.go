@@ -1425,12 +1425,15 @@ func TestDiffReportsReorderedChain(t *testing.T) {
 	}
 }
 
+// Conflict detection is handed the after snapshot, which was taken once apply
+// had appended the include, so Added is false on it. A guard keyed on Added
+// being true never fires at all.
 func TestIncludeLineConflictReportsARemovedInclude(t *testing.T) {
 	rec := pluginapi.ConfigLineSnapshot{
 		Path:        testMainConfig,
 		Line:        IncludeLine(testDest),
 		FileExisted: true,
-		Added:       true,
+		Added:       false,
 	}
 
 	present := firewallExecHostStub{runRoot: func(cmd string) error {
@@ -1454,10 +1457,11 @@ func TestIncludeLineConflictReportsARemovedInclude(t *testing.T) {
 		t.Fatalf("expected a removed-include conflict, got %v", conflicts)
 	}
 
-	rec.Added = false
+	rec.Added = true
 	if got := includeLineConflict(gone, rec); got != nil {
-		t.Fatalf("a line this run did not add is not our conflict, got %v", got)
+		t.Fatalf("an after snapshot taken while the line was still absent claims nothing, got %v", got)
 	}
+	rec.Added = false
 	if got := includeLineConflict(nil, rec); got != nil {
 		t.Fatalf("expected no conflict without a host, got %v", got)
 	}
@@ -1772,6 +1776,232 @@ func TestEnsureNftablesFlushGuards(t *testing.T) {
 	}
 }
 
+// Apply loads the ruleset into the kernel rather than leaving it for a service
+// restart, so a rollback that only puts the files back leaves the host running
+// the very ruleset being rolled back until it next boots.
+func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
+	snap := pluginapi.FileSnapshot{Path: testDest, Existed: false}
+
+	t.Run("loads the restored main config", func(t *testing.T) {
+		var cmds []string
+		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+			cmds = append(cmds, cmd)
+			return "", nil
+		}}
+		if err := RestoreManagedRuleset(host, snap, MainConfigDebian); err != nil {
+			t.Fatalf("RestoreManagedRuleset failed: %v", err)
+		}
+		if !containsCmd(cmds, "nft -f "+pluginapi.ShellArg(MainConfigDebian)) {
+			t.Fatalf("expected a reload from %s, got %v", MainConfigDebian, cmds)
+		}
+	})
+
+	// A main config without the flush header would add to what the kernel is
+	// already running, which is the ruleset being rolled back.
+	t.Run("flushes when the main config has no header", func(t *testing.T) {
+		var cmds []string
+		host := firewallExecHostStub{
+			runRoot: func(cmd string) error {
+				if cmd == flushCheckCmd(MainConfigDebian) {
+					return errors.New("absent")
+				}
+				return nil
+			},
+			runRootWithOutput: func(cmd string) (string, error) {
+				cmds = append(cmds, cmd)
+				return "", nil
+			},
+		}
+		if err := RestoreManagedRuleset(host, snap, MainConfigDebian); err != nil {
+			t.Fatalf("RestoreManagedRuleset failed: %v", err)
+		}
+		if !containsCmd(cmds, FlushLine) || !containsCmd(cmds, "nft -f -") {
+			t.Fatalf("expected a flushed reload, got %v", cmds)
+		}
+	})
+
+	// Rollback deleted the main config because this run created it, so there is
+	// nothing left to load from and the applied ruleset just goes.
+	t.Run("flushes when the main config is gone", func(t *testing.T) {
+		var cmds []string
+		host := firewallExecHostStub{
+			runRoot: func(cmd string) error {
+				if strings.HasPrefix(cmd, "test -f ") {
+					return errors.New("missing")
+				}
+				return nil
+			},
+			runRootWithOutput: func(cmd string) (string, error) {
+				cmds = append(cmds, cmd)
+				return "", nil
+			},
+		}
+		if err := RestoreManagedRuleset(host, snap, MainConfigDebian); err != nil {
+			t.Fatalf("RestoreManagedRuleset failed: %v", err)
+		}
+		if !containsCmd(cmds, "nft flush ruleset") {
+			t.Fatalf("expected the loaded ruleset to be flushed, got %v", cmds)
+		}
+	})
+
+	t.Run("requires a host", func(t *testing.T) {
+		if err := RestoreManagedRuleset(nil, snap, MainConfigDebian); err == nil {
+			t.Fatal("expected a host to be required")
+		}
+	})
+}
+
+func TestRollbackReportsAFailedReload(t *testing.T) {
+	snap := pluginapi.FileSnapshot{Path: testDest, Existed: false}
+	missingMainConfig := func(cmd string) error {
+		if strings.HasPrefix(cmd, "test -f ") {
+			return errors.New("missing")
+		}
+		return nil
+	}
+
+	cases := []struct {
+		name    string
+		runRoot func(string) error
+		out     string
+		want    string
+	}{
+		{
+			name: "names what nft complained about",
+			out:  "/etc/nftables.conf:3:1-5: Error: syntax error",
+			want: "syntax error",
+		},
+		{
+			name: "falls back to the exit status when nft said nothing",
+			want: "reload " + MainConfigDebian,
+		},
+		{
+			name:    "reports a failed flush",
+			runRoot: missingMainConfig,
+			out:     "Error: Could not process rule",
+			want:    "Could not process rule",
+		},
+		{
+			name:    "reports a silent flush failure",
+			runRoot: missingMainConfig,
+			want:    "flush the loaded ruleset",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			host := firewallExecHostStub{
+				runRoot: tc.runRoot,
+				runRootWithOutput: func(cmd string) (string, error) {
+					if strings.Contains(cmd, "nft ") {
+						return tc.out, errors.New("exit 1")
+					}
+					return "", nil
+				},
+			}
+			err := RestoreManagedRuleset(host, snap, MainConfigDebian)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// A restore that could not put the file back has nothing to reload from, so it
+// stops there rather than loading whatever the host still has.
+func TestRollbackStopsWhenTheFileCannotBeRestored(t *testing.T) {
+	host := firewallExecHostStub{
+		runRootWithOutput: func(string) (string, error) {
+			return "regular file|644|root|root|4", nil
+		},
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			return errors.New("read-only filesystem")
+		},
+	}
+	snap := pluginapi.FileSnapshot{Path: testDest, Existed: true, Mode: "644", ContentB64: "dGVzdA=="}
+
+	err := RestoreManagedRuleset(host, snap, MainConfigDebian)
+	if err == nil || !strings.Contains(err.Error(), "read-only filesystem") {
+		t.Fatalf("expected the restore failure, got %v", err)
+	}
+}
+
+func TestListenPortReadsTheAddressForms(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+		ok   bool
+	}{
+		{in: "0.0.0.0:22", want: 22, ok: true},
+		{in: "[::]:2222", want: 2222, ok: true},
+		{in: "*:22", want: 22, ok: true},
+		{in: "/run/sshd.sock"},
+		{in: "0.0.0.0:ssh"},
+		{in: "0.0.0.0:0"},
+		{in: "0.0.0.0:70000"},
+	}
+
+	for _, tc := range cases {
+		got, ok := listenPort(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Fatalf("listenPort(%q) = %d, %v; want %d, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func containsCmd(cmds []string, want string) bool {
+	for _, cmd := range cmds {
+		if strings.Contains(cmd, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// Ubuntu 24.04 runs ssh from ssh.socket, so systemd holds the listening socket
+// and nothing in ss names sshd. Scanning for sshd alone refuses every drop
+// policy on those hosts.
+func TestSSHDListeningPortsCoversSocketActivation(t *testing.T) {
+	t.Run("a socket unit's live port counts", func(t *testing.T) {
+		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+			switch {
+			case strings.HasPrefix(cmd, "ss -Hltnp"):
+				return `LISTEN 0 4096 *:22 *:* users:(("systemd",pid=1,fd=52))`, nil
+			case strings.Contains(cmd, "ssh.socket"):
+				return "[::]:22 (Stream)\n", nil
+			}
+			return "", nil
+		}}
+
+		ports, err := sshdListeningPorts(host)
+		if err != nil {
+			t.Fatalf("sshdListeningPorts failed: %v", err)
+		}
+		if len(ports) != 1 || ports[0] != 22 {
+			t.Fatalf("expected the socket-activated port, got %v", ports)
+		}
+	})
+
+	// The guard passes as soon as one of these ports is accepted, so a port
+	// taken from a unit file and no further would weaken it into accepting a
+	// port ssh never had.
+	t.Run("a declared port nothing listens on does not count", func(t *testing.T) {
+		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+			switch {
+			case strings.HasPrefix(cmd, "ss -Hltnp"):
+				return `LISTEN 0 4096 *:22 *:* users:(("systemd",pid=1,fd=52))`, nil
+			case strings.Contains(cmd, "ssh.socket"):
+				return "[::]:2222 (Stream)\n", nil
+			}
+			return "", nil
+		}}
+
+		if ports, err := sshdListeningPorts(host); err == nil {
+			t.Fatalf("expected a refusal rather than %v", ports)
+		}
+	})
+}
+
 func TestRollbackRemovesOnlyTheFlushLineItAdded(t *testing.T) {
 	const other = `include "/etc/nftables.d/50-other.nft"`
 	current := FlushLine + "\n\n" + other + "\n"
@@ -1826,7 +2056,7 @@ func TestFlushLineConflictIsReported(t *testing.T) {
 		Path:        MainConfigDebian,
 		Line:        FlushLine,
 		FileExisted: true,
-		Added:       true,
+		Added:       false,
 	}
 	gone := firewallExecHostStub{runRoot: func(cmd string) error {
 		if cmd == flushCheckCmd(MainConfigDebian) {

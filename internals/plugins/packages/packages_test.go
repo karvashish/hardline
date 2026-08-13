@@ -310,6 +310,22 @@ func TestLockProbe(t *testing.T) {
 		t.Error("a quoted glob would make fuser look for a file named *")
 	}
 
+	// Requiring psmisc would make a minimal host unmanageable, including for
+	// the one transaction that would have installed it, so the probe answers
+	// from /proc where fuser is absent. It still refuses to answer at all when
+	// /proc cannot be read, since "no holder" and "nothing looked" print the
+	// same thing.
+	for _, want := range []string{
+		"/proc/[0-9]*/fd/*",
+		"[ -d /proc/1/fd ]",
+		"exit 3",
+		"for lock in /var/lib/rpm/.rpm.lock /var/cache/libdnf5/*.pid",
+	} {
+		if !strings.Contains(probe, want) {
+			t.Errorf("probe missing %q:\n%s", want, probe)
+		}
+	}
+
 	for name, paths := range map[string][]string{
 		"no paths":       {},
 		"relative":       {"var/lib/rpm/.rpm.lock"},

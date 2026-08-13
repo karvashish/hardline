@@ -319,7 +319,7 @@ func TestRollbackStepsStrict(t *testing.T) {
 					{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "x"}},
 				},
 			},
-		}, false, true, false)
+		}, false, true)
 		if err == nil || !strings.Contains(err.Error(), "rollback step") {
 			t.Fatalf("expected strict rollback failure, got %v", err)
 		}
@@ -329,7 +329,7 @@ func TestRollbackStepsStrict(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 
-		if _, err := executeRollbackSteps(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}}, false, true, false); err != nil {
+		if _, err := executeRollbackSteps(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}}, false, true); err != nil {
 			t.Fatalf("expected strict rollback success, got %v", err)
 		}
 	})
@@ -586,7 +586,7 @@ func TestExecuteRollbackSteps_Conflicts(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 		installPlugins(t, conflicting)
-		_, err := executeRollbackSteps(nil, []StepRecord{step}, false, false, false)
+		err := preflightRollbackConflicts(nil, []StepRecord{step}, false)
 		if err == nil || !strings.Contains(err.Error(), "force-rollback") {
 			t.Fatalf("expected force-rollback error, got %v", err)
 		}
@@ -596,7 +596,7 @@ func TestExecuteRollbackSteps_Conflicts(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()
 		installPlugins(t, conflicting)
-		if _, err := executeRollbackSteps(nil, []StepRecord{step}, false, false, true); err != nil {
+		if err := preflightRollbackConflicts(nil, []StepRecord{step}, true); err != nil {
 			t.Fatalf("expected force rollback to succeed, got %v", err)
 		}
 	})
@@ -790,7 +790,7 @@ func TestPreflightRollbackConflicts_ChecksEverythingFirst(t *testing.T) {
 		changedFileStep("second", "/etc/second.conf"),
 	}
 
-	_, err := executeRollbackSteps(nil, steps, false, false, false)
+	err := preflightRollbackConflicts(nil, steps, false)
 	if err == nil || !strings.Contains(err.Error(), "--force-rollback") {
 		t.Fatalf("expected a conflict error, got %v", err)
 	}
@@ -839,7 +839,7 @@ func TestExecuteRollbackSteps_ReportsDegradedRestoration(t *testing.T) {
 	step.Type = "packages"
 	step.RollbackMode = pluginapi.ModeBestEffort
 
-	degraded, err := executeRollbackSteps(nil, []StepRecord{step}, false, false, false)
+	degraded, err := executeRollbackSteps(nil, []StepRecord{step}, false, false)
 	if err != nil {
 		t.Fatalf("expected best-effort failure to be absorbed, got %v", err)
 	}
@@ -967,7 +967,7 @@ func TestPreflightRejectsUnregisteredPlugin(t *testing.T) {
 
 	steps := []StepRecord{gone, changedFileStep("known", "/etc/known.conf")}
 
-	_, err := executeRollbackSteps(nil, steps, false, false, false)
+	err := preflightRollbackConflicts(nil, steps, false)
 	if err == nil || !strings.Contains(err.Error(), "is not registered") {
 		t.Fatalf("expected an unregistered-plugin refusal, got %v", err)
 	}
@@ -975,7 +975,7 @@ func TestPreflightRejectsUnregisteredPlugin(t *testing.T) {
 		t.Fatalf("expected nothing to be reverted, got %+v", reverted)
 	}
 
-	if _, err := executeRollbackSteps(nil, steps, false, false, true); err == nil {
+	if err := preflightRollbackConflicts(nil, steps, true); err == nil {
 		t.Fatal("expected --force-rollback not to bypass a missing plugin")
 	}
 }
@@ -1011,6 +1011,38 @@ func TestClaimJournalBeforeRevert(t *testing.T) {
 	}
 	if claimedStatus != "rolling_back" {
 		t.Fatalf("expected the claim to mark the journal rolling_back, got %q", claimedStatus)
+	}
+}
+
+func TestConflictRefusalLeavesJournalRerunnable(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {
+			rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return nil },
+			detectConflict: func(pluginapi.Host, pluginapi.ObjectRecord) []string {
+				return []string{"/etc/x.conf: changed since apply"}
+			},
+		},
+	})
+
+	claimed := false
+	saveRemoteJournal = func(_ *remote.Client, _ *Journal) error {
+		claimed = true
+		return nil
+	}
+	newSSHClient = func(connection.Config) (*remote.Client, error) { return nil, nil }
+	ensureRollbackSudo = func(_ *remote.Client) error { return nil }
+	loadRemoteJournal = func(_ *remote.Client, _ string) (*Journal, error) { return successJournal(), nil }
+	deleteJournal = func(_ *remote.Client, _, _ string) error { return nil }
+
+	err := rollbackWithBundle(baseRollbackCommand())
+	if err == nil || !strings.Contains(err.Error(), "--force-rollback") {
+		t.Fatalf("expected the drift refusal, got %v", err)
+	}
+	if claimed {
+		t.Fatal("a refused rollback must not claim the journal: the --force-rollback retry it recommends would then be rejected as not successful")
 	}
 }
 

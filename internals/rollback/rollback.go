@@ -95,11 +95,15 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 		logger.Infof("journal %s (run %s applied %s):\n%s\n", profileID, journal.RunID, journal.CreatedAt, string(data))
 	}
 
+	if err := preflightRollbackConflicts(client, journal.Steps, c.ForceRollback); err != nil {
+		return err
+	}
+
 	if err := claimJournal(client, c, journal); err != nil {
 		return err
 	}
 
-	degraded, err := executeRollbackSteps(client, journal.Steps, true, false, c.ForceRollback)
+	degraded, err := executeRollbackSteps(client, journal.Steps, true, false)
 	if err != nil {
 		return err
 	}
@@ -246,7 +250,10 @@ func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	if err := ensureRollbackSudo(client); err != nil {
 		return fmt.Errorf("sudo preflight failed: %w", err)
 	}
-	degraded, err := executeRollbackSteps(client, steps, false, false, false)
+	if err := preflightRollbackConflicts(client, steps, false); err != nil {
+		return err
+	}
+	degraded, err := executeRollbackSteps(client, steps, false, false)
 	if err != nil {
 		return err
 	}
@@ -256,11 +263,7 @@ func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	return nil
 }
 
-func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgress bool, strictBestEffort bool, forceRollback bool) ([]string, error) {
-	if err := preflightRollbackConflicts(client, steps, forceRollback); err != nil {
-		return nil, err
-	}
-
+func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgress bool, strictBestEffort bool) ([]string, error) {
 	total := countRollbackSteps(steps)
 	var deferredServiceSteps []StepRecord
 	var degraded []string

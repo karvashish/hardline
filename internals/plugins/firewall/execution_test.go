@@ -480,8 +480,15 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Apply failed: %v", err)
 		}
-		if !strings.Contains(strings.Join(cmds, "\n"), `printf '\n%s\n' 'include "/etc/nftables.d/99-hardline-firewall.nft"' >> '/etc/nftables.conf'`) {
+		appended := strings.Join(cmds, "\n")
+		if !strings.Contains(appended, `printf '%s\n' 'include "/etc/nftables.d/99-hardline-firewall.nft"' >> '/etc/nftables.conf'`) {
 			t.Fatalf("expected include append command, got %v", cmds)
+		}
+		if !strings.Contains(appended, `[ -n "$(tail -c 1 '/etc/nftables.conf')" ]`) {
+			t.Fatalf("append must terminate an unterminated last line instead of prepending a blank one, got %v", cmds)
+		}
+		if strings.Contains(appended, `printf '\n%s\n'`) {
+			t.Fatalf("a leading blank line survives rollback and breaks byte-identity, got %v", cmds)
 		}
 
 		err = Apply(pluginapi.Context{Host: firewallExecHostStub{

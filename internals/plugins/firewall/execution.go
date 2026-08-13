@@ -871,7 +871,14 @@ func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	}
 
 	include := IncludeLine(dest)
-	appendCmd := fmt.Sprintf("printf '\\n%%s\\n' %s >> %s", pluginapi.ShellArg(include), pluginapi.ShellArg(mainConfig))
+	// Terminate the last line if it is unterminated, rather than prepending a
+	// blank one: rollback deletes only the include line, so a blank line added
+	// here would survive it and the file would no longer be byte-identical to
+	// what apply found.
+	quoted := pluginapi.ShellArg(mainConfig)
+	appendCmd := fmt.Sprintf(
+		"if [ -s %s ] && [ -n \"$(tail -c 1 %s)\" ]; then printf '\\n' >> %s; fi; printf '%%s\\n' %s >> %s",
+		quoted, quoted, quoted, pluginapi.ShellArg(include), quoted)
 	if err := host.RunRoot(appendCmd); err != nil {
 		return fmt.Errorf("ensure %q in %s: %w", include, mainConfig, err)
 	}

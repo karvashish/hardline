@@ -22,8 +22,7 @@ locals {
     fedora = { family = "fedora-cloud-44-x86-64", project = "fedora-cloud" }
   }
 
-  # dnf needs more memory than apt to resolve a transaction; e2-micro OOMs.
-  os_machine_type = var.os == "ubuntu" ? var.machine_type : "e2-medium"
+  os_machine_type = var.machine_type
 
   os_bootstrap = var.os == "ubuntu" ? "export DEBIAN_FRONTEND=noninteractive; apt-get update -y; apt-get install -y openssh-server sudo nftables" : "dnf -y install openssh-server sudo nftables"
 

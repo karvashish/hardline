@@ -521,16 +521,70 @@ func TestRestoreServiceState_RefusesInexpressibleStates(t *testing.T) {
 		},
 	}
 
-	for _, state := range []string{"masked", "static", "indirect", "generated"} {
-		t.Run(state, func(t *testing.T) {
-			err := restoreServiceState(present, pluginapi.ServiceState{
-				Unit: "telnet.socket", Known: true, EnabledState: state,
+	t.Run("masked", func(t *testing.T) {
+		err := restoreServiceState(present, pluginapi.ServiceState{
+			Unit: "telnet.socket", Known: true, EnabledState: "masked",
+		})
+		if err == nil || !strings.Contains(err.Error(), "cannot express") {
+			t.Fatalf("expected masked to be refused, got %v", err)
+		}
+	})
+
+	for _, state := range []string{"static", "indirect", "generated"} {
+		t.Run(state+" restores the active state only", func(t *testing.T) {
+			var cmds []string
+			host := serviceRuntimeStub{
+				runRoot: func(cmd string) error {
+					cmds = append(cmds, cmd)
+					return nil
+				},
+				runRootWithOutput: func(string) (string, error) {
+					return "# /usr/lib/systemd/system/telnet.socket\n[Unit]\n", nil
+				},
+			}
+			err := restoreServiceState(host, pluginapi.ServiceState{
+				Unit: "telnet.socket", Known: true, EnabledState: state, ActiveState: "active", Active: true,
 			})
-			if err == nil || !strings.Contains(err.Error(), "cannot express") {
-				t.Fatalf("expected %s to be refused, got %v", state, err)
+			if err != nil {
+				t.Fatalf("a unit with no install state has nothing to refuse: %v", err)
+			}
+			for _, cmd := range cmds {
+				if strings.Contains(cmd, "systemctl enable") || strings.Contains(cmd, "systemctl disable") {
+					t.Fatalf("%s has no install state to restore, got %q", state, cmd)
+				}
 			}
 		})
 	}
+
+	t.Run("enabled-runtime stays runtime-only", func(t *testing.T) {
+		var cmds []string
+		host := serviceRuntimeStub{
+			runRoot: func(cmd string) error {
+				cmds = append(cmds, cmd)
+				return nil
+			},
+			runRootWithOutput: func(string) (string, error) {
+				return "# /usr/lib/systemd/system/telnet.socket\n[Unit]\n", nil
+			},
+		}
+		if err := restoreServiceState(host, pluginapi.ServiceState{
+			Unit: "telnet.socket", Known: true, EnabledState: "enabled-runtime", ActiveState: "active", Active: true,
+		}); err != nil {
+			t.Fatalf("restore failed: %v", err)
+		}
+		found := false
+		for _, cmd := range cmds {
+			if strings.Contains(cmd, "systemctl enable --runtime") {
+				found = true
+			}
+			if strings.Contains(cmd, "systemctl disable") {
+				t.Fatalf("an enabled-runtime unit must not be disabled, got %q", cmd)
+			}
+		}
+		if !found {
+			t.Fatalf("expected enable --runtime, got %#v", cmds)
+		}
+	})
 
 	if err := restoreServiceState(present, pluginapi.ServiceState{
 		Unit: "ssh.service", Known: true, EnabledState: "enabled", Enabled: true, ActiveState: "active", Active: true,

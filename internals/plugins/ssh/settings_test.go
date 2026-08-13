@@ -152,7 +152,6 @@ func TestDivergentSettings(t *testing.T) {
 			t.Errorf("drift %q does not contain %q", joined, fragment)
 		}
 	}
-	// LogLevel matches case-insensitively and must not be reported.
 	if strings.Contains(joined, "LogLevel") {
 		t.Errorf("LogLevel reported as divergent: %q", joined)
 	}

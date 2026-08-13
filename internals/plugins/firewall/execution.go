@@ -16,10 +16,6 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
-// The nftables service reads a different main config per distribution family:
-// Debian-family ships /etc/nftables.conf, RHEL-family /etc/sysconfig/nftables.conf.
-// The profile picks one of the two; anything else is rejected, because this path
-// is appended to as root and restored from the journal on rollback.
 const (
 	MainConfigDebian = "/etc/nftables.conf"
 	MainConfigRHEL   = "/etc/sysconfig/nftables.conf"
@@ -34,34 +30,21 @@ func ValidMainConfig(p string) bool {
 	}
 }
 
-// IncludeLine is the line apply appends to the main config. It names the exact
-// file this step manages, not its directory: several profiles can own files in
-// the same drop-in directory, and a glob would make each of them load the
-// others' rules and make the evaluation order between them a function of their
-// filenames.
 func IncludeLine(dest string) string {
 	return fmt.Sprintf(`include "%s"`, dest)
 }
 
-// includeCheckCmd matches this file's own include line and nothing else, with
-// or without quotes, so a line already present is not duplicated and another
-// profile's include is never mistaken for this one.
 func includeCheckCmd(mainConfig, dest string) string {
 	return fmt.Sprintf(`grep -E -q '^[[:space:]]*include[[:space:]]+"?%s"?[[:space:]]*$' %s 2>/dev/null`,
 		escapeIncludeRegex(dest), pluginapi.ShellArg(mainConfig))
 }
 
-// legacyGlobCheckCmd finds the directory-wide include earlier hardline versions
-// wrote. Leaving it in place next to an exact include would load this file
-// twice in one transaction, so apply refuses rather than duplicating rules.
 func legacyGlobCheckCmd(mainConfig, dest string) string {
 	glob := escapeIncludeRegex(path.Dir(dest) + "/*.nft")
 	return fmt.Sprintf(`grep -E -q '^[[:space:]]*include[[:space:]]+"?%s"?[[:space:]]*$' %s 2>/dev/null`,
 		glob, pluginapi.ShellArg(mainConfig))
 }
 
-// escapeIncludeRegex quotes the characters EnforceManagedPath allows that mean
-// something to a POSIX ERE.
 func escapeIncludeRegex(p string) string {
 	var b strings.Builder
 	for _, r := range p {
@@ -97,9 +80,7 @@ type NormalizedDiff struct {
 	PolicyChanges []string
 	RulesToAdd    []NormalizedRule
 	RulesToRemove []NormalizedRule
-	// Reordered names the chains whose rules are all present but evaluated in a
-	// different order than declared.
-	Reordered []string
+	Reordered     []string
 }
 
 type firewallStatRuntime interface {
@@ -152,20 +133,12 @@ func Apply(ctx pluginapi.Context, fw *Spec) error {
 		logger.Debugf("handleFirewall: destination %q already matches, skipping write\n", destPath)
 	}
 
-	// The flush header comes first so a load produces exactly what the file
-	// says, then the include, which goes in only after the file it names
-	// exists: an include pointing at a missing file fails every nft load on the
-	// host, including the one this step is about to ask for.
 	if err := EnsureNftablesFlush(ctx.Host, fw.MainConfig); err != nil {
 		return err
 	}
 	return EnsureNftablesInclude(ctx.Host, fw.MainConfig, destPath)
 }
 
-// ActivateFirewall loads the main config into the kernel and proves the running
-// ruleset is the one that was asked for. Writing the file is not what protects
-// a host: until something loads it, the kernel keeps whatever it had, so a
-// profile that only wrote a file was hardened on disk and open in practice.
 func ActivateFirewall(host pluginapi.Host, mainConfig string, desired NormalizedSpec) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
@@ -178,10 +151,6 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 		return err
 	}
 
-	// One file, one transaction: the flush and every table in it commit
-	// together, so there is no moment where the host has no rules. A service
-	// restart would do this as stop-then-start, and its stop flushes the
-	// ruleset on its own.
 	if out, err := host.RunRootWithOutput("nft -f " + pluginapi.ShellArg(mainConfig) + " 2>&1"); err != nil {
 		if detail := firstNftLines(out, 5); detail != "" {
 			return fmt.Errorf("load %s: %s", mainConfig, detail)
@@ -199,10 +168,6 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 	return nil
 }
 
-// assertManagementAccess refuses to load a ruleset that would not accept the
-// port sshd is listening on. A drop policy with no rule for that port takes the
-// host away from whoever applied it, and the run cannot undo what it can no
-// longer reach.
 func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 	policy := desired.Policies["input"]
 	if policy != "drop" && policy != "reject" {
@@ -224,14 +189,6 @@ func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 		policy, joinPorts(ports))
 }
 
-// sshdListeningPorts reads the ports sshd is actually reachable on. It fails
-// closed: a probe that cannot answer is not evidence that a lockout is safe.
-//
-// Two arrangements have to be covered. A host running sshd as a daemon holds
-// the listening socket in sshd itself, which is what ss attributes it to. A
-// socket-activated host, which is the default on Ubuntu 24.04, has systemd
-// holding it instead, so nothing in ss names sshd at all and scanning for it
-// alone would refuse every drop policy.
 func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
 	out, err := host.RunRootWithOutput("ss -Hltnp 2>/dev/null")
 	if err != nil {
@@ -266,9 +223,6 @@ func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
 		return nil, err
 	}
 	for _, port := range activated {
-		// Only a port something is really listening on counts. The guard passes
-		// as soon as one of these is accepted, so a port taken from a unit file
-		// and no further would weaken it into accepting a port ssh never had.
 		if _, live := listening[port]; !live {
 			continue
 		}
@@ -286,9 +240,6 @@ func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
 	return ports, nil
 }
 
-// sshSocketPorts reads the ports of an ssh socket unit that is currently
-// active. Only an active unit is asked: an enabled-but-stopped socket holds no
-// listener, and its ports are not ones this host answers ssh on.
 func sshSocketPorts(host pluginapi.Host) ([]int, error) {
 	const cmd = `for unit in ssh.socket sshd.socket; do ` +
 		`systemctl is-active --quiet "$unit" && systemctl show "$unit" -p Listen --value; ` +
@@ -301,8 +252,6 @@ func sshSocketPorts(host pluginapi.Host) ([]int, error) {
 
 	var ports []int
 	for _, line := range strings.Split(out, "\n") {
-		// systemd prints one listener per line as "ADDRESS (Type)"; only a
-		// stream socket carries ssh.
 		fields := strings.Fields(line)
 		if len(fields) != 2 || fields[1] != "(Stream)" {
 			continue
@@ -314,8 +263,6 @@ func sshSocketPorts(host pluginapi.Host) ([]int, error) {
 	return ports, nil
 }
 
-// listenPort reads the port off a listening address, which ss and systemd both
-// print with the address first: 0.0.0.0:22, [::]:22, *:22.
 func listenPort(local string) (int, bool) {
 	idx := strings.LastIndex(local, ":")
 	if idx < 0 {
@@ -328,9 +275,6 @@ func listenPort(local string) (int, bool) {
 	return port, true
 }
 
-// acceptsInputPort reports whether the ruleset lets a new connection to port
-// reach sshd. Only rules with no address or interface narrowing count: one that
-// accepts a single source address does not keep the host reachable in general.
 func acceptsInputPort(desired NormalizedSpec, port int) bool {
 	for _, rule := range desired.Rules {
 		if rule.Chain != "input" || rule.Action != "accept" || rule.Proto != "tcp" || rule.Port != port {
@@ -352,8 +296,6 @@ func joinPorts(ports []int) string {
 	return strings.Join(out, ", ")
 }
 
-// firstNftLines trims nft's complaint down to something an error can carry. nft
-// prints the offending line and a caret ruler, which is the useful part.
 func firstNftLines(out string, n int) string {
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" {
@@ -366,15 +308,8 @@ func firstNftLines(out string, n int) string {
 	return strings.Join(lines, "; ")
 }
 
-// candidateSuffix names the staging file. It sits beside the destination so the
-// move into place is a rename on one filesystem, and it is not the file the
-// main config includes, so nothing loads it while it is being checked.
 const candidateSuffix = ".hardline-candidate"
 
-// installFirewallCandidate writes the ruleset to a staging path, has nft parse
-// it there, and only then moves it into place. Writing first and checking after
-// leaves a file the host would fail to load sitting where the host will load
-// it, which is exactly the state a firewall step must never produce.
 func installFirewallCandidate(host pluginapi.Host, destPath, rendered string) error {
 	candidate := destPath + candidateSuffix
 
@@ -708,11 +643,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", dest, err)
 	}
 
-	// Apply also appends the include line to the main config, so that mutation
-	// has to be journalled too or rollback silently leaves it behind. Only the
-	// line is recorded, not the file: another profile may add its own include to
-	// the same config after this run, and restoring the whole file would delete
-	// it along with ours.
 	mainConfig := strings.TrimSpace(spec.MainConfig)
 	if !ValidMainConfig(mainConfig) {
 		return record, fmt.Errorf("step %q (type=firewall): unsupported main_config %q", stepID, spec.MainConfig)
@@ -735,13 +665,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
-	// Rollback walks Before in reverse, so the main-config lines are listed
-	// last to be taken back first. An include naming a file that is no longer
-	// there fails every nftables load, so the pointer has to go before what it
-	// points at, and the flush header goes with it. The managed file is restored
-	// last, which is where the kernel is reloaded from what is left on disk; the
-	// main config rides on the record because Rollback is handed one object and
-	// nothing else, and it is re-validated on the way out.
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &snap, Message: mainConfig},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &flush},
@@ -750,14 +673,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// includeLineConflict reports a line this run left in the main config that is
-// no longer there. Rolling back would then be removing a line someone else
-// already removed, and the managed file has been inert since.
-//
-// The record handed here is the after snapshot, taken once apply had appended
-// the line, so Added is false on it: the line was present at capture time. An
-// after record with Added set means the line was still absent when the capture
-// ran, so its absence now is not drift.
 func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) []string {
 	if host == nil || rec.Added {
 		return nil
@@ -778,9 +693,6 @@ func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) 
 	return []string{fmt.Sprintf("%s no longer contains %s", rec.Path, rec.Line)}
 }
 
-// RestoreNftablesInclude undoes what apply did to the main config: the file if
-// this run created it, otherwise the one line it added, whether that was the
-// include or the flush header.
 func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
@@ -800,17 +712,10 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 	return RemoveNftablesInclude(host, rec.Path, rec.Line)
 }
 
-// RestoreManagedRuleset puts the managed ruleset file back and then reloads the
-// kernel from the restored main config. Apply loads the ruleset into the kernel
-// rather than leaving it for a service restart, so restoring the file alone
-// would leave the host running the very ruleset being rolled back until it next
-// boots. The main config is the authority afterwards, whatever it now says.
 func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mainConfig string) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
 	}
-	// The path came off the journal, so it is checked against the same closed
-	// set the profile schema accepts rather than being handed to nft as given.
 	if !ValidMainConfig(mainConfig) {
 		return fmt.Errorf("firewall rollback: the journal records an unsupported main config path %q", mainConfig)
 	}
@@ -820,13 +725,8 @@ func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mai
 	return reloadFromMainConfig(host, mainConfig)
 }
 
-// reloadFromMainConfig loads the main config back into the kernel. Rollback
-// takes the include line out before it gets here, so what loads is the host's
-// own configuration with this profile's ruleset no longer part of it.
 func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 	if err := host.RunRoot("test -f " + pluginapi.ShellArg(mainConfig)); err != nil {
-		// Rollback deleted the main config because this run created it, so
-		// there is nothing left to load and the applied ruleset just goes.
 		if out, flushErr := host.RunRootWithOutput("nft flush ruleset 2>&1"); flushErr != nil {
 			if detail := firstNftLines(out, 5); detail != "" {
 				return fmt.Errorf("firewall rollback: flush the loaded ruleset: %s", detail)
@@ -836,11 +736,6 @@ func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 		return nil
 	}
 
-	// Either way this is one transaction, so the host is never briefly without
-	// rules. A main config carrying the flush header already replaces the
-	// ruleset on its own; one without it would add to what the kernel is
-	// running, which is exactly the rules being rolled back, so the header is
-	// synthesized around the same load.
 	cmd := "nft -f " + pluginapi.ShellArg(mainConfig)
 	if !flushPresent(host, mainConfig) {
 		cmd = fmt.Sprintf(`printf 'flush ruleset\ninclude "%%s"\n' %s | nft -f -`, pluginapi.ShellArg(mainConfig))
@@ -854,11 +749,6 @@ func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 	return nil
 }
 
-// restoreNftablesMainConfig reverts the nftables main config to its pre-apply
-// bytes, which is what removes the include line apply appended. It skips
-// EnforceManagedPath, whose 99-hardline naming rule this file cannot satisfy,
-// and checks the two-entry whitelist instead: a tampered journal must not be
-// able to name any other path here.
 func restoreNftablesMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
@@ -896,11 +786,6 @@ func ManagedDestination(fw *Spec) string {
 	return ""
 }
 
-// FlushLine is the first line of a managed main config. Without it, loading the
-// file adds to whatever the kernel already has, so a rule the profile deleted
-// stays in force until the next reboot. With it, one load produces exactly the
-// ruleset the file describes, the same way on Debian-family hosts, which ship
-// it, and RHEL-family hosts, which do not.
 const FlushLine = "flush ruleset"
 
 func flushCheckCmd(mainConfig string) string {
@@ -915,9 +800,6 @@ func flushPresent(host pluginapi.Host, mainConfig string) bool {
 	return host.RunRoot(flushCheckCmd(mainConfig)) == nil
 }
 
-// EnsureNftablesFlush puts "flush ruleset" at the top of the main config. It
-// has to be the first line: nft applies the file in order, so a flush after an
-// include would discard the very tables the include just defined.
 func EnsureNftablesFlush(host pluginapi.Host, mainConfig string) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
@@ -957,8 +839,6 @@ func EnsureNftablesFlush(host pluginapi.Host, mainConfig string) error {
 	return nil
 }
 
-// RemoveNftablesFlush takes back the flush line this run added, leaving the
-// rest of the file, including other profiles' includes, untouched.
 func RemoveNftablesFlush(host pluginapi.Host, mainConfig string) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
@@ -1036,8 +916,6 @@ func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	return nil
 }
 
-// RemoveNftablesInclude takes back exactly the line this run added and leaves
-// every other line, including another profile's include, untouched.
 func RemoveNftablesInclude(host pluginapi.Host, mainConfig, line string) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
@@ -1072,9 +950,6 @@ func RemoveNftablesInclude(host pluginapi.Host, mainConfig, line string) error {
 	return nil
 }
 
-// withoutIncludeLine drops every occurrence of one include line, comparing the
-// way the presence check does: leading and trailing space and the optional
-// quotes around the path are not a different line.
 func withoutIncludeLine(content, line string) (string, bool) {
 	target := normalizeIncludeLine(line)
 	if target == "" {
@@ -1158,9 +1033,6 @@ func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 		if err != nil {
 			return out, fmt.Errorf("normalize firewall policy for chain %q: %w", cp.Chain, err)
 		}
-		// nft takes accept or drop as a base-chain policy and nothing else, so
-		// a reject policy is a file the host refuses to load. Rejecting is
-		// still available per rule, which is where it belongs.
 		if pn == "reject" {
 			return out, fmt.Errorf("chain %q policy %q is not a valid base-chain policy; use \"drop\" and add a reject rule if you need one", cp.Chain, cp.Policy)
 		}
@@ -1191,10 +1063,6 @@ func NormalizeDesiredSpec(fw *Spec) (NormalizedSpec, error) {
 		}
 	}
 
-	// Declared order is the order the kernel evaluates. Sorting here put every
-	// accept ahead of every drop in a chain, so an anti-spoof or invalid-state
-	// drop written first in the profile was emitted after the accepts it was
-	// meant to precede, and the rule never matched anything.
 	return out, nil
 }
 
@@ -1320,19 +1188,12 @@ func normalizeFirewallFamily(family string) string {
 	return strings.ToLower(strings.TrimSpace(family))
 }
 
-// tableNameRe is what nft accepts as an identifier. The table name is written
-// straight into "table <family> <name> {" in a file loaded as root, so anything
-// outside an identifier would be further nft grammar rather than a name.
 var tableNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 func normalizeFirewallTable(table string) string {
 	return strings.TrimSpace(table)
 }
 
-// interfaceNameRe follows the kernel's own limit: an interface name is at most
-// IFNAMSIZ-1 characters and carries no whitespace, slash or quote. The value is
-// rendered inside iif "%s", where a quote would close the string and leave the
-// rest to be read as grammar.
 var interfaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,14}$`)
 
 func normalizeInterface(field, raw string) (string, error) {
@@ -1346,10 +1207,6 @@ func normalizeInterface(field, raw string) (string, error) {
 	return v, nil
 }
 
-// normalizeAddress accepts one address or one CIDR prefix and nothing else: no
-// ranges, no named sets, no lists. Each of those is valid nft that a profile
-// cannot express through this field, and accepting the text unparsed is what
-// would let it through into a root-loaded ruleset.
 func normalizeAddress(field, raw string) (string, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
@@ -1380,9 +1237,6 @@ func normalizeAddress(field, raw string) (string, error) {
 	return addr.String(), nil
 }
 
-// addressIsV6 reports how an already-normalized address should be rendered. It
-// decides the nft keyword per address rather than per table, so an inet table
-// can carry both without emitting "ip saddr" in front of an IPv6 address.
 func addressIsV6(addr string) bool {
 	if addr == "" {
 		return false
@@ -1395,10 +1249,6 @@ func addressIsV6(addr string) bool {
 	return err == nil && parsed.Is6()
 }
 
-// addressKeyword is the nft protocol keyword an address matches under. A table
-// pinned to one family keeps that family's keyword even for a value that failed
-// to parse, so a malformed record renders as it always did rather than silently
-// switching protocol.
 func addressKeyword(family, addr string) string {
 	switch family {
 	case "ip":
@@ -1412,9 +1262,6 @@ func addressKeyword(family, addr string) string {
 	return "ip"
 }
 
-// assertAddressFamily keeps a rule's addresses inside the table's family. An
-// ip table cannot match an IPv6 address, and nft rejects the whole file at load
-// rather than the one rule, so this is caught while the profile is still text.
 func assertAddressFamily(family string, rule NormalizedRule) error {
 	for _, entry := range []struct{ field, value string }{
 		{"source", rule.Source},
@@ -1560,9 +1407,6 @@ func NormalizeCurrentState(nftJSON, family, table string) (NormalizedSpec, error
 		}
 	}
 
-	// nft lists a chain's rules in evaluation order, which is the whole point of
-	// reading them back: sorting the live state would compare a set against a
-	// set and call a reordered ruleset aligned.
 	return out, nil
 }
 
@@ -1898,10 +1742,6 @@ func DiffNormalized(current, desired NormalizedSpec) NormalizedDiff {
 	return diff
 }
 
-// reorderedChains reports the chains whose rules are all present but evaluated
-// in a different order than the profile declared. A firewall with the right set
-// of rules in the wrong order is a different firewall, so this is drift even
-// though nothing has to be added or removed.
 func reorderedChains(current, desired []NormalizedRule, chains []string) []string {
 	var out []string
 	for _, chain := range chains {
@@ -1992,8 +1832,6 @@ func RenderNormalizedRule(family string, r NormalizedRule) string {
 		parts = append(parts, fmt.Sprintf(`oif "%s"`, r.OutInterface))
 	}
 
-	// The keyword follows the address, not the table: an inet table can carry
-	// both, and "ip saddr" in front of an IPv6 address is a file nft refuses.
 	if r.Source != "" {
 		parts = append(parts, fmt.Sprintf("%s saddr %s", addressKeyword(family, r.Source), r.Source))
 	}
@@ -2019,9 +1857,6 @@ func RenderNormalizedRule(family string, r NormalizedRule) string {
 
 const firewallDiffPreviewLimit = 40
 
-// firewallDiffMaxLines bounds the inputs to the LCS diff so a malicious or
-// corrupt remote file can't trigger an O(n*m) DP table large enough to OOM
-// the local process. Beyond this, the diff degrades to a notice line.
 const firewallDiffMaxLines = 2000
 
 type firewallDiffEdit struct {

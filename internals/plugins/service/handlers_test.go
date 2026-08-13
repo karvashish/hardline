@@ -96,9 +96,6 @@ func TestPlugin_DecodeErrors(t *testing.T) {
 	}
 }
 
-// TestValidateRestartPolicy closes the enum. Before this, anything that was not
-// "always" behaved roughly like "on_change", so a typo silently bought the
-// weaker behaviour: a profile asking to restart unconditionally would skip it.
 func TestValidateRestartPolicy(t *testing.T) {
 	spec := func(state string, p *RestartPolicy) *Spec {
 		return &Spec{Name: "ssh.service", State: state, RestartPolicy: p}

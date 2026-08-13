@@ -139,10 +139,6 @@ func EnsureNonInteractiveSudo(client *remote.Client) error {
 	return nil
 }
 
-// CheckRemoteOS reads /etc/os-release from the remote host and verifies that
-// the OS family, version and variant match the profile declaration. The schema
-// requires all three, so the empty-value skips below are a defence for callers
-// that build an OSInfo in code rather than a path a signed profile can take.
 func CheckRemoteOS(client *remote.Client, family, version, variant string) error {
 	if client == nil || strings.TrimSpace(family) == "" {
 		return nil
@@ -168,12 +164,6 @@ func CheckRemoteOS(client *remote.Client, family, version, variant string) error
 	return checkRemoteVariant(out, variant)
 }
 
-// checkRemoteVariant holds a signed profile to the edition it was written for.
-// VARIANT_ID is the only authoritative statement a host makes about its
-// edition, and the families that publish it - Fedora above all - are exactly
-// the ones where a server profile landing on a workstation matters. Hosts that
-// publish nothing cannot contradict the profile, so they are not refused on a
-// guess: what is enforced is that the host never says something different.
 func checkRemoteVariant(osRelease, variant string) error {
 	declared := strings.TrimSpace(variant)
 	if declared == "" {
@@ -193,12 +183,6 @@ func checkRemoteVariant(osRelease, variant string) error {
 	return nil
 }
 
-// versionMatches compares the declared version against VERSION_ID component by
-// component, so a profile is as precise as it chose to be. "24.04" matches
-// 24.04 and 24.04.x, but not 24.10; "9" matches 9 and every 9.x point release -
-// the RHEL-family case, where hosts report a minor no starter profile can pin
-// without expiring. Extra components on the remote side are ignored; missing
-// ones are a mismatch.
 func versionMatches(declared, remote string) bool {
 	want := strings.Split(declared, ".")
 	got := strings.Split(remote, ".")

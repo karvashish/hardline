@@ -125,9 +125,6 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 
 	journal.Status = "success"
 	if err := saveTargetJournal(sshClient, journal); err != nil {
-		// The host is already fully changed at this point, so the run is not
-		// undoable from the target. Keeping the runner-side copy and naming the
-		// command that consumes it is what keeps this recoverable.
 		if saveErr := saveRunnerJournal(journal); saveErr != nil {
 			return errors.New("persist target rollback journal failed: " + err.Error() +
 				"; the local fallback journal could not be written either: " + saveErr.Error() +
@@ -197,10 +194,6 @@ func applyProfile(ctx context.Context, client *remote.Client, p *profile.Profile
 				logger.Infof("%s✓ ALIGNED%s (%s)\n", logger.ColorGreen+logger.ColorBold, logger.ColorReset, formatShortDuration(duration))
 			}
 
-			// Also after the step, not only before it: a SIGINT that arrives
-			// while the last step is running would otherwise be discarded the
-			// moment that step succeeds, and the run would report completion
-			// for a cancellation the operator asked for.
 			if err := abortIfCancelled(ctx, client, journal); err != nil {
 				return err
 			}
@@ -211,8 +204,6 @@ func applyProfile(ctx context.Context, client *remote.Client, p *profile.Profile
 	return nil
 }
 
-// abortIfCancelled reverts what the run has already done and reports the
-// cancellation. It returns nil when no cancellation is pending.
 func abortIfCancelled(ctx context.Context, client *remote.Client, journal *rollback.Journal) error {
 	select {
 	case <-ctx.Done():
@@ -224,8 +215,6 @@ func abortIfCancelled(ctx context.Context, client *remote.Client, journal *rollb
 		return logger.Wrap(ctx.Err(), "interrupted")
 	}
 
-	// What happened to the journal and to the revert is the operator's only
-	// account of what state the host was left in, so neither result is dropped.
 	msg := "interrupted: " + ctx.Err().Error()
 	journal.Status = "interrupted"
 	if err := saveRunnerJournal(journal); err != nil {
@@ -282,10 +271,6 @@ func writeApplyFooter(p *profile.Profile, journal *rollback.Journal, total, chan
 	logger.Infof("%s", b.String())
 }
 
-// journalledRollbackFidelity reads back what the run actually recorded. The
-// journal already knows which steps captured best-effort state; announcing a
-// flat "AVAILABLE" over them tells the operator a rollback will return the host
-// to where it was, which for a package transaction it will not.
 func journalledRollbackFidelity(journal *rollback.Journal) (string, string) {
 	if journal == nil || len(journal.Steps) == 0 {
 		return "AVAILABLE", logger.ColorGreen
@@ -303,8 +288,6 @@ func journalledRollbackFidelity(journal *rollback.Journal) (string, string) {
 	return "BEST-EFFORT for " + strconv.Itoa(bestEffort) + " step(s)", logger.ColorYellow
 }
 
-// formatShortDuration renders a Duration in a compact human-readable form:
-// sub-second → "423ms", sub-minute → "4.7s", minute+ → "5m18s".
 func formatShortDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0
@@ -348,7 +331,6 @@ func executeStep(client *remote.Client, p *profile.Profile, step profile.Step, j
 		return logger.Wrap(err, "capture post-apply state for step "+strconv.Quote(step.ID))
 	}
 
-	// Record the actual outcome for downstream steps (service restart on_change)
 	stepChanges[step.ID] = pluginapi.CapturesDiffer(beforeCapture, afterCapture)
 	journal.Steps[len(journal.Steps)-1].SetAfterFromCapture(afterCapture)
 	if err := saveRunnerJournal(journal); err != nil {

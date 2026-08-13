@@ -17,8 +17,6 @@ func TestApply(t *testing.T) {
 		}
 	})
 
-	// The unit name reaches systemctl verbatim: "sshd" is the real unit on
-	// RHEL-family hosts, so the plugin must not rewrite it to Debian's "ssh".
 	t.Run("enable and restart when dirty", func(t *testing.T) {
 		var cmds []string
 		err := Apply(pluginapi.Context{Host: serviceRuntimeStub{
@@ -515,9 +513,6 @@ func TestValidateServiceSpecRejectsInjection(t *testing.T) {
 	}
 }
 
-// TestRestoreServiceState_RefusesInexpressibleStates covers E15: enable/disable
-// cannot put back a masked or static unit, and pretending otherwise leaves the
-// host in a state the journal never recorded.
 func TestRestoreServiceState_RefusesInexpressibleStates(t *testing.T) {
 	present := serviceRuntimeStub{
 		runRoot: func(string) error { return nil },
@@ -543,8 +538,6 @@ func TestRestoreServiceState_RefusesInexpressibleStates(t *testing.T) {
 		t.Fatalf("expected an ordinary enabled unit to restore, got %v", err)
 	}
 
-	// A journal with no recorded unit-file state is one this hardline never
-	// wrote; guessing "disabled" from the boolean is not a restoration.
 	if err := restoreServiceState(present, pluginapi.ServiceState{
 		Unit: "ssh.service", Known: true, Enabled: true, Active: true,
 	}); err == nil || !strings.Contains(err.Error(), "no unit-file state") {

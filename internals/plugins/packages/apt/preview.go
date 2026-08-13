@@ -8,10 +8,6 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
-// simCmd is the simulate form behind every preview. LC_ALL=C pins the locale:
-// the parser below matches apt's own "Inst"/"Remv" tokens, and apt renders
-// those through gettext, so an unpinned command previews nothing on a
-// localized host while apply still runs the transaction.
 func simCmd(tail string) string {
 	return "LC_ALL=C DEBIAN_FRONTEND=noninteractive apt-get -s " + tail
 }
@@ -40,10 +36,6 @@ func autoremovePreview(host pluginapi.Host) ([]string, error) {
 	return parseSimulation(out, "Remv ", "Purg "), nil
 }
 
-// purgePreview is the real purge transaction: apt resolves a purge outwards
-// through reverse dependencies, so the set it prints is what apply will remove,
-// not the set the profile named. Both tokens count - apt writes "Purg" for the
-// packages whose configuration also goes and "Remv" for the rest.
 func purgePreview(host pluginapi.Host, pkgs []string) ([]string, error) {
 	out, err := host.RunRootWithOutput(packages.AppendPackages(simCmd("purge"), pkgs))
 	if err != nil {
@@ -52,10 +44,6 @@ func purgePreview(host pluginapi.Host, pkgs []string) ([]string, error) {
 	return parseSimulation(out, "Remv ", "Purg "), nil
 }
 
-// parseSimulation reads the "Inst <name> ..." / "Remv <name> ..." lines of an
-// apt-get -s run, deduplicating while preserving apt's own ordering. A
-// multiarch row names the package as "name:arch"; the architecture is dropped
-// so the result compares against the names a profile writes.
 func parseSimulation(out string, prefixes ...string) []string {
 	var pkgs []string
 	seen := make(map[string]struct{})
@@ -90,17 +78,8 @@ func hasAnyPrefix(line string, prefixes []string) bool {
 	return false
 }
 
-// dpkgMissMessage is what dpkg-query prints when it knows nothing about a
-// package. It is the only output that means "absent"; see classifyDpkgProbe.
 const dpkgMissMessage = "dpkg-query: no packages found matching"
 
-// query reports whether name is installed, at which version, and the exact
-// install argument that would restore it. apt pins with "name=version".
-//
-// stderr is folded into stdout because dpkg-query answers a miss there and
-// exits 1, which is indistinguishable from a transport failure by exit code
-// alone. Recording "was not installed" for a package that is installed writes a
-// rollback snapshot that removes it.
 func query(host pluginapi.Host, name string) (bool, string, string, error) {
 	if host == nil {
 		return false, "", "", fmt.Errorf("host context is required to query package %q", name)
@@ -113,21 +92,11 @@ func query(host pluginapi.Host, name string) (bool, string, string, error) {
 	return classifyDpkgProbe(name, out)
 }
 
-// dpkgAbsentStates are the states in which dpkg holds no files for a package.
-// "config-files" is a purged-but-not-removed package: its files are gone, so
-// the package is absent for the purposes of a snapshot, even though dpkg still
-// has a record of it.
 var dpkgAbsentStates = map[string]bool{
 	"not-installed": true,
 	"config-files":  true,
 }
 
-// classifyDpkgProbe turns the probe's output into an answer or an error. Only
-// two readings are answers: dpkg reported a status it holds a definite opinion
-// about, or dpkg reported that it has never heard of the package. A half-
-// installed or half-configured package is neither, and an interrupted dpkg run
-// is exactly how a host reaches those states, so they are propagated rather
-// than rounded to "installed" or "absent".
 func classifyDpkgProbe(name, out string) (bool, string, string, error) {
 	codes := 0
 	missed := false
@@ -174,9 +143,6 @@ func classifyDpkgProbe(name, out string) (bool, string, string, error) {
 	}
 	switch {
 	case fields[2] == "installed":
-		// An installed package always has a version. Without one there is no pin
-		// to journal, and rollback would reinstall whatever the repository offers
-		// later rather than what was there before.
 		if version == "" {
 			return false, "", "", fmt.Errorf("query package %q: dpkg reports it installed with no version", name)
 		}

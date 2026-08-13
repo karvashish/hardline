@@ -56,7 +56,6 @@ func TestNewDefaultRegistryPanicsOnRegisterError(t *testing.T) {
 	noopRollback := func(_ pluginapi.Host, _ pluginapi.ObjectRecord) error { return nil }
 	noopConflict := func(_ pluginapi.Host, _ pluginapi.ObjectRecord) []string { return nil }
 
-	// Return two plugins with the same name to trigger a duplicate registration panic.
 	orig := defaultPlugins
 	defaultPlugins = func() []pluginapi.Plugin {
 		return []pluginapi.Plugin{

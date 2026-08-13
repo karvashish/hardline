@@ -18,8 +18,6 @@ var (
 	writeRemoteRootFile     = (*remote.Client).WriteRootFile
 )
 
-// SaveRemoteLast writes a timestamped journal under /var/lib/hardline/runs/<profileID>/<runID>.json.
-// Each apply gets its own file; they stack up and rollback pops the most recent.
 func SaveRemoteLast(client *remote.Client, j *Journal) error {
 	if j == nil {
 		return fmt.Errorf("journal is nil")
@@ -48,16 +46,8 @@ func SaveRemoteLast(client *remote.Client, j *Journal) error {
 	return nil
 }
 
-// journalFileNamePattern is the exact shape SaveRemoteLast writes: a RunID
-// timestamp plus ".json". The directory is root-owned but is still a directory
-// on a host hardline does not otherwise control, and the name selected here is
-// read back as the instruction set for a root-level restore. Anything that does
-// not match is not a journal this hardline wrote.
 var journalFileNamePattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}\.[0-9]{9}Z\.json$`)
 
-// LoadRemoteLast finds the most recent journal for the profile. RunIDs are
-// zero-padded timestamps, so the lexicographically last well-formed name is
-// also the newest.
 func LoadRemoteLast(client *remote.Client, profileID string) (*Journal, error) {
 	dir := path.Dir(resolveRemoteStatePath(profileID, "x"))
 
@@ -90,16 +80,12 @@ func LoadRemoteLast(client *remote.Client, profileID string) (*Journal, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The filename is derived from the RunID, so a journal whose body names a
-	// different run has been moved or rewritten.
 	if journal.RunID+".json" != filename {
 		return nil, fmt.Errorf("remote journal %q records run %q; the file has been renamed", remotePath, journal.RunID)
 	}
 	return journal, nil
 }
 
-// DeleteRemoteJournal removes the specific timestamped journal after a successful rollback,
-// so the next rollback targets the previous apply.
 func DeleteRemoteJournal(client *remote.Client, profileID, runID string) error {
 	remotePath := strings.TrimSpace(resolveRemoteStatePath(profileID, runID))
 	if remotePath == "" {

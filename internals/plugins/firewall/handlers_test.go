@@ -43,8 +43,6 @@ func TestPlugin_MetadataAndValidation(t *testing.T) {
 func TestPlugin_ApplyUsesValidationFlow(t *testing.T) {
 	plugin := Plugin()
 
-	// What the kernel reports after loading this step's ruleset. Activation
-	// compares the two, so the stub has to answer as the loaded host would.
 	live := mustLiveRulesetJSON(&Spec{
 		Backend: "nftables", MainConfig: MainConfigDebian, Family: "inet", Table: "filter",
 		ManagedDest: "/etc/nftables.d/99-hardline-firewall.nft",
@@ -185,9 +183,6 @@ func TestRHELMainConfigWiring(t *testing.T) {
 	}
 }
 
-// TestIncludeLineNamesTheManagedFile pins the exact-file include: several
-// profiles can manage files in one drop-in directory, and a directory glob
-// would make each of them load the others' rules.
 func TestIncludeLineNamesTheManagedFile(t *testing.T) {
 	if got := IncludeLine("/etc/nftables.d/99-hardline-firewall.nft"); got != `include "/etc/nftables.d/99-hardline-firewall.nft"` {
 		t.Fatalf("unexpected include line: %q", got)
@@ -216,7 +211,6 @@ func TestFirewallConfigTestUsesTheProfileMainConfig(t *testing.T) {
 	if err := firewallConfigTest(nil, MainConfigDebian); err == nil {
 		t.Fatal("expected a host-required error")
 	}
-	// A tampered journal or a spec that skipped validation must not reach nft.
 	if err := firewallConfigTest(firewallExecHostStub{}, "/etc/evil.conf"); err == nil {
 		t.Fatal("expected an unsupported main_config to be rejected")
 	}

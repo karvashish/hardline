@@ -39,9 +39,6 @@ const (
 var debugTagColor = ColorTagDefault
 var debugDetailColor = ColorDetailDefault
 
-// lineMirror buffers writes until a newline arrives, then emits one
-// ISO-8601-UTC-timestamped line to the underlying writer. Partial lines are
-// flushed on close.
 type lineMirror struct {
 	mu  sync.Mutex
 	w   io.Writer
@@ -146,9 +143,6 @@ func Infof(format string, args ...any) {
 	mirror.Write(msg)
 }
 
-// Tickf writes transient progress output (throbber dots, spinners) to stderr
-// only. Nothing is mirrored to the log file — log files would otherwise be
-// flooded with progress noise.
 func Tickf(format string, args ...any) {
 	fmt.Fprintf(stderr, format, args...)
 }

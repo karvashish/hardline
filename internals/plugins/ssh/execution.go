@@ -11,19 +11,12 @@ import (
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
 
-// candidateSuffix keeps the staged file out of the sshd_config.d include glob,
-// which matches *.conf. Staging it in the destination directory keeps it on the
-// same filesystem, so the install is a rename rather than a copy, and gives it
-// the directory's SELinux context.
 const candidateSuffix = ".hardline-candidate"
 
 func candidatePath(dest string) string {
 	return dest + candidateSuffix
 }
 
-// sshdBinary resolves sshd once. It fails closed: a host where sshd cannot be
-// found is not one where an sshd policy can be validated, and writing the
-// drop-in anyway would leave a hardening claim nothing checked.
 func sshdBinary(host pluginapi.Host) (string, error) {
 	out, err := host.RunRootWithOutput("command -v sshd || command -v /usr/sbin/sshd || true")
 	if err != nil {
@@ -39,9 +32,6 @@ func sshdBinary(host pluginapi.Host) (string, error) {
 	return bin, nil
 }
 
-// checkFile runs sshd's own parser over one file. Used on the staged candidate
-// before it can affect anything, so a syntax error in content this profile
-// wrote is found while the host is still untouched.
 func checkFile(host pluginapi.Host, bin, file string) error {
 	out, err := host.RunRootWithOutput(pluginapi.ShellArg(bin) + " -t -f " + pluginapi.ShellArg(file) + " 2>&1")
 	if err != nil {
@@ -50,10 +40,6 @@ func checkFile(host pluginapi.Host, bin, file string) error {
 	return nil
 }
 
-// checkMainConfig parses the host's whole configuration, which is what the
-// daemon will read on reload. The candidate alone parsing is not enough: a
-// keyword can be legal by itself and still conflict with what the host already
-// declares.
 func checkMainConfig(host pluginapi.Host, bin string) error {
 	out, err := host.RunRootWithOutput(pluginapi.ShellArg(bin) + " -t 2>&1")
 	if err != nil {
@@ -62,11 +48,6 @@ func checkMainConfig(host pluginapi.Host, bin string) error {
 	return nil
 }
 
-// effectiveConfig reads what sshd would run. It reads the configuration from
-// disk rather than from the running daemon, so calling it after the drop-in is
-// installed but before the reload returns the policy the reload is about to
-// activate. That is what makes the lockout guard a preflight rather than a
-// post-mortem.
 func effectiveConfig(host pluginapi.Host, bin string, mc *MatchContext) (map[string][]string, error) {
 	cmd := pluginapi.ShellArg(bin) + " -T"
 	label := "sshd -T"
@@ -87,9 +68,6 @@ func effectiveConfig(host pluginapi.Host, bin string, mc *MatchContext) (map[str
 	return effective, nil
 }
 
-// connectingUser is the account this run authenticated as. sudo clears the
-// environment but sets SUDO_USER, and when the run connected as root directly
-// sudo leaves it as root.
 func connectingUser(host pluginapi.Host) (string, error) {
 	out, err := host.RunRootWithOutput(`printf '%s' "${SUDO_USER:-root}"`)
 	if err != nil {
@@ -110,9 +88,6 @@ func userGroups(host pluginapi.Host, user string) ([]string, error) {
 	return strings.Fields(out), nil
 }
 
-// assertManagementAccess refuses a policy that would not let this run back in.
-// It reads the prospective effective configuration, so it accounts for what the
-// host already declares, not only what this profile asked for.
 func assertManagementAccess(effective map[string][]string, user string, groups []string) error {
 	if user == "root" {
 		switch value := firstValue(effective, "permitrootlogin"); strings.ToLower(value) {
@@ -137,10 +112,6 @@ func assertManagementAccess(effective map[string][]string, user string, groups [
 	return assertListed(effective, "allowgroups", groups, true)
 }
 
-// assertListed checks one of sshd's four access lists. mustMatch inverts the
-// test: an allow list has to include the connecting identity, a deny list has
-// to exclude it. An empty list is no restriction at all, which is why absence
-// is not treated as a denial.
 func assertListed(effective map[string][]string, key string, names []string, mustMatch bool) error {
 	patterns := strings.Fields(firstValue(effective, key))
 	if len(patterns) == 0 {
@@ -149,9 +120,6 @@ func assertListed(effective map[string][]string, key string, names []string, mus
 
 	matched := false
 	for _, pattern := range patterns {
-		// A negated or per-host pattern is more than this check models, and
-		// guessing at it would either invent access the host does not grant or
-		// refuse a policy that is fine. Neither is safe, so it stops here.
 		if strings.HasPrefix(pattern, "!") || strings.Contains(pattern, "@") {
 			return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, whose pattern %q this check cannot evaluate; hardline will not guess whether it keeps its own access",
 				key, strings.Join(patterns, " "), pattern)
@@ -182,9 +150,6 @@ func firstValue(effective map[string][]string, key string) string {
 	return values[0]
 }
 
-// verifyEffective checks the declared keywords globally and again under every
-// declared match context. The contexts are what catch a Match block that
-// re-enables for some users what the drop-in denied for everyone.
 func verifyEffective(host pluginapi.Host, bin string, want []Setting, contexts []MatchContext) error {
 	global, err := effectiveConfig(host, bin, nil)
 	if err != nil {
@@ -229,8 +194,6 @@ func firstLines(out string, n int) string {
 	return strings.TrimSpace(strings.Join(lines, "; "))
 }
 
-// install stages the rendered drop-in, has sshd parse it in isolation, and only
-// then moves it into place.
 func install(host pluginapi.Host, bin, dest string, rendered []byte, mode os.FileMode) error {
 	staged := candidatePath(dest)
 	if err := host.WriteRootFile(staged, rendered, mode); err != nil {
@@ -290,8 +253,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 
 	fileMatches := aligned(before, rendered, mode)
 	if fileMatches {
-		// The file being right is not the same as the daemon running it. Only
-		// a clean effective-policy check lets the reload be skipped.
 		if err := verifyEffective(ctx.Host, bin, settings, spec.VerifyContexts); err == nil {
 			logger.Debugf("handleSSH: %s already active, skipping reload\n", spec.Path)
 			return nil
@@ -300,9 +261,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 		return err
 	}
 
-	// From here the file is in place but the daemon still runs the old policy.
-	// Every failure restores what was there before, so a refusal never leaves
-	// the host carrying a configuration the next reload or reboot would apply.
 	reloaded := false
 	activate := func() error {
 		if err := checkMainConfig(ctx.Host, bin); err != nil {
@@ -315,9 +273,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 		if err := assertManagementAccess(prospective, user, groups); err != nil {
 			return err
 		}
-		// Marked before the reload runs, not after: a reload that reports an
-		// error may still have made the daemon take the new policy, and the
-		// restore has to assume it did.
 		reloaded = true
 		if err := reload(ctx.Host, spec.Service); err != nil {
 			return err
@@ -334,9 +289,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 	return nil
 }
 
-// restorePrevious undoes a refused activation. Putting the file back is enough
-// only while the daemon has not been reloaded; once it has, sshd keeps running
-// the policy that was just refused until it is reloaded off the restored file.
 func restorePrevious(host pluginapi.Host, bin string, before pluginapi.FileSnapshot, service string, reloaded bool) error {
 	if err := pluginapi.RestoreFileSnapshot(host, before); err != nil {
 		return err
@@ -409,9 +361,6 @@ func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 		diffs = append(diffs, fmt.Sprintf("sshd policy: reload %s to take %d keyword(s)", spec.Service, len(drift)))
 	}
 
-	// The lockout guard is a preflight, so plan runs the same check against the
-	// configuration the host carries today rather than announcing an activation
-	// apply would refuse.
 	user, err := connectingUser(ctx.Host)
 	if err != nil {
 		return pluginapi.PlanResult{}, err
@@ -459,10 +408,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
-	// The unit rides on the record because Rollback is handed one object and
-	// nothing else, and restoring the file without reloading the daemon would
-	// leave sshd running the policy the rollback just removed from disk. It is
-	// re-validated on the way out: a journal is input, not authority.
 	record.Objects = []pluginapi.ObjectRecord{{
 		Kind:    pluginapi.ObjectFile,
 		File:    &snap,
@@ -471,9 +416,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// ServiceUnit reads the unit name back off a journalled record. The value came
-// from a file on the target host, so it is checked against the same closed set
-// the profile schema accepts rather than being passed to systemctl as given.
 func ServiceUnit(record pluginapi.ObjectRecord) (string, error) {
 	switch unit := strings.TrimSpace(record.Message); unit {
 	case "ssh", "sshd":
@@ -485,10 +427,6 @@ func ServiceUnit(record pluginapi.ObjectRecord) (string, error) {
 	}
 }
 
-// Restore puts the drop-in back and reloads sshd in one operation, for the same
-// reason the audit plugin does: rollback walks steps in reverse, so a separate
-// reload step would run before the file it depends on had been restored. The
-// restored configuration is parsed before the daemon is asked to take it.
 func Restore(host pluginapi.Host, snap pluginapi.FileSnapshot, service string) error {
 	if host == nil {
 		return fmt.Errorf("ssh rollback: host is required")

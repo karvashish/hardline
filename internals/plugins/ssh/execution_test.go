@@ -14,9 +14,6 @@ import (
 
 const testBin = "/usr/sbin/sshd"
 
-// sshHostStub answers the probes the plugin runs, keyed on the exact commands
-// execution.go builds. A probe with no canned answer succeeds silently, so a
-// test only has to describe the host facts it cares about.
 type sshHostStub struct {
 	noSSHD       bool
 	user         string
@@ -145,8 +142,6 @@ func testSpec() *Spec {
 	}
 }
 
-// effectiveFor renders sshd -T output that satisfies the spec, plus the
-// keywords the lockout guard reads.
 func effectiveFor(extra ...string) string {
 	lines := []string{
 		"passwordauthentication no",
@@ -215,8 +210,6 @@ func TestApplyReloadsWhenFileMatchesButPolicyDoesNot(t *testing.T) {
 	host.fileExists = true
 	host.fileMode = "600"
 	host.fileContent = string(Render(settings))
-	// The drop-in is on disk but the daemon still runs the old policy, which
-	// is exactly the state a plain template step cannot see.
 	host.effective = "passwordauthentication yes\npermitrootlogin no\npubkeyauthentication yes\n"
 
 	err := Apply(pluginapi.Context{Host: host}, spec)
@@ -226,9 +219,6 @@ func TestApplyReloadsWhenFileMatchesButPolicyDoesNot(t *testing.T) {
 	if !strings.Contains(err.Error(), "not what the profile declares") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Two reloads: the one that activated the drop-in, and the one that takes
-	// the daemon back off it. Restoring only the file would leave sshd running
-	// the policy this step just refused until something else reloaded it.
 	if len(host.reloads) != 2 {
 		t.Fatalf("expected the refused policy to be reloaded back out, got %v", host.reloads)
 	}
@@ -288,7 +278,6 @@ func TestApplyRefusesLockout(t *testing.T) {
 	if len(host.reloads) != 0 {
 		t.Fatalf("sshd must not be reloaded: %v", host.reloads)
 	}
-	// The drop-in was absent before, so restoring it means deleting it.
 	if len(host.removed) == 0 {
 		t.Fatalf("the installed drop-in was not removed on refusal")
 	}
@@ -671,8 +660,6 @@ func TestRestoreDeletesAFileThatDidNotExist(t *testing.T) {
 }
 
 func TestSshdBinaryRejectsOddOutput(t *testing.T) {
-	// A resolver that answers with two paths is not one to hand to a root
-	// command unquoted.
 	stub := &multiPathStub{sshHostStub: newHostStub()}
 	if _, err := sshdBinary(stub); err == nil {
 		t.Fatalf("expected an error for multi-line output")

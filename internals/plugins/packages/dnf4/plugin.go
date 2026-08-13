@@ -1,6 +1,3 @@
-// Package dnf4 is the packages_dnf4 plugin: package management through dnf-3,
-// as shipped on RHEL 9, Rocky 9 and Alma 9. It is separate from dnf5 because
-// the two generations print different upgrade and transaction output.
 package dnf4
 
 import (

@@ -84,8 +84,6 @@ func validateSpec(spec *Spec) error {
 	if err := pluginapi.EnforceManagedPath(spec.Dest); err != nil {
 		return err
 	}
-	// augenrules only compiles files under rules.d, so a dest anywhere else
-	// would be written and then silently never loaded.
 	if !strings.HasPrefix(spec.Dest, "/etc/audit/rules.d/") {
 		return fmt.Errorf("audit dest %q must be under /etc/audit/rules.d/, which is what augenrules compiles", spec.Dest)
 	}

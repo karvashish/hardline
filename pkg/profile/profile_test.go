@@ -100,8 +100,6 @@ func TestLoadFromBundle_AndTemplateHelpers_SuccessAndErrors(t *testing.T) {
 	if _, err := p.LoadTemplate("templates/undeclared.tmpl"); err == nil || !strings.Contains(err.Error(), "not declared") {
 		t.Fatalf("expected undeclared template error, got %v", err)
 	}
-	// Declared but absent from the snapshot: the profile points at content the
-	// signature never covered, which must not fall back to a disk read.
 	if _, err := p.LoadTemplate("templates/unsigned.tmpl"); err == nil || !strings.Contains(err.Error(), "not covered by the signed manifest") {
 		t.Fatalf("expected uncovered template error, got %v", err)
 	}
@@ -114,9 +112,6 @@ func TestLoadFromBundle_AndTemplateHelpers_SuccessAndErrors(t *testing.T) {
 	}
 }
 
-// TestLoadFromBundle_IgnoresDiskContent is the regression test for the
-// verified-payload TOCTOU: once a bundle is loaded, rewriting the profile
-// directory must not change a single byte the profile serves.
 func TestLoadFromBundle_IgnoresDiskContent(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "templates"), 0o755); err != nil {
@@ -341,9 +336,6 @@ func profileJSON(actions, templates []string) []byte {
 }`)
 }
 
-// TestResolveRejectsEscapes covers references whose shape reaches outside the
-// signed tree. A reference that is merely absent from the snapshot is rejected
-// one layer up, by signedBytes, not here.
 func TestResolveRejectsEscapes(t *testing.T) {
 	p := &Profile{profilePath: "/srv/profile"}
 	cases := map[string]string{
@@ -373,8 +365,6 @@ func TestResolveRejectsEscapes(t *testing.T) {
 	}
 }
 
-// TestSignedBytesRejectsUncovered is the other half: a well-shaped reference
-// that the manifest never covered must fail rather than reach the filesystem.
 func TestSignedBytesRejectsUncovered(t *testing.T) {
 	p := &Profile{profilePath: "/srv/profile", files: map[string][]byte{"actions/a.json": []byte("{}")}}
 

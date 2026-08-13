@@ -214,9 +214,6 @@ func TestValidateProfileSteps(t *testing.T) {
 	}
 }
 
-// TestValidateProfileSteps_RunsPluginValidator is the point of the pass: the
-// step is rejected before any host is touched, and with the overrides the run
-// would have used.
 func TestValidateProfileSteps_RunsPluginValidator(t *testing.T) {
 	r := NewRegistry()
 	plugin := validPlugin("template")

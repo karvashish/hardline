@@ -24,21 +24,10 @@ const (
 	manifestFileName = "manifest.json"
 	manifestSigName  = "manifest.sig"
 
-	// overridesFileName is the user-editable runtime overrides file. It lives
-	// inside the profile directory but is deliberately excluded from the signed
-	// manifest so that operators can edit it without re-signing the profile.
 	overridesFileName = "profile.overrides.json"
 
-	// LocalKeyPath is the fixed filesystem location for a user-supplied signing
-	// public key. This path cannot be changed — users must place their key here.
 	LocalKeyPath = "/etc/hardline/profile_signing_pub.pem"
 
-	// maxProfileFileBytes and maxProfileTotalBytes bound the snapshot the
-	// integrity check holds in memory. Every signed file is retained so that
-	// nothing is read from disk again after the signature is checked, which
-	// means a profile directory is an input the runner allocates for: without a
-	// bound, a directory nobody has signed yet can exhaust the process before
-	// the first hash is ever compared.
 	maxProfileFileBytes  = 1 << 20
 	maxProfileTotalBytes = 16 << 20
 )
@@ -57,17 +46,8 @@ type manifestEntry struct {
 //go:embed profile_signing_pub.pem
 var embeddedProfileSigningPubPEM []byte
 
-// statFunc is the function used to stat files; overridden in tests.
 var statFunc = os.Stat
 
-// VerifiedManifest is what a passed integrity check yields: the digest of the
-// exact manifest bytes whose signature was checked, and the content of every
-// file that signature covers, keyed by profile-relative path.
-//
-// Files holds bytes rather than paths because the signature says nothing about
-// a path — it says that these bytes hashed to these values at this instant.
-// Re-reading the path afterwards reads whatever is there now, so every later
-// phase consumes this snapshot and the profile directory is never opened again.
 type VerifiedManifest struct {
 	Digest string
 	Files  map[string][]byte
@@ -224,10 +204,6 @@ func parsePEMPublicKey(pemData []byte, label string) (ed25519.PublicKey, error) 
 	return pub, nil
 }
 
-// collectProfileFiles reads every signable file in the profile directory into
-// memory once. It is the only place the profile directory is read: the bytes it
-// returns are what gets hashed, and the same bytes are what every later phase
-// consumes, so there is no second read for an attacker to race.
 func collectProfileFiles(profileDir string) (map[string][]byte, error) {
 	files := make(map[string][]byte)
 	total := 0
@@ -266,8 +242,6 @@ func collectProfileFiles(profileDir string) (map[string][]byte, error) {
 		if err != nil {
 			return fmt.Errorf("read file %s: %w", rel, err)
 		}
-		// The size is rechecked against the bytes actually read: the stat above
-		// describes the file as it was a moment earlier, not as it was read.
 		if len(content) > maxProfileFileBytes {
 			return fmt.Errorf("profile file %s is %d bytes, over the %d byte limit", rel, len(content), maxProfileFileBytes)
 		}

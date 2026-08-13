@@ -377,8 +377,6 @@ func (s templateRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 	if s.statInfo == nil {
 		return "", errors.New("missing")
 	}
-	// The snapshot helper asks for a typed stat line; the plugin's own
-	// destination check asks for mode and size only.
 	if strings.Contains(cmd, "%F|") {
 		return fmt.Sprintf("regular file|%o|root|root|%d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
 	}

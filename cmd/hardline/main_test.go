@@ -891,7 +891,6 @@ func TestDefaultInstallSignalHandler(t *testing.T) {
 
 	ctx := defaultInstallSignalHandler()
 
-	// First signal cancels the context.
 	p, _ := os.FindProcess(os.Getpid())
 	_ = p.Signal(syscall.SIGINT)
 
@@ -901,7 +900,6 @@ func TestDefaultInstallSignalHandler(t *testing.T) {
 		t.Fatal("context did not cancel after first signal")
 	}
 
-	// Second signal forces hard exit.
 	_ = p.Signal(syscall.SIGINT)
 	select {
 	case <-exitCalled:
@@ -935,7 +933,6 @@ func stubHandlers() func() {
 	prevExit := exitFunc
 	prevSignal := installSignalHandler
 
-	// Stub signal handler to avoid side effects in tests.
 	installSignalHandler = func() context.Context { return context.Background() }
 
 	return func() {

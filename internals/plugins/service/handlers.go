@@ -101,10 +101,6 @@ func validateServiceSpec(spec *Spec) error {
 	return validateRestartPolicy(spec)
 }
 
-// validateRestartPolicy closes the restart-policy enum. Anything other than
-// "always" used to behave roughly like "on_change", so a typo silently bought
-// the weaker behaviour: a profile asking to restart unconditionally would skip
-// the restart instead.
 func validateRestartPolicy(spec *Spec) error {
 	p := spec.RestartPolicy
 	if p == nil {

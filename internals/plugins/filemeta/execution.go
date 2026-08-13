@@ -63,7 +63,6 @@ func Apply(ctx pluginapi.Context, s *Spec) error {
 
 	runRoot := ctx.Host.RunRoot
 
-	// An immutable file rejects chmod/chown; lift managed attrs first when we own them.
 	cleared := false
 	if (modeChange || ownerChange) && manageAttrs && cur.Attrs != "" {
 		if err := applyManagedAttrs(runRoot, target, ""); err != nil {
@@ -203,10 +202,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// restoreFileMeta reverts mode/owner/group/managed-attrs to the captured
-// snapshot. It never creates the path: an absent snapshot is a no-op and a
-// since-deleted target is an error. Managed attrs are cleared first so an
-// immutable target does not reject chmod/chown.
 func restoreFileMeta(host pluginapi.Host, snap pluginapi.FileMetaSnapshot) error {
 	if _, err := enforceAbsCleanPath(snap.Path); err != nil {
 		return err
@@ -238,8 +233,6 @@ func restoreFileMeta(host pluginapi.Host, snap pluginapi.FileMetaSnapshot) error
 	return applyManagedAttrs(host.RunRoot, snap.Path, snap.Attrs)
 }
 
-// fileMetaConflict reports whether the path drifted from the post-apply
-// metadata recorded in after. An empty result means no conflict.
 func fileMetaConflict(host pluginapi.Host, after pluginapi.FileMetaSnapshot) []string {
 	if !after.Existed {
 		return nil
@@ -276,8 +269,6 @@ func desiredManagedAttrs(curAttrs string, s *Spec) string {
 	return string(out)
 }
 
-// userGroupPattern is the whitelist for owner and group names reaching chown as
-// root. It matches what useradd/groupadd accept and nothing with shell meaning.
 var userGroupPattern = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$`)
 
 func validateUserGroup(kind, name string) error {
@@ -302,11 +293,6 @@ func chownArg(s *Spec) string {
 	}
 }
 
-// normalizeMode reformats an octal mode to the form `stat -c %a` emits, so
-// "0640" compares equal to the host's "640".
-// An empty mode means "leave the mode alone", which is a real file_meta
-// option; anything present is parsed strictly, so an out-of-range value is
-// rejected rather than truncated into some other permission set.
 func normalizeMode(mode string) (string, error) {
 	if strings.TrimSpace(mode) == "" {
 		return "", nil
@@ -318,8 +304,6 @@ func normalizeMode(mode string) (string, error) {
 	return strconv.FormatUint(uint64(parsed), 8), nil
 }
 
-// snapshotFileMeta records mode/owner/group/managed-attrs for a path. A missing
-// path yields Existed=false and no error.
 func snapshotFileMeta(host pluginapi.Host, target string) (pluginapi.FileMetaSnapshot, error) {
 	if host == nil {
 		return pluginapi.FileMetaSnapshot{}, fmt.Errorf("host is required")
@@ -372,20 +356,10 @@ func readManagedAttrs(host pluginapi.Host, target string) (string, error) {
 	return string(present), nil
 }
 
-// managedAttrLetters bounds file_meta to the 'a' (append-only) and 'i'
-// (immutable) chattr flags; attrs outside this set are never touched.
 const managedAttrLetters = "ai"
 
-// targetPathPattern is the whitelist for file_meta targets. Printable ASCII was
-// too wide: it admitted $, backtick and parentheses, which expand inside the
-// double quotes of a root sh -lc. @ is kept for systemd template unit paths; it
-// has no shell meaning in any position.
 var targetPathPattern = regexp.MustCompile(`^[A-Za-z0-9._/@-]+$`)
 
-// enforceAbsCleanPath canonicalizes the target of a root-executed step from a
-// signed profile. It requires the whitelisted character set, then an absolute,
-// non-root, normalized path. A trailing slash is tolerated; .. and // are
-// rejected so the path stays literal.
 func enforceAbsCleanPath(target string) (string, error) {
 	if target == "" {
 		return "", fmt.Errorf("target path is empty")
@@ -409,8 +383,6 @@ func enforceAbsCleanPath(target string) (string, error) {
 	return p, nil
 }
 
-// applyManagedAttrs drives target's managed chattr flags to exactly desired,
-// never touching letters outside managedAttrLetters.
 func applyManagedAttrs(runRoot func(string) error, target, desired string) error {
 	var set, clear []byte
 	for i := 0; i < len(managedAttrLetters); i++ {

@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// metacharacterCorpus is the set of shell constructs a hostile profile could
-// place in any interpolated value.
 var metacharacterCorpus = []string{
 	"$(id -un)",
 	"`id -un`",
@@ -29,13 +27,8 @@ var metacharacterCorpus = []string{
 	"a b",
 }
 
-// dashCorpus is argument injection rather than command injection: quoting does
-// not help, only a validator that rejects a leading - can.
 var dashCorpus = []string{"--force", "-rf", "-"}
 
-// TestShellArgNeutralizesMetacharacters runs each quoted value through a real
-// /bin/sh and asserts the shell hands it back as one literal word, so nothing
-// in the corpus expands or forks a second command.
 func TestShellArgNeutralizesMetacharacters(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "PWNED")
 	t.Setenv("HOME", "/should-not-expand")

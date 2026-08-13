@@ -821,8 +821,6 @@ func mustLoadFixtureProfile(t *testing.T, f profileFixture) *profile.Profile {
 	return p
 }
 
-// planBundleProfile and planBundleOverrides are what the stubbed verify phase
-// hands to Plan.
 var (
 	planBundleProfile   *profile.Profile
 	planBundleOverrides map[string]json.RawMessage

@@ -104,17 +104,12 @@ func TestVerifyProfile_TemplateCoveredBySnapshot(t *testing.T) {
 	affirmProfile = func(*profile.Profile) error { return nil }
 	ensureVerifyPlugins = func(_ *pluginapi.Registry, _ *profile.Profile, _ map[string]json.RawMessage) error { return nil }
 
-	// The profile directory does not exist at all: a passed verify depends on
-	// the snapshot alone, never on a path still being readable.
 	err := verifyErr(cli.Command{Profile: filepath.Join(t.TempDir(), "gone")})
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
 }
 
-// TestVerifyProfile_CarriesOverrideSnapshot pins that the bundle is what later
-// phases read: resolving the overrides file again in plan or apply is what let
-// apply act on values the plan never displayed.
 func TestVerifyProfile_CarriesOverrideSnapshot(t *testing.T) {
 	restore := stubVerifyHooks()
 	defer restore()
@@ -140,7 +135,6 @@ func TestVerifyProfile_CarriesOverrideSnapshot(t *testing.T) {
 		t.Fatalf("expected the resolved override on the bundle, got %q", got)
 	}
 
-	// Rewriting the file afterwards must not change what the bundle carries.
 	if err := os.WriteFile(overridesPath, []byte(`{"ssh_port": 23}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -194,21 +188,15 @@ func TestVerifyProfile_Success(t *testing.T) {
 	}
 }
 
-// verifyErr adapts the two-value Verify for tests that only assert the error.
 func verifyErr(c cli.Command) error {
 	_, err := Verify(c)
 	return err
 }
 
-// emptyManifest stands in for a passed integrity check in tests that stub it
-// out; coverage assertions treat an empty file set as "nothing is signed".
 func emptyManifest() *VerifiedManifest {
 	return &VerifiedManifest{Files: map[string][]byte{}}
 }
 
-// TestVerifyProfile_ManifestCoverage pins the property that makes "signed" mean
-// "every file we read is hashed": a declared action or template that the
-// manifest does not list is unsigned content behind a signed pointer.
 func TestVerifyProfile_ManifestCoverage(t *testing.T) {
 	restore := stubVerifyHooks()
 	defer restore()

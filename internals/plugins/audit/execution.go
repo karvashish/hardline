@@ -12,25 +12,17 @@ import (
 )
 
 const (
-	loadCmd = "augenrules --load"
-	listCmd = "auditctl -l"
-	// auditctl -s reports the enabled state. 2 means the policy is locked
-	// until the host reboots, so a load is accepted and then ignored.
+	loadCmd   = "augenrules --load"
+	listCmd   = "auditctl -l"
 	statusCmd = "auditctl -s"
 )
 
-// aligned reports whether dest already carries the rendered rules at the
-// declared mode. Mode counts as much as content: the right bytes at 0666 are
-// an audit policy any unprivileged user can rewrite.
 func aligned(current pluginapi.FileSnapshot, rules []byte, mode os.FileMode) bool {
 	return current.Existed &&
 		current.ContentB64 == base64.StdEncoding.EncodeToString(rules) &&
 		current.Mode == fmt.Sprintf("%o", mode.Perm())
 }
 
-// loadedRules reports the rules the running kernel policy currently carries.
-// An audit subsystem that is disabled or has no rules is not an error here; it
-// is simply an empty set, which is what makes apply decide to load.
 func loadedRules(host pluginapi.Host) ([]Rule, error) {
 	out, err := host.RunRootWithOutput(listCmd + " 2>/dev/null || true")
 	if err != nil {
@@ -46,9 +38,6 @@ func loadedRules(host pluginapi.Host) ([]Rule, error) {
 	return rules, nil
 }
 
-// assertPolicyMutable refuses to act on a host whose audit policy is locked.
-// auditctl accepts a load in that state and the kernel ignores it, so without
-// this the step would report success over a policy that never changed.
 func assertPolicyMutable(host pluginapi.Host) error {
 	out, err := host.RunRootWithOutput(statusCmd + " 2>/dev/null || true")
 	if err != nil {
@@ -60,8 +49,6 @@ func assertPolicyMutable(host pluginapi.Host) error {
 	return nil
 }
 
-// auditEnabledLocked reads the "enabled" field of auditctl -s, which prints one
-// space-separated line of name/value pairs.
 func auditEnabledLocked(status string) bool {
 	fields := strings.Fields(status)
 	for i, field := range fields {
@@ -72,9 +59,6 @@ func auditEnabledLocked(status string) bool {
 	return false
 }
 
-// assertWatchPathsExist checks the paths a watch rule names. auditctl refuses a
-// watch on a path that does not exist, and one refusal fails the whole load, so
-// naming the path here beats a load that fails for reasons nobody can see.
 func assertWatchPathsExist(host pluginapi.Host, rules []Rule) error {
 	var missing []string
 	for _, path := range WatchPaths(rules) {
@@ -89,9 +73,6 @@ func assertWatchPathsExist(host pluginapi.Host, rules []Rule) error {
 	return nil
 }
 
-// load compiles rules.d and installs the result into the kernel, then reads the
-// policy back. augenrules is the control path RHEL documents; auditctl is the
-// only thing that proves the rules are live rather than merely on disk.
 func load(host pluginapi.Host, want []Rule) error {
 	if err := host.RunRoot(loadCmd); err != nil {
 		return fmt.Errorf("%s: %w", loadCmd, err)
@@ -136,10 +117,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 		return fmt.Errorf("audit step: %w", err)
 	}
 
-	// Everything that could make this load fail, or make it succeed without
-	// changing anything, is checked before the file is written: a rules file on
-	// disk that the kernel never took is the failure this plugin exists to
-	// prevent, and a half-applied audit policy is worse than an unchanged one.
 	if err := AssertLoadableRules(rules); err != nil {
 		return fmt.Errorf("audit rules %q: %w", spec.Src, err)
 	}
@@ -168,9 +145,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 		}
 	}
 
-	// Reload when the file changed, and also when the file was already correct
-	// but the kernel is not running it: a rules file on disk that was never
-	// loaded is the exact failure this plugin exists to prevent.
 	loaded, err := loadedRules(ctx.Host)
 	if err != nil {
 		return err
@@ -220,8 +194,6 @@ func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 
 	var details, diff, highlights []string
 
-	// Plan says what apply would refuse, rather than letting the operator find
-	// out once the run is underway.
 	if err := AssertLoadableRules(rules); err != nil {
 		highlights = append(highlights, err.Error())
 		details = append(details, logger.ColorRed+err.Error()+logger.ColorReset)
@@ -294,10 +266,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// Restore puts the rules file back and reloads it in one operation. Rollback
-// walks steps in reverse, so a separate reload step would run before the file
-// it depends on had been restored; keeping both here is what makes the
-// rollback leave the kernel running the rules that are actually on disk.
 func Restore(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
 	if host == nil {
 		return fmt.Errorf("audit rollback: host is required")
@@ -306,9 +274,6 @@ func Restore(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
 		return err
 	}
 
-	// After a restore the previous rules are authoritative, whatever they were.
-	// Their keys are unknown here, so the reload is not key-verified; a failure
-	// to reload is still reported.
 	if err := host.RunRoot(loadCmd); err != nil {
 		return fmt.Errorf("%s after restoring %s: %w", loadCmd, snap.Path, err)
 	}

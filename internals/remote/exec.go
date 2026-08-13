@@ -10,9 +10,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// DefaultCmdTimeout is the per-command deadline applied to every remote
-// execution. Commands that exceed this duration have their SSH session closed,
-// causing the run to return a timeout error. Override in tests as needed.
 var DefaultCmdTimeout = 5 * time.Minute
 
 type session interface {

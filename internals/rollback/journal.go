@@ -14,11 +14,6 @@ import (
 )
 
 const (
-	// journalVersion 3 added exact unit states and file ownership to the
-	// recorded objects. A version 2 journal cannot be replayed: it records
-	// enablement as a bare boolean and no owner at all, so restoring from it
-	// would put back a unit configuration and an ownership the host never had.
-	// Such a journal is rejected rather than half-honoured.
 	journalVersion = 3
 )
 
@@ -158,10 +153,6 @@ func defaultStateDir() (string, error) {
 	return filepath.Join(os.TempDir(), "hardline", "runs"), nil
 }
 
-// sanitizePath reduces a host or profile ID to a single filename component.
-// Everything outside the whitelist becomes _, so the result carries no path
-// separator and no shell metacharacter into the remote journal commands. An
-// all-dot result would still traverse, so it is rejected as empty.
 func sanitizePath(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -207,7 +198,6 @@ func localLastPaths(host, profileID string) (string, string, string, error) {
 }
 
 func marshalJournal(j *Journal) ([]byte, error) {
-	// Marshal without checksum to compute the integrity hash.
 	tmp := *j
 	tmp.Checksum = ""
 	bare, err := json.MarshalIndent(&tmp, "", "  ")
@@ -235,9 +225,6 @@ func decodeJournal(data []byte, source string) (*Journal, error) {
 			j.Version, journalVersion)
 	}
 
-	// The checksum is required, not merely checked when present: a journal
-	// drives root-level restoration, and an optional integrity field is one an
-	// attacker removes rather than forges.
 	if j.Checksum == "" {
 		return nil, fmt.Errorf("rollback journal %q carries no checksum: refusing to trust it", source)
 	}

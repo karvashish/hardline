@@ -38,19 +38,6 @@ var (
 	}
 )
 
-// LoadFromBinaryDir loads external plugins from the "plugins/" directory
-// adjacent to the hardline binary.
-//
-// Trust model: external plugins are Go shared objects (.so) and are NOT
-// signature-verified. Any file placed in this directory executes arbitrary
-// code with root privileges (via passwordless sudo), so the directory and every
-// artifact in it are checked before anything is opened: each must be a real
-// directory or regular file rather than a symlink, must not be writable by
-// group or others, and must be owned by root or by the user running hardline.
-// Anything else is refused rather than warned about.
-//
-// What this cannot check is where the plugin came from. Source them from the
-// same package or release artifact as the binary itself.
 func LoadFromBinaryDir() error {
 	exe, err := executablePath()
 	if err != nil {
@@ -60,12 +47,6 @@ func LoadFromBinaryDir() error {
 	return LoadFromDir(pluginDir)
 }
 
-// assertTrustedArtifact holds one path to the rules the trust model already
-// stated but nothing enforced. Everything under this directory runs as root, so
-// the question is not whether the file looks like a plugin but whether anyone
-// other than root or the invoking user could have put it there: a group-writable
-// directory, a symlink pointing somewhere else, or a file owned by a third party
-// are each enough to hand root away.
 func assertTrustedArtifact(path string, wantDir bool) error {
 	info, err := lstatPath(path)
 	if err != nil {
@@ -96,8 +77,6 @@ func assertTrustedArtifact(path string, wantDir bool) error {
 	return nil
 }
 
-// LoadFromDir loads all .so plugin files from dir into the shared registry.
-// See LoadFromBinaryDir for the trust model that applies to this directory.
 func LoadFromDir(dir string) error {
 	entries, err := readDirEntries(dir)
 	if err != nil {
@@ -139,9 +118,6 @@ func LoadFromDir(dir string) error {
 }
 
 func loadPluginFile(path string) error {
-	// Checked per artifact, not once for the directory: a directory nobody else
-	// can write to can still hold a file someone else owns, left there before
-	// the directory was tightened.
 	if err := assertTrustedArtifact(path, false); err != nil {
 		return err
 	}

@@ -90,8 +90,6 @@ func TestSnapshotFileMeta(t *testing.T) {
 }
 
 func TestEnforceAbsCleanPath(t *testing.T) {
-	// Absolute, canonical, printable-ASCII paths pass; trailing slashes are
-	// canonicalized away.
 	pass := map[string]string{
 		"/etc/shadow":                    "/etc/shadow",
 		"/a":                             "/a",
@@ -114,39 +112,31 @@ func TestEnforceAbsCleanPath(t *testing.T) {
 		}
 	}
 
-	// Everything else hard-fails. Key = input, value = expected error substring.
 	fail := map[string]string{
-		// empty / whitespace-only
-		"":    "empty",
-		" ":   "allowed set",
-		"   ": "allowed set",
-		"\t":  "allowed set",
-		"\n":  "allowed set",
-		// relative / non-absolute
-		"etc/shadow": "absolute",
-		"x":          "absolute",
-		"a/b":        "absolute",
-		"./etc":      "absolute",
-		"../etc":     "absolute",
-		".":          "absolute",
-		"..":         "absolute",
-		"~/x":        "allowed set",
-		// leading whitespace (rejected by the charset before the absolute check)
-		" /etc/shadow":  "allowed set",
-		"\t/etc/shadow": "allowed set",
-		// trailing / embedded whitespace
-		"/etc/shadow ": "allowed set",
-		"/etc/sh adow": "allowed set",
-		// control characters, NUL, newline, CR, DEL
-		"/etc/sh\nadow":   "allowed set",
-		"/etc/sh\tadow":   "allowed set",
-		"/etc/sh\radow":   "allowed set",
-		"/etc/sh\x00adow": "allowed set",
-		"/etc/\x7f":       "allowed set",
-		// non-ASCII / unicode homoglyph
-		"/etc/café":       "allowed set",
-		"/etc/sh\xffadow": "allowed set",
-		// shell metacharacters: these reach a root sh -lc
+		"":                           "empty",
+		" ":                          "allowed set",
+		"   ":                        "allowed set",
+		"\t":                         "allowed set",
+		"\n":                         "allowed set",
+		"etc/shadow":                 "absolute",
+		"x":                          "absolute",
+		"a/b":                        "absolute",
+		"./etc":                      "absolute",
+		"../etc":                     "absolute",
+		".":                          "absolute",
+		"..":                         "absolute",
+		"~/x":                        "allowed set",
+		" /etc/shadow":               "allowed set",
+		"\t/etc/shadow":              "allowed set",
+		"/etc/shadow ":               "allowed set",
+		"/etc/sh adow":               "allowed set",
+		"/etc/sh\nadow":              "allowed set",
+		"/etc/sh\tadow":              "allowed set",
+		"/etc/sh\radow":              "allowed set",
+		"/etc/sh\x00adow":            "allowed set",
+		"/etc/\x7f":                  "allowed set",
+		"/etc/café":                  "allowed set",
+		"/etc/sh\xffadow":            "allowed set",
 		"/etc/99-hardline$(id).conf": "allowed set",
 		"/etc/99-hardline`id`.conf":  "allowed set",
 		"/etc/99-hardline${x}.conf":  "allowed set",
@@ -159,20 +149,17 @@ func TestEnforceAbsCleanPath(t *testing.T) {
 		"/etc/shadow\\x":             "allowed set",
 		"/etc/*":                     "allowed set",
 		"/etc/foo.bar-baz_qux+v=1@x": "allowed set",
-		// path traversal
-		"/etc/../shadow": "normalized",
-		"/a/b/../c":      "normalized",
-		"/..":            "normalized",
-		"/../../etc":     "normalized",
-		"/etc/foo/..":    "normalized",
-		// redundant separators / dot segments
-		"/etc//shadow":  "normalized",
-		"/etc/./shadow": "normalized",
-		"/etc/foo/.":    "normalized",
-		// filesystem root and slash-only variants
-		"/":   "filesystem root",
-		"//":  "filesystem root",
-		"///": "filesystem root",
+		"/etc/../shadow":             "normalized",
+		"/a/b/../c":                  "normalized",
+		"/..":                        "normalized",
+		"/../../etc":                 "normalized",
+		"/etc/foo/..":                "normalized",
+		"/etc//shadow":               "normalized",
+		"/etc/./shadow":              "normalized",
+		"/etc/foo/.":                 "normalized",
+		"/":                          "filesystem root",
+		"//":                         "filesystem root",
+		"///":                        "filesystem root",
 	}
 	for in, wantErr := range fail {
 		got, err := enforceAbsCleanPath(in)
@@ -246,15 +233,12 @@ func TestApplyManagedAttrs(t *testing.T) {
 	})
 }
 
-// TestNormalizeMode_RejectsOutOfRange pins that a mode wider than 4 octal
-// digits is refused rather than truncated into some other permission set.
 func TestNormalizeMode_RejectsOutOfRange(t *testing.T) {
 	for _, raw := range []string{"77777", "10000", "4294967296"} {
 		if _, err := normalizeMode(raw); err == nil {
 			t.Fatalf("expected %q to be rejected", raw)
 		}
 	}
-	// An empty mode still means "leave the mode alone".
 	if got, err := normalizeMode("  "); err != nil || got != "" {
 		t.Fatalf("expected an empty mode to stay empty, got %q %v", got, err)
 	}

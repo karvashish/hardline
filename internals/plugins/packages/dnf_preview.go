@@ -28,9 +28,6 @@ var dnfRemoveSections = map[string]bool{
 	"Removing dependent packages:":  true,
 }
 
-// DNFCommands returns the apply and rollback commands shared by dnf4 and
-// dnf5. Rollback disables dependency cleanup; an ordinary purge must leave it
-// enabled so its preview exposes every collateral removal.
 func DNFCommands() Commands {
 	return Commands{
 		Update:         TimeoutCmd("dnf -q -y makecache --refresh"),
@@ -42,16 +39,12 @@ func DNFCommands() Commands {
 	}
 }
 
-// dnfPreviews is a configured DNF preview implementation. The generations
-// share commands and transaction tables but differ in their upgrade verb and
-// in the banner that proves a transaction preview completed.
 type dnfPreviews struct {
 	checkCommand      string
 	transactionBanner string
 	skipObsoletedRows bool
 }
 
-// DNF4Previews configures dnf4's check-update listing and completion proof.
 func DNF4Previews() Previews {
 	p := dnfPreviews{
 		checkCommand: dnfLocalePrefix +
@@ -62,7 +55,6 @@ func DNF4Previews() Previews {
 	return p.backendPreviews()
 }
 
-// DNF5Previews configures dnf5's check-upgrade listing and completion proof.
 func DNF5Previews() Previews {
 	p := dnfPreviews{
 		checkCommand: dnfLocalePrefix +
@@ -82,8 +74,6 @@ func (p dnfPreviews) backendPreviews() Previews {
 	}
 }
 
-// upgrade previews all available upgrades. Exit 100 is translated by the
-// command because DNF uses it to mean "updates available", not failure.
 func (p dnfPreviews) upgrade(host pluginapi.Host) ([]string, error) {
 	out, err := host.RunRootWithOutput(p.checkCommand)
 	if err != nil {
@@ -100,12 +90,10 @@ func (p dnfPreviews) autoremove(host pluginapi.Host) ([]string, error) {
 	return p.runTransaction(host, dnfAssumeNo+"autoremove"+dnfAssumeNoTail, dnfRemoveSections)
 }
 
-// purge previews the real removal with dependency cleanup left at its default.
 func (p dnfPreviews) purge(host pluginapi.Host, names []string) ([]string, error) {
 	return p.runTransaction(host, AppendPackages(dnfAssumeNo+"remove", names)+dnfAssumeNoTail, dnfRemoveSections)
 }
 
-// remove previews rollback with dependency cleanup disabled.
 func (p dnfPreviews) remove(host pluginapi.Host, names []string) ([]string, error) {
 	cmd := AppendPackages(dnfAssumeNo+dnfRemoveOpts+"remove", names) + dnfAssumeNoTail
 	return p.runTransaction(host, cmd, dnfRemoveSections)

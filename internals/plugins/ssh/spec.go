@@ -25,7 +25,7 @@ type Spec struct {
 	// Path is the drop-in under /etc/ssh/sshd_config.d. First match wins in
 	// that directory, so EnforceManagedPath requires a 00-hardline prefix.
 	Path string `json:"path"`
-	Mode string `json:"mode,omitempty"`
+	Mode string `json:"mode"`
 	// Service is the sshd unit name, which is "ssh" on Debian and Ubuntu and
 	// "sshd" on the RHEL family. The profile states it; the engine carries no
 	// distribution knowledge.

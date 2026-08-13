@@ -30,14 +30,17 @@ func validMainConfig(p string) bool {
 	}
 }
 
+// Include the managed file by name. A directory-wide glob would re-include
+// whatever the built-in firewall plugin already included by name, and nft
+// refuses the duplicate table rather than loading the ruleset at all.
 func includeLine(dest string) string {
-	return fmt.Sprintf(`include "%s/*.nft"`, path.Dir(dest))
+	return fmt.Sprintf(`include "%s"`, dest)
 }
 
 func includeCheckCmd(mainConfig, dest string) string {
-	glob := strings.ReplaceAll(path.Dir(dest)+"/*.nft", ".", `\.`)
-	glob = strings.ReplaceAll(glob, "*", `\*`)
-	return fmt.Sprintf(`grep -E -q 'include[[:space:]]+"?%s"?' %s 2>/dev/null`, glob, pluginapi.ShellArg(mainConfig))
+	escaped := strings.ReplaceAll(dest, ".", `\.`)
+	return fmt.Sprintf(`grep -E -q '^[[:space:]]*include[[:space:]]+"?%s"?[[:space:]]*$' %s 2>/dev/null`,
+		escaped, pluginapi.ShellArg(mainConfig))
 }
 
 type firewallTemplateStatRuntime interface {

@@ -31,7 +31,6 @@ itest_os_init() {
       BASE_PROFILE="${ROOT_DIR}/profiles/starter-secure-ubuntu-24.04-lts"
       BASE_PROFILE_ID="starter-secure-ubuntu-24.04-lts"
       BASE_FILE_CHECKS=(
-        "etc/ssh/sshd_config.d/00-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
         "etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf|templates/15-unattended-upgrades.tmpl|644"
         "etc/sysctl.d/99-hardline-hardening.conf|templates/20-sysctl-hardening.conf.tmpl|644"
         "etc/fail2ban/jail.d/99-hardline-ssh.conf|templates/35-fail2ban-ssh-protection.tmpl|644"
@@ -54,7 +53,6 @@ itest_os_init() {
       BASE_PROFILE="${ROOT_DIR}/profiles/starter-secure-rocky-9"
       BASE_PROFILE_ID="starter-secure-rocky-9"
       BASE_FILE_CHECKS=(
-        "etc/ssh/sshd_config.d/00-hardline-ssh.conf|templates/10-ssh-sshd-config.tmpl|600"
         "etc/sysctl.d/99-hardline-hardening.conf|templates/20-sysctl-hardening.conf.tmpl|644"
         "etc/audit/rules.d/99-hardline.rules|templates/40-audit-hardening-rules.tmpl|640"
         "etc/systemd/journald.conf.d/99-hardline.conf|templates/50-journald-hardening.conf.tmpl|644"
@@ -88,6 +86,30 @@ itest_os_init() {
       fail "unsupported ITEST_OS ${ITEST_OS} (use ubuntu, rocky, or fedora)"
       ;;
   esac
+
+  # What sshd itself must report after the base profile is applied. Reading it
+  # back from sshd -T rather than from the drop-in is the point: a file on disk
+  # proves nothing about the policy the daemon is running, and the ssh plugin
+  # exists precisely because those two can differ. Both starters declare the
+  # same keywords, so the expectation is shared.
+  BASE_SSH_EFFECTIVE=(
+    "allowagentforwarding no"
+    "allowtcpforwarding no"
+    "ignorerhosts yes"
+    "kbdinteractiveauthentication no"
+    "loglevel VERBOSE"
+    "maxauthtries 4"
+    "passwordauthentication no"
+    "permitemptypasswords no"
+    "permitrootlogin no"
+    "pubkeyauthentication yes"
+    "strictmodes yes"
+    "usepam yes"
+    "x11forwarding no"
+  )
+  if [ -z "${BASE_PROFILE}" ]; then
+    BASE_SSH_EFFECTIVE=()
+  fi
 
   echo "itest target: os=${ITEST_OS} plugin=${PKG_PLUGIN} main_config=${NFT_MAIN_CONFIG} ssh_unit=${SSH_UNIT}"
 }

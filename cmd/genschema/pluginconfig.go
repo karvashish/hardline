@@ -1,5 +1,7 @@
 package main
 
+import "github.com/karvashish/hardline/internals/plugins/ssh"
+
 // Per-plugin config constraints. The reflected Step leaves config freeform, so
 // a hostile value in a signed profile would only be caught once a plugin ran,
 // after hardline had already connected to the host. These patterns move that
@@ -102,6 +104,13 @@ var pluginConfigConstraints = map[string]map[string]any{
 		"template_src":  stringPattern(profileRelPattern),
 		"template_dest": stringPattern(managedPathPattern),
 		"allow":         firewallTemplateAllow(),
+	},
+	"ssh": {
+		"path":            stringPattern(managedPathPattern),
+		"mode":            stringPattern(fileModePattern),
+		"service":         stringEnum("ssh", "sshd"),
+		"settings":        sshSettings(),
+		"verify_contexts": sshVerifyContexts(),
 	},
 	// One entry per package plugin. The backend is the plugin, not a config
 	// key, so each states the naming rule its own package manager enforces.
@@ -239,6 +248,7 @@ var pluginConfigClosed = map[string]bool{
 	"packages_dnf4":     true,
 	"packages_dnf5":     true,
 	"service":           true,
+	"ssh":               true,
 	"template":          true,
 }
 
@@ -256,6 +266,51 @@ var pluginConfigRequired = map[string][]string{
 	"template":          {"src", "dest", "mode"},
 	"service":           {"name"},
 	"file_meta":         {"path"},
+	"ssh":               {"path", "mode", "service", "settings"},
+}
+
+// sshSettings constrains the sshd drop-in keyword map. The names come from the
+// ssh plugin's own whitelist, so the schema cannot drift from what the plugin
+// accepts; it is deliberately the stricter of the two, in that the plugin also
+// takes a keyword in any case and the schema requires the canonical spelling.
+// Values are a string or an integer because sshd keywords are both.
+func sshSettings() map[string]any {
+	names := ssh.Keywords()
+	allowed := make([]any, len(names))
+	for i, name := range names {
+		allowed[i] = name
+	}
+	return map[string]any{
+		"type":          "object",
+		"minProperties": 1,
+		"propertyNames": map[string]any{"enum": allowed},
+		"additionalProperties": map[string]any{
+			"oneOf": []any{
+				map[string]any{"type": "string", "maxLength": 64},
+				map[string]any{"type": "integer"},
+			},
+		},
+	}
+}
+
+// sshVerifyContexts describes the connections sshd -T -C is asked about. Each
+// value is interpolated into a root command, so none may carry the comma or
+// equals sign that separate the fields of a connection spec.
+func sshVerifyContexts() map[string]any {
+	field := stringPattern(`^[A-Za-z0-9._:-]{1,255}$`)
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []any{"user", "host", "addr"},
+			"properties": map[string]any{
+				"user": field,
+				"host": field,
+				"addr": field,
+			},
+		},
+	}
 }
 
 func configSchema(plugin string) map[string]any {

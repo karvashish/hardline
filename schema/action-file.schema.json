@@ -600,6 +600,120 @@
           "if": {
             "properties": {
               "plugin": {
+                "const": "ssh"
+              }
+            },
+            "required": [
+              "plugin"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "pattern": "^[0-7]{3,4}$",
+                    "type": "string"
+                  },
+                  "path": {
+                    "pattern": "^[A-Za-z0-9._/-]+$",
+                    "type": "string"
+                  },
+                  "service": {
+                    "enum": [
+                      "ssh",
+                      "sshd"
+                    ],
+                    "type": "string"
+                  },
+                  "settings": {
+                    "additionalProperties": {
+                      "oneOf": [
+                        {
+                          "maxLength": 64,
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "enum": [
+                        "AllowAgentForwarding",
+                        "AllowTcpForwarding",
+                        "ClientAliveCountMax",
+                        "ClientAliveInterval",
+                        "Compression",
+                        "GatewayPorts",
+                        "HostbasedAuthentication",
+                        "IgnoreRhosts",
+                        "KbdInteractiveAuthentication",
+                        "LogLevel",
+                        "LoginGraceTime",
+                        "MaxAuthTries",
+                        "MaxSessions",
+                        "PasswordAuthentication",
+                        "PermitEmptyPasswords",
+                        "PermitRootLogin",
+                        "PermitTunnel",
+                        "PermitUserEnvironment",
+                        "PrintLastLog",
+                        "PubkeyAuthentication",
+                        "StrictModes",
+                        "TCPKeepAlive",
+                        "UsePAM",
+                        "X11Forwarding"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "verify_contexts": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "addr": {
+                          "pattern": "^[A-Za-z0-9._:-]{1,255}$",
+                          "type": "string"
+                        },
+                        "host": {
+                          "pattern": "^[A-Za-z0-9._:-]{1,255}$",
+                          "type": "string"
+                        },
+                        "user": {
+                          "pattern": "^[A-Za-z0-9._:-]{1,255}$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "user",
+                        "host",
+                        "addr"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "path",
+                  "mode",
+                  "service",
+                  "settings"
+                ]
+              }
+            },
+            "required": [
+              "config"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "plugin": {
                 "const": "template"
               }
             },

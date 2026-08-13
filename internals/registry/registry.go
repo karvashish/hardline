@@ -10,6 +10,7 @@ import (
 	"github.com/karvashish/hardline/internals/plugins/packages/dnf4"
 	"github.com/karvashish/hardline/internals/plugins/packages/dnf5"
 	"github.com/karvashish/hardline/internals/plugins/service"
+	"github.com/karvashish/hardline/internals/plugins/ssh"
 	"github.com/karvashish/hardline/internals/plugins/template"
 	"github.com/karvashish/hardline/pkg/pluginapi"
 )
@@ -33,6 +34,7 @@ func builtinPlugins() []pluginapi.Plugin {
 		firewall.Plugin(),
 		filemeta.Plugin(),
 		audit.Plugin(),
+		ssh.Plugin(),
 	}
 }
 

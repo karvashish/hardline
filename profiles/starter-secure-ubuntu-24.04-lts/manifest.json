@@ -8,7 +8,7 @@
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "8e270a648e73b7dd2d52e5c318be1029bc645fc48cb78a69b217daeb86211690"
+      "sha256": "d623540c81df5eeff087a0f83f25887aa5682dded343bd58c98507fc430837e8"
     },
     {
       "path": "actions/15-unattended-upgrades.json",
@@ -48,11 +48,7 @@
     },
     {
       "path": "profile.json",
-      "sha256": "a479129a823707b2a09050ad537ad3a45589ab9079d4ccf5983b74dd39912b09"
-    },
-    {
-      "path": "templates/10-ssh-sshd-config.tmpl",
-      "sha256": "406fd7f1180b51e2c946873db4020647d7be53d91939de140c1c5a93d6464027"
+      "sha256": "7dd0869774befdbd8a2fe68914b48d72fecd75f41cde848891e4865362303f00"
     },
     {
       "path": "templates/15-unattended-upgrades.tmpl",

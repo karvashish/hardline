@@ -11,26 +11,26 @@
       }
     },
     {
-      "id": "ssh-template-apply",
-      "plugin": "template",
+      "id": "ssh-policy",
+      "plugin": "ssh",
       "config": {
-        "src": "templates/10-ssh-sshd-config.tmpl",
-        "dest": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
-        "mode": "0600"
-      }
-    },
-    {
-      "id": "ssh-service-reload",
-      "plugin": "service",
-      "config": {
-        "name": "ssh",
-        "enabled": true,
-        "state": "reloaded",
-        "restart_policy": {
-          "type": "on_change",
-          "steps": [
-            "ssh-template-apply"
-          ]
+        "path": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
+        "mode": "0600",
+        "service": "ssh",
+        "settings": {
+          "AllowAgentForwarding": "no",
+          "AllowTcpForwarding": "no",
+          "IgnoreRhosts": "yes",
+          "KbdInteractiveAuthentication": "no",
+          "LogLevel": "VERBOSE",
+          "MaxAuthTries": 4,
+          "PasswordAuthentication": "no",
+          "PermitEmptyPasswords": "no",
+          "PermitRootLogin": "no",
+          "PubkeyAuthentication": "yes",
+          "StrictModes": "yes",
+          "UsePAM": "yes",
+          "X11Forwarding": "no"
         }
       }
     }

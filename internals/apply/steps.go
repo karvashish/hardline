@@ -11,9 +11,5 @@ func handleStepWithRegistry(reg *pluginapi.Registry, client *remote.Client, p *p
 	if err != nil {
 		return err
 	}
-	if err := pluginapi.EnsureValidationPolicy(s, plugin); err != nil {
-		return err
-	}
-
 	return plugin.Apply(remote.BuildContext(client, p, stepChanges), s)
 }

@@ -753,9 +753,6 @@
         }
       ],
       "properties": {
-        "allow_unvalidated": {
-          "type": "boolean"
-        },
         "config": {
           "type": "object"
         },

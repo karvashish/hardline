@@ -29,8 +29,8 @@ func TestNewDefaultRegistryIncludesBuiltins(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing builtin plugin %q", name)
 		}
-		if !plugin.InternalValidation {
-			t.Fatalf("expected builtin plugin %q to validate internally", name)
+		if plugin.Validate == nil {
+			t.Fatalf("expected builtin plugin %q to supply Validate", name)
 		}
 	}
 }
@@ -59,8 +59,8 @@ func TestNewDefaultRegistryPanicsOnRegisterError(t *testing.T) {
 	orig := defaultPlugins
 	defaultPlugins = func() []pluginapi.Plugin {
 		return []pluginapi.Plugin{
-			{Name: "dup", InternalValidation: true, Validate: func(profile.Step, map[string]json.RawMessage) error { return nil }, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
-			{Name: "dup", InternalValidation: true, Validate: func(profile.Step, map[string]json.RawMessage) error { return nil }, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
+			{Name: "dup", Validate: func(profile.Step, map[string]json.RawMessage) error { return nil }, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
+			{Name: "dup", Validate: func(profile.Step, map[string]json.RawMessage) error { return nil }, Apply: noop, Plan: noopPlan, Capture: noopCapture, Rollback: noopRollback, DetectConflict: noopConflict},
 		}
 	}
 	defer func() { defaultPlugins = orig }()

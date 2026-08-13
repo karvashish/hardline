@@ -59,10 +59,9 @@ func TestPlanProfile(t *testing.T) {
 	t.Run("step error bubbles up", func(t *testing.T) {
 		registry := pluginapi.NewRegistry()
 		if err := registry.Register(pluginapi.Plugin{
-			Name:               "boom",
-			InternalValidation: true,
-			Validate:           func(profile.Step, map[string]json.RawMessage) error { return nil },
-			Apply:              func(pluginapi.Context, profile.Step) error { return nil },
+			Name:     "boom",
+			Validate: func(profile.Step, map[string]json.RawMessage) error { return nil },
+			Apply:    func(pluginapi.Context, profile.Step) error { return nil },
 			Plan: func(pluginapi.Context, profile.Step) (pluginapi.PlanResult, error) {
 				return pluginapi.PlanResult{}, errors.New("plan boom")
 			},

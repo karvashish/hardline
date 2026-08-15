@@ -1927,6 +1927,32 @@ func TestRollbackRemovesOnlyTheFlushLineItAdded(t *testing.T) {
 	}
 }
 
+func TestRollbackKeepsTheFlushWhileAnotherManagedIncludeRemains(t *testing.T) {
+	const other = `include "/etc/nftables.d/99-hardline-other.nft"`
+	current := FlushLine + "\n" + other + "\n"
+
+	host := firewallExecHostStub{
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile: func(string) (string, error) { return current, nil },
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			t.Fatal("the flush header must stay while another profile's ruleset is still included")
+			return nil
+		},
+	}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        MainConfigDebian,
+		Line:        FlushLine,
+		FileExisted: true,
+		Added:       true,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+}
+
 func TestRollbackKeepsAFlushLineItDidNotAdd(t *testing.T) {
 	host := firewallExecHostStub{writeRootFile: func(string, []byte, os.FileMode) error {
 		t.Fatal("a flush line this run did not add must not be removed")

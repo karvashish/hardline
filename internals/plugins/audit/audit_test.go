@@ -550,6 +550,16 @@ func TestParseRulesReconcilesAuditctlRewrites(t *testing.T) {
 			file: "-w /etc/passwd -k identity\n",
 			list: "-w /etc/passwd -p rwxa -k identity\n",
 		},
+		{
+			name: "the list and action written list-first",
+			file: "-a exit,always -F arch=b64 -S adjtimex -k time_change\n",
+			list: "-a always,exit -F arch=b64 -S adjtimex -F key=time_change\n",
+		},
+		{
+			name: "a list-first watch expanded into its syscall-rule form",
+			file: "-w /etc/passwd -p wa -k identity\n",
+			list: "-a exit,always -F path=/etc/passwd -F perm=wa -F key=identity\n",
+		},
 	}
 
 	for _, tc := range cases {
@@ -626,6 +636,20 @@ func TestParseRulesRefusesWhatItCannotRead(t *testing.T) {
 	} {
 		if _, err := ParseRules([]byte(line + "\n")); err == nil {
 			t.Fatalf("expected %q to be refused rather than silently skipped", line)
+		}
+	}
+}
+
+func TestParseRulesRefusesAnUnreadableListAndAction(t *testing.T) {
+	for _, line := range []string{
+		"-a always -S adjtimex -k t",
+		"-a always,never -S adjtimex -k t",
+		"-a exit,entry -S adjtimex -k t",
+		"-a always,bogus -S adjtimex -k t",
+		"-a always,exit,extra -S adjtimex -k t",
+	} {
+		if _, err := ParseRules([]byte(line + "\n")); err == nil {
+			t.Fatalf("expected %q to be refused", line)
 		}
 	}
 }

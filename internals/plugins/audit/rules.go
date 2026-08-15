@@ -126,7 +126,11 @@ func parseRuleTokens(tokens []string) (Rule, error) {
 			if value == "" {
 				return Rule{}, fmt.Errorf("%s needs a list and action", token)
 			}
-			rule.List = value
+			list, err := normalizeRuleList(value)
+			if err != nil {
+				return Rule{}, err
+			}
+			rule.List = list
 			i++
 		case "-S":
 			if value == "" {
@@ -165,6 +169,37 @@ func parseRuleTokens(tokens []string) (Rule, error) {
 		rule.Perms = sortedLetters("rwxa")
 	}
 	return rule, nil
+}
+
+var auditActions = map[string]struct{}{"always": {}, "never": {}}
+
+var auditLists = map[string]struct{}{
+	"task": {}, "exit": {}, "user": {}, "exclude": {}, "filesystem": {},
+}
+
+// auditctl accepts list,action in either order but always prints action,list.
+func normalizeRuleList(value string) (string, error) {
+	first, second, ok := strings.Cut(value, ",")
+	if !ok || strings.Contains(second, ",") {
+		return "", fmt.Errorf("%q is not a list,action pair", value)
+	}
+	_, firstIsAction := auditActions[first]
+	_, secondIsAction := auditActions[second]
+	if firstIsAction && secondIsAction {
+		return "", fmt.Errorf("%q names two audit actions and no list", value)
+	}
+	if !firstIsAction && !secondIsAction {
+		return "", fmt.Errorf("%q names no audit action; expected always or never", value)
+	}
+
+	action, list := first, second
+	if secondIsAction {
+		action, list = second, first
+	}
+	if _, ok := auditLists[list]; !ok {
+		return "", fmt.Errorf("unsupported audit list %q", list)
+	}
+	return action + "," + list, nil
 }
 
 func foldWatchFields(rule Rule) Rule {

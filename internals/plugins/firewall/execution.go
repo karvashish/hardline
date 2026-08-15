@@ -701,9 +701,43 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 		return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
 	}
 	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
+		// Another profile's ruleset is still included here; dropping the flush
+		// would make the next reload merge into the live ruleset instead of
+		// replacing it.
+		remains, err := managedIncludeRemains(host, rec.Path)
+		if err != nil {
+			return err
+		}
+		if remains {
+			return nil
+		}
 		return RemoveNftablesFlush(host, rec.Path)
 	}
 	return RemoveNftablesInclude(host, rec.Path, rec.Line)
+}
+
+func managedIncludeRemains(host pluginapi.Host, mainConfig string) (bool, error) {
+	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
+	if err != nil {
+		return false, fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
+	}
+	if !snap.Existed {
+		return false, nil
+	}
+	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
+	if err != nil {
+		return false, fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
+	}
+	for _, line := range strings.Split(string(current), "\n") {
+		target := normalizeIncludeLine(line)
+		if target == "" {
+			continue
+		}
+		if pluginapi.EnforceManagedPath(target) == nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mainConfig string) error {

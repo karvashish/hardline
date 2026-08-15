@@ -760,6 +760,7 @@
           "type": "string"
         },
         "plugin": {
+          "pattern": "^[a-z][a-z0-9_]*$",
           "type": "string"
         }
       },

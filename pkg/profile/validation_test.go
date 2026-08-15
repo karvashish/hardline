@@ -312,6 +312,10 @@ func TestAffirm_RejectsPluginConfigInjection(t *testing.T) {
 			"config":{"main_config":"/etc/nftables.conf","flush_ruleset":true}}`,
 		"packages_apt install":  `{"id":"s","plugin":"packages_apt","config":{"install":["curl;id"]}}`,
 		"packages_dnf4 install": `{"id":"s","plugin":"packages_dnf4","config":{"install":["curl;id"]}}`,
+		// The engine lowercases and trims before dispatch, so a spelling the
+		// per-plugin config branch cannot match still reaches the plugin.
+		"plugin name in mixed case":     `{"id":"s","plugin":"Audit","config":{}}`,
+		"plugin name padded with space": `{"id":"s","plugin":" ssh ","config":{}}`,
 	}
 
 	for name, step := range cases {

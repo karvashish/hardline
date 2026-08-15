@@ -42,7 +42,7 @@ type Profile struct {
 
 type Step struct {
 	ID     string         `json:"id"`
-	Plugin string         `json:"plugin"`
+	Plugin string         `json:"plugin" jsonschema:"pattern=^[a-z][a-z0-9_]*$"`
 	Config map[string]any `json:"config,omitempty"`
 }
 

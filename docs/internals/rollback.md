@@ -178,6 +178,7 @@ The object snapshots are typed, not raw shell output:
 - file-metadata snapshots record path, existence, mode, owner, group, and the managed `i`/`a` chattr letters — and deliberately no file contents
 - service snapshots record unit name plus enabled/active/known state
 - package snapshots record package name, whether it was installed, the version when known, and whether the step requested install or purge
+- runtime-policy snapshots record the probe that read the daemon and what it reported, and are the one kind rollback never restores
 
 That is why rollback can reason differently about different object kinds instead of replaying opaque commands.
 
@@ -200,7 +201,7 @@ The same local-journal path is used when the apply context is cancelled by `SIGI
 
 Rollback walks step records in reverse order.
 
-Within each step, it restores the recorded `Before` objects in reverse object order, delegating each one to the owning plugin's `Rollback`. Three mode-dependent behaviors follow from that:
+Within each step, it restores the recorded `Before` objects in reverse object order, delegating each one to the owning plugin's `Rollback`. Runtime-policy objects are dropped before that dispatch: they exist so the capture shows a delta, and the daemon comes back through the file it reads. Three mode-dependent behaviors follow from the rest:
 
 - a step whose `RollbackMode` is `noop` returns immediately without touching the host
 - under `best_effort` and `irreversible`, an object that fails to restore is logged as a warning and the walk continues to the next object. Both modes already say the revert carries no guarantee, so a failure there is the expected case, and aborting on it would strand every step still queued behind it

@@ -28,7 +28,7 @@ Every plugin must provide:
 
 Missing any of those is a registry error.
 
-`Rollback` restores one captured `ObjectRecord`, and `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. The rollback orchestrator in `internals/rollback` no longer switches on object kind itself - it looks up the step's plugin and delegates to these two funcs, so each plugin owns the restore and conflict logic for the object kinds it emits.
+`Rollback` restores one captured `ObjectRecord`, and `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. The rollback orchestrator in `internals/rollback` no longer switches on object kind itself - it looks up the step's plugin and delegates to these two funcs, so each plugin owns the restore and conflict logic for the object kinds it emits. The one exception is `runtime_policy`, which the orchestrator drops before dispatching because no plugin restores it (see below).
 
 Plugin names are normalized to lowercase when registered and when looked up from step definitions.
 
@@ -59,12 +59,16 @@ Rollback capture is object-based instead of plugin-specific string output. A `Ca
 - `service` objects
 - `package` objects
 - `config_line` objects
+- `runtime_policy` objects
 - `validate` no-op records
+
+`runtime_policy` is the one kind a plugin records but never restores. It holds what a daemon reported it was holding — `auditctl -l`, `nft list ruleset` — so that a run which only reloads the daemon still shows a delta between the before and after captures and rollback does not skip it as unchanged. Putting the daemon back is the job of the file object the daemon reads, so the orchestrator skips this kind before dispatching and a plugin does not need a case for it.
 
 The rollback modes exposed in `pkg/pluginapi` are:
 
 - `deterministic`
 - `best_effort`
+- `irreversible`
 - `noop`
 
 `CaptureResult.Reload` is step-level service intent rather than observed state — the action, the restart policy, and the dependency step IDs. Rollback reads it to decide whether to re-run a restart after reverting the step's dependencies.

@@ -302,39 +302,6 @@ func TestRollbackSteps(t *testing.T) {
 	})
 }
 
-func TestRollbackStepsStrict(t *testing.T) {
-	t.Run("best-effort errors are fatal in strict mode", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-		installPlugins(t, map[string]fakeBehavior{
-			"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error { return errors.New("boom") }},
-		})
-
-		_, err := executeRollbackSteps(nil, []StepRecord{
-			{
-				ID:           "pkg",
-				Type:         "packages",
-				RollbackMode: pluginapi.ModeBestEffort,
-				Before: []pluginapi.ObjectRecord{
-					{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "x"}},
-				},
-			},
-		}, false, true)
-		if err == nil || !strings.Contains(err.Error(), "rollback step") {
-			t.Fatalf("expected strict rollback failure, got %v", err)
-		}
-	})
-
-	t.Run("strict success", func(t *testing.T) {
-		restore := stubRollbackHooks()
-		defer restore()
-
-		if _, err := executeRollbackSteps(nil, []StepRecord{{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}}, false, true); err != nil {
-			t.Fatalf("expected strict rollback success, got %v", err)
-		}
-	})
-}
-
 func TestRollbackStepModes(t *testing.T) {
 	fileObj := pluginapi.ObjectRecord{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf", Existed: false}}
 
@@ -350,8 +317,38 @@ func TestRollbackStepModes(t *testing.T) {
 			RollbackMode: pluginapi.ModeBestEffort,
 			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{}}},
 		}
-		if _, err := rollbackStepWithMode(nil, step, false); err != nil {
+		if _, err := rollbackStepWithMode(nil, step); err != nil {
 			t.Fatalf("expected best-effort step to continue, got %v", err)
+		}
+	})
+
+	t.Run("a runtime policy never reaches the plugin", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		var seen []string
+		installPlugins(t, map[string]fakeBehavior{
+			"audit": {rollback: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) error {
+				seen = append(seen, obj.Kind)
+				if obj.Kind != pluginapi.ObjectFile {
+					return errors.New("audit plugin cannot roll back kind " + obj.Kind)
+				}
+				return nil
+			}},
+		})
+		step := StepRecord{
+			ID:           "rules",
+			Type:         "audit",
+			RollbackMode: pluginapi.ModeDeterministic,
+			Before: []pluginapi.ObjectRecord{
+				fileObj,
+				{Kind: pluginapi.ObjectRuntimePolicy, RuntimePolicy: &pluginapi.RuntimePolicy{Name: "auditctl -l", State: ""}},
+			},
+		}
+		if _, err := rollbackStepWithMode(nil, step); err != nil {
+			t.Fatalf("a plugin that does not know the kind must not be asked to revert it, got %v", err)
+		}
+		if len(seen) != 1 || seen[0] != pluginapi.ObjectFile {
+			t.Fatalf("expected only the file to be dispatched, got %v", seen)
 		}
 	})
 
@@ -374,7 +371,7 @@ func TestRollbackStepModes(t *testing.T) {
 				{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "b"}},
 			},
 		}
-		degraded, err := rollbackStepWithMode(nil, step, false)
+		degraded, err := rollbackStepWithMode(nil, step)
 		if err != nil {
 			t.Fatalf("a step hardline never claimed it could revert must not abort the run, got %v", err)
 		}
@@ -398,14 +395,14 @@ func TestRollbackStepModes(t *testing.T) {
 			RollbackMode: pluginapi.ModeDeterministic,
 			Before:       []pluginapi.ObjectRecord{fileObj},
 		}
-		if _, err := rollbackStepWithMode(nil, step, false); err == nil {
+		if _, err := rollbackStepWithMode(nil, step); err == nil {
 			t.Fatal("expected deterministic step error")
 		}
 	})
 
 	t.Run("noop", func(t *testing.T) {
 		step := StepRecord{ID: "v", Type: "validate", RollbackMode: pluginapi.ModeNoop}
-		if _, err := rollbackStepWithMode(nil, step, false); err != nil {
+		if _, err := rollbackStepWithMode(nil, step); err != nil {
 			t.Fatalf("expected noop success, got %v", err)
 		}
 	})
@@ -423,7 +420,7 @@ func TestRollbackStepModes(t *testing.T) {
 			Before:       []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, Message: "noop"}},
 			After:        []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: nil}},
 		}
-		if _, err := rollbackStepWithMode(nil, step, false); err != nil {
+		if _, err := rollbackStepWithMode(nil, step); err != nil {
 			t.Fatalf("expected rollback to use before snapshots only, got %v", err)
 		}
 	})
@@ -438,7 +435,7 @@ func TestRollbackStepModes(t *testing.T) {
 			RollbackMode: pluginapi.ModeDeterministic,
 			Before:       []pluginapi.ObjectRecord{fileObj},
 		}
-		if _, err := rollbackStepWithMode(nil, step, false); err == nil || !strings.Contains(err.Error(), "not registered") {
+		if _, err := rollbackStepWithMode(nil, step); err == nil || !strings.Contains(err.Error(), "not registered") {
 			t.Fatalf("expected unregistered plugin error, got %v", err)
 		}
 	})
@@ -925,7 +922,7 @@ func TestExecuteRollbackSteps_ReportsDegradedRestoration(t *testing.T) {
 	step.Type = "packages"
 	step.RollbackMode = pluginapi.ModeBestEffort
 
-	degraded, err := executeRollbackSteps(nil, []StepRecord{step}, false, false)
+	degraded, err := executeRollbackSteps(nil, []StepRecord{step}, false)
 	if err != nil {
 		t.Fatalf("expected best-effort failure to be absorbed, got %v", err)
 	}

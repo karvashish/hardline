@@ -69,6 +69,13 @@ func TestWriteRootFile(t *testing.T) {
 		t.Fatalf("unexpected root install cmd %q", sess.cmd)
 	}
 
+	if err := New(nil).WriteRootFile("/etc/example", []byte("abc"), os.FileMode(0o2640)); err != nil {
+		t.Fatalf("WriteRootFile failed: %v", err)
+	}
+	if !strings.Contains(sess.cmd, "install -m 2640 -- ") {
+		t.Fatalf("setgid must reach install rather than being masked off: %q", sess.cmd)
+	}
+
 	generateTempSuffix = func() (string, error) { return "", errors.New("rand boom") }
 	if err := New(nil).WriteRootFile("/etc/example", []byte("abc"), 0o644); err == nil || !strings.Contains(err.Error(), "generate temp path") {
 		t.Fatalf("expected temp path error, got %v", err)

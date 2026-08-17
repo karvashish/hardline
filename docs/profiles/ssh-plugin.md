@@ -93,11 +93,11 @@ when:
 - `DenyUsers` or `DenyGroups` covers the connecting identity
 - `AllowUsers` or `AllowGroups` is set and does not cover it
 
-Patterns are matched with shell globbing. A negated (`!user`) or per-host
-(`user@host`) pattern is refused rather than interpreted: guessing at it would
-either invent access the host does not grant or reject a policy that is fine,
-and neither is safe. If the connecting user cannot be determined at all, the
-step refuses.
+Patterns are matched with shell globbing. A negated (`!user`), per-host
+(`user@host`) or malformed (`bad[`) pattern is refused rather than interpreted:
+guessing at it would either invent access the host does not grant or reject a
+policy that is fine, and neither is safe. If the connecting user cannot be
+determined at all, the step refuses.
 
 ## Accepted keywords
 
@@ -133,6 +133,10 @@ keyword, so it cannot express them, and rejecting them beats mangling them.
 ## Rollback
 
 The drop-in is journalled as a file snapshot with the unit name alongside it.
+Nothing records the running daemon separately: `sshd -T` re-parses the files on
+disk rather than asking the running sshd what it holds, so it can only ever
+report what the drop-in snapshot already covers.
+
 Rollback restores the file, runs `sshd -t` on the result, and reloads — in that
 order and in one step, because a rollback that restores the bytes without
 reloading leaves sshd running the policy the rollback just removed from disk.

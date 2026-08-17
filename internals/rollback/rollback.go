@@ -87,7 +87,13 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 	if err != nil {
 		return err
 	}
-	if journal.Status != "success" {
+	resuming := false
+	switch journal.Status {
+	case "success":
+	case "rolling_back":
+		resuming = true
+		logger.Warnf("run %s was already being rolled back and did not finish; resuming it\n", journal.RunID)
+	default:
 		return fmt.Errorf("last run is not marked successful (status=%q)", journal.Status)
 	}
 
@@ -95,7 +101,7 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 		logger.Infof("journal %s (run %s applied %s):\n%s\n", profileID, journal.RunID, journal.CreatedAt, string(data))
 	}
 
-	if err := preflightRollbackConflicts(client, journal.Steps, c.ForceRollback); err != nil {
+	if err := preflightRollbackConflicts(client, journal.Steps, c.ForceRollback, resuming); err != nil {
 		return err
 	}
 
@@ -105,7 +111,7 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 
 	degraded, err := executeRollbackSteps(client, journal.Steps, true, false)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w; the host is partly reverted and run %s is still journalled, so running rollback again resumes it", err, journal.RunID)
 	}
 
 	if err := consumeJournal(client, c, journal); err != nil {
@@ -250,7 +256,7 @@ func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	if err := ensureRollbackSudo(client); err != nil {
 		return fmt.Errorf("sudo preflight failed: %w", err)
 	}
-	if err := preflightRollbackConflicts(client, steps, false); err != nil {
+	if err := preflightRollbackConflicts(client, steps, false, false); err != nil {
 		return err
 	}
 	degraded, err := executeRollbackSteps(client, steps, false, false)
@@ -307,7 +313,7 @@ func rollbackStepApplies(step StepRecord, all []StepRecord) bool {
 	return stepActuallyChanged(step) || serviceReloadTriggered(step, all)
 }
 
-func preflightRollbackConflicts(client *remote.Client, steps []StepRecord, forceRollback bool) error {
+func preflightRollbackConflicts(client *remote.Client, steps []StepRecord, forceRollback, resuming bool) error {
 	for i := len(steps) - 1; i >= 0; i-- {
 		step := steps[i]
 		if !rollbackStepApplies(step, steps) || step.RollbackMode == pluginapi.ModeNoop {
@@ -326,7 +332,7 @@ func preflightRollbackConflicts(client *remote.Client, steps []StepRecord, force
 		if !rollbackStepApplies(step, steps) {
 			continue
 		}
-		conflicts := checkStepConflicts(client, step)
+		conflicts := checkStepConflicts(client, step, resuming)
 		if len(conflicts) == 0 {
 			continue
 		}
@@ -399,9 +405,12 @@ func formatRollbackDuration(d time.Duration) string {
 	return strconv.Itoa(minutes) + "m" + strconv.Itoa(seconds) + "s"
 }
 
-func checkStepConflicts(client *remote.Client, step StepRecord) []string {
+func checkStepConflicts(client *remote.Client, step StepRecord, resuming bool) []string {
 	plug, ok := lookupPlugin(step.Type)
 	if !ok {
+		return nil
+	}
+	if resuming && stepAlreadyReverted(client, plug, step) {
 		return nil
 	}
 	var conflicts []string
@@ -409,6 +418,19 @@ func checkStepConflicts(client *remote.Client, step StepRecord) []string {
 		conflicts = append(conflicts, plug.DetectConflict(client, afterObj)...)
 	}
 	return conflicts
+}
+
+// A step an earlier attempt already reverted sits at Before, which the After comparison reads as third-party drift.
+func stepAlreadyReverted(client *remote.Client, plug pluginapi.Plugin, step StepRecord) bool {
+	if len(step.Before) == 0 {
+		return false
+	}
+	for _, beforeObj := range step.Before {
+		if len(plug.DetectConflict(client, beforeObj)) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func stepHasServiceObjects(step StepRecord) bool {

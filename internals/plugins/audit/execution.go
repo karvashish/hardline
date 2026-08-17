@@ -20,7 +20,7 @@ const (
 func aligned(current pluginapi.FileSnapshot, rules []byte, mode os.FileMode) bool {
 	return current.Existed &&
 		current.ContentB64 == base64.StdEncoding.EncodeToString(rules) &&
-		current.Mode == fmt.Sprintf("%o", mode.Perm())
+		current.Mode == pluginapi.FormatFileMode(mode)
 }
 
 func loadedRules(host pluginapi.Host) ([]Rule, error) {
@@ -261,8 +261,22 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		return record, fmt.Errorf("capture audit rules for %q: %w", spec.Dest, err)
 	}
 
+	loaded, err := loadedRules(ctx.Host)
+	if err != nil {
+		return record, fmt.Errorf("step %q (type=audit): %w", stepID, err)
+	}
+
 	record.RollbackMode = pluginapi.ModeDeterministic
-	record.Objects = []pluginapi.ObjectRecord{{Kind: pluginapi.ObjectFile, File: &snap}}
+	record.Objects = []pluginapi.ObjectRecord{
+		{Kind: pluginapi.ObjectFile, File: &snap},
+		{
+			Kind: pluginapi.ObjectRuntimePolicy,
+			RuntimePolicy: &pluginapi.RuntimePolicy{
+				Name:  listCmd,
+				State: describeRules(loaded),
+			},
+		},
+	}
 	return record, nil
 }
 

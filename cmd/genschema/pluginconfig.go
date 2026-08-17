@@ -68,7 +68,6 @@ var pluginConfigConstraints = map[string]map[string]any{
 		"rules":        firewallRules(),
 	},
 	"firewall_template": {
-		"managed_dest":  stringPattern(managedPathPattern),
 		"main_config":   stringEnum(nftablesMainConfigs...),
 		"backend":       stringEnum("nftables"),
 		"policy":        stringEnum("allow", "deny", "reject", "drop"),

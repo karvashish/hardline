@@ -105,7 +105,7 @@ func (p dnfPreviews) runTransaction(host pluginapi.Host, command string, wanted 
 		return nil, err
 	}
 	if !strings.Contains(out, p.transactionBanner) && !strings.Contains(out, "Nothing to do") {
-		return nil, fmt.Errorf("dnf did not produce a transaction preview: %s", FirstLines(out, 3))
+		return nil, fmt.Errorf("dnf did not produce a transaction preview: %s", pluginapi.FirstLines(out, 3))
 	}
 	return ParseRPMTransaction(out, wanted), nil
 }

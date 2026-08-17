@@ -748,15 +748,23 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 			t.Fatalf("expected snapshot error, got %v", err)
 		}
 		rec, err := Capture(pluginapi.Context{Host: firewallExecHostStub{
-			runRoot:           func(string) error { return nil },
-			runRootWithOutput: func(string) (string, error) { return "regular file|644|root|root|5", nil },
-			readRootFile:      func(string) (string, error) { return "abc", nil },
+			runRoot: func(string) error { return nil },
+			runRootWithOutput: func(cmd string) (string, error) {
+				if strings.Contains(cmd, "nft -j list ruleset") {
+					return "", nil
+				}
+				return "regular file|644|root|root|5", nil
+			},
+			readRootFile: func(string) (string, error) { return "abc", nil },
 		}}, "f", validDeterministicFirewallSpec())
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 3 {
+		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 4 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
+		}
+		if rec.Objects[3].Kind != pluginapi.ObjectRuntimePolicy || rec.Objects[3].RuntimePolicy == nil {
+			t.Fatalf("the loaded ruleset was not journalled: %+v", rec.Objects[3])
 		}
 		include := rec.Objects[2].ConfigLine
 		if rec.Objects[2].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
@@ -771,6 +779,34 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		}
 		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != ManagedDestination(validDeterministicFirewallSpec()) {
 			t.Fatalf("expected managed destination captured first, got %+v", rec.Objects[0].File)
+		}
+	})
+
+	t.Run("a load that leaves the files alone is still journalled", func(t *testing.T) {
+		spec := validDeterministicFirewallSpec()
+		host := func(ruleset string) firewallExecHostStub {
+			return firewallExecHostStub{
+				runRoot: func(string) error { return nil },
+				runRootWithOutput: func(cmd string) (string, error) {
+					if strings.Contains(cmd, "nft -j list ruleset") {
+						return ruleset, nil
+					}
+					return "regular file|644|root|root|5", nil
+				},
+				readRootFile: func(string) (string, error) { return "abc", nil },
+			}
+		}
+
+		before, err := Capture(pluginapi.Context{Host: host(`{"nftables":[]}`)}, "f", spec)
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		after, err := Capture(pluginapi.Context{Host: host(liveRulesetJSON(normalizedTestSpec(t, spec)))}, "f", spec)
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		if !pluginapi.CapturesDiffer(before, after) {
+			t.Fatal("a load that changed the kernel ruleset without touching a file was not journalled as a change")
 		}
 	})
 
@@ -1611,18 +1647,6 @@ func TestApplyCleansUpAfterAFailedInstall(t *testing.T) {
 	}
 }
 
-func TestFirstNftLinesBoundsTheComplaint(t *testing.T) {
-	if got := firstNftLines("  \n ", 3); got != "" {
-		t.Fatalf("expected empty output to stay empty, got %q", got)
-	}
-	if got := firstNftLines("a\nb\nc\nd", 2); got != "a; b" {
-		t.Fatalf("unexpected trim: %q", got)
-	}
-	if got := firstNftLines("only", 5); got != "only" {
-		t.Fatalf("unexpected single line: %q", got)
-	}
-}
-
 func TestEnsureNftablesFlushPutsTheHeaderFirst(t *testing.T) {
 	const existing = "# managed by the distribution\ninclude \"/etc/nftables.d/50-other.nft\"\n"
 
@@ -2129,6 +2153,87 @@ func TestActivateFirewallIgnoresANarrowedAccept(t *testing.T) {
 	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
 	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
 		t.Fatalf("expected a narrowed accept to be refused as management access, got %v", err)
+	}
+}
+
+func TestActivateFirewallRefusesAnAcceptTheChainNeverReaches(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{
+		{Chain: "input", Proto: "tcp", Port: 22, Action: "drop"},
+		{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+	}
+	desired := normalizedTestSpec(t, spec)
+
+	var cmds []string
+	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+		cmds = append(cmds, cmd)
+		return "", nil
+	}}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
+		t.Fatalf("expected the earlier drop to be honoured, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "tcp dport 22 drop") {
+		t.Fatalf("expected the blocking rule to be named, got %v", err)
+	}
+	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
+		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
+	}
+}
+
+func TestActivateFirewallRefusesAnEstablishedOnlyAccept(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{
+		{Chain: "input", Proto: "tcp", Port: 22, CTStates: []string{"established"}, Action: "accept"},
+	}
+	desired := normalizedTestSpec(t, spec)
+
+	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
+		t.Fatalf("expected an accept that no new connection reaches to be refused, got %v", err)
+	}
+}
+
+func TestActivateFirewallRefusesADropRuleUnderAnAcceptPolicy(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
+	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 22, Action: "drop"}}
+	desired := normalizedTestSpec(t, spec)
+
+	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
+		t.Fatalf("expected a drop rule to be caught under an accept policy, got %v", err)
+	}
+}
+
+func TestActivateFirewallRefusesAScopedDropItCannotEvaluate(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{
+		{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "drop"},
+		{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+	}
+	desired := normalizedTestSpec(t, spec)
+
+	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "cannot tell whether it covers this run's connection") {
+		t.Fatalf("expected an unevaluable drop to be refused, got %v", err)
+	}
+}
+
+func TestActivateFirewallAcceptsAnAcceptAheadOfANarrowerDrop(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Rules = []Rule{
+		{Chain: "input", InInterface: "lo", Action: "accept"},
+		{Chain: "input", CTStates: []string{"invalid"}, Action: "drop"},
+		{Chain: "input", CTStates: []string{"established", "related"}, Action: "accept"},
+		{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
+		{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "drop"},
+	}
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("expected the accept that comes first to settle the verdict, got %v", err)
 	}
 }
 

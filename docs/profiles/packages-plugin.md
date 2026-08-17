@@ -133,3 +133,9 @@ for apt, and a full NEVRA (`name-[epoch:]version-release.arch`) for rpm, which
 is the only ordering rpm resolves. `update`, `upgrade`, and `autoremove` are not
 reversible; the journal records them with a best-effort note rather than undoing
 them.
+
+Plan rates the step's rollback fidelity from what it would really do: purging a
+package that is installed is irreversible, because reinstalling it does not
+bring back the configuration the purge deleted; installs, upgrades and
+autoremoves are best-effort; a metadata refresh on its own reverts nothing and
+leaves the verdict at deterministic.

@@ -222,6 +222,19 @@ func TestCapturesDiffer(t *testing.T) {
 		t.Fatal("package install change should differ")
 	}
 
+	runtime := func(state string) CaptureResult {
+		return CaptureResult{Objects: []ObjectRecord{{Kind: ObjectRuntimePolicy, RuntimePolicy: &RuntimePolicy{Name: "sshd -T", State: state}}}}
+	}
+	if CapturesDiffer(runtime("PasswordAuthentication=no"), runtime("PasswordAuthentication=no")) {
+		t.Fatal("identical runtime policies should not differ")
+	}
+	if !CapturesDiffer(runtime("PasswordAuthentication=yes"), runtime("PasswordAuthentication=no")) {
+		t.Fatal("a reloaded daemon policy should differ")
+	}
+	if !CapturesDiffer(runtime("x"), CaptureResult{Objects: []ObjectRecord{{Kind: ObjectRuntimePolicy}}}) {
+		t.Fatal("a missing runtime policy should differ")
+	}
+
 	a := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectFile, File: &FileSnapshot{}}}}
 	b := CaptureResult{Objects: []ObjectRecord{}}
 	if !CapturesDiffer(a, b) {
@@ -494,6 +507,80 @@ func TestParseFileMode(t *testing.T) {
 	}
 	if got, err := ParseFileMode("4755"); err != nil || got != os.FileMode(0o4755) {
 		t.Fatalf("expected setuid bits to survive, got %o err=%v", got, err)
+	}
+}
+
+func TestFormatFileMode(t *testing.T) {
+	for raw, want := range map[string]string{"640": "640", "0640": "640", "2640": "2640", "4755": "4755"} {
+		mode, err := ParseFileMode(raw)
+		if err != nil {
+			t.Fatalf("ParseFileMode(%q): %v", raw, err)
+		}
+		if got := FormatFileMode(mode); got != want {
+			t.Fatalf("FormatFileMode(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestRestoreFileSnapshot_KeepsTheSetgidBit(t *testing.T) {
+	var cmds []string
+	var wroteMode os.FileMode
+	host := pluginAPIHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+		writeRootFile: func(_ string, _ []byte, mode os.FileMode) error {
+			wroteMode = mode
+			return nil
+		},
+	}
+
+	err := RestoreFileSnapshot(host, FileSnapshot{
+		Path: managedTestPath, Existed: true, Mode: "2640",
+		Owner: "root", Group: "shadow", ContentB64: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if err != nil {
+		t.Fatalf("RestoreFileSnapshot failed: %v", err)
+	}
+	if wroteMode != os.FileMode(0o2640) {
+		t.Fatalf("expected the recorded mode to reach the write, got %o", wroteMode)
+	}
+	if !strings.Contains(strings.Join(cmds, "\n"), "chmod '2640'") {
+		t.Fatalf("expected the mode to be reapplied after chown clears it, got %v", cmds)
+	}
+}
+
+func TestRestoreFileSnapshot_LeavesPlainModesToTheWrite(t *testing.T) {
+	var cmds []string
+	host := pluginAPIHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+	}
+
+	err := RestoreFileSnapshot(host, FileSnapshot{
+		Path: managedTestPath, Existed: true, Mode: "640",
+		Owner: "root", Group: "root", ContentB64: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if err != nil {
+		t.Fatalf("RestoreFileSnapshot failed: %v", err)
+	}
+	if strings.Contains(strings.Join(cmds, "\n"), "chmod ") {
+		t.Fatalf("a plain mode needs no second chmod, got %v", cmds)
+	}
+}
+
+func TestFirstLines(t *testing.T) {
+	if got := FirstLines("  \n ", 3); got != "" {
+		t.Fatalf("expected empty output to stay empty, got %q", got)
+	}
+	if got := FirstLines("a\nb\nc\nd\n", 2); got != "a; b" {
+		t.Fatalf("unexpected trim: %q", got)
+	}
+	if got := FirstLines("only", 5); got != "only" {
+		t.Fatalf("unexpected single line: %q", got)
 	}
 }
 

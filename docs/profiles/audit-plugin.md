@@ -96,6 +96,11 @@ reverse, so a separate load step would have run before the file it depends on
 had been put back, leaving the kernel enforcing rules that are no longer on
 disk.
 
+The capture records what `auditctl -l` reports alongside the file. A run that
+finds the file already correct but the kernel missing rules still loads them,
+and a file-only capture would show no delta for that run, so rollback would
+skip a step that did change the running policy.
+
 The reload after a restore is not verified against the rules. The previous rules are whatever
 they were, and their keys are not known from the snapshot; a failure to reload
 is still reported.

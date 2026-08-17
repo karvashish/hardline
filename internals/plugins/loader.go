@@ -27,7 +27,6 @@ type pluginLookup interface {
 var (
 	executablePath   = os.Executable
 	readDirEntries   = os.ReadDir
-	statPath         = os.Stat
 	lstatPath        = os.Lstat
 	currentUID       = os.Geteuid
 	openSharedObject = func(path string) (pluginLookup, error) {

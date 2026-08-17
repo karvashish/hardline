@@ -277,15 +277,30 @@ func journalledRollbackFidelity(journal *rollback.Journal) (string, string) {
 	}
 
 	bestEffort := 0
+	irreversible := 0
+	unknown := 0
 	for _, step := range journal.Steps {
-		if step.RollbackMode == pluginapi.ModeBestEffort {
+		switch step.RollbackMode {
+		case pluginapi.ModeIrreversible:
+			irreversible++
+		case pluginapi.ModeBestEffort:
 			bestEffort++
+		case pluginapi.ModeDeterministic, pluginapi.ModeNoop:
+		default:
+			unknown++
 		}
 	}
-	if bestEffort == 0 {
+
+	switch {
+	case irreversible > 0:
+		return "IRREVERSIBLE for " + strconv.Itoa(irreversible) + " step(s)", logger.ColorRed
+	case unknown > 0:
+		return "UNKNOWN for " + strconv.Itoa(unknown) + " step(s)", logger.ColorYellow
+	case bestEffort > 0:
+		return "BEST-EFFORT for " + strconv.Itoa(bestEffort) + " step(s)", logger.ColorYellow
+	default:
 		return "AVAILABLE", logger.ColorGreen
 	}
-	return "BEST-EFFORT for " + strconv.Itoa(bestEffort) + " step(s)", logger.ColorYellow
 }
 
 func formatShortDuration(d time.Duration) string {

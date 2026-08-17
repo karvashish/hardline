@@ -62,10 +62,10 @@ func classifyRPMProbe(name, out string) (bool, string, string, error) {
 		noise = append(noise, trimmed)
 	}
 	if codes != 2 {
-		return false, "", "", fmt.Errorf("query package %q: rpm probe did not complete: %s", name, FirstLines(out, 3))
+		return false, "", "", fmt.Errorf("query package %q: rpm probe did not complete: %s", name, pluginapi.FirstLines(out, 3))
 	}
 	if len(noise) > 0 {
-		return false, "", "", fmt.Errorf("query package %q: rpm reported %s", name, FirstLines(strings.Join(noise, "\n"), 3))
+		return false, "", "", fmt.Errorf("query package %q: rpm reported %s", name, pluginapi.FirstLines(strings.Join(noise, "\n"), 3))
 	}
 	return false, "", "", nil
 }
@@ -77,9 +77,9 @@ func isRPMMissMessage(line string) bool {
 	return strings.HasPrefix(line, "no package provides ")
 }
 
-func UnexpectedRemovals(want []string, preview []string) []string {
-	allowed := make(map[string]struct{}, len(want))
-	for _, name := range want {
+func DeclaredNameSet(names []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(names))
+	for _, name := range names {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
@@ -87,8 +87,13 @@ func UnexpectedRemovals(want []string, preview []string) []string {
 		if trimmed, ok := TrimRPMArch(name); ok {
 			name = trimmed
 		}
-		allowed[name] = struct{}{}
+		set[name] = struct{}{}
 	}
+	return set
+}
+
+func UnexpectedRemovals(want []string, preview []string) []string {
+	allowed := DeclaredNameSet(want)
 	var extra []string
 	for _, pkg := range preview {
 		if _, ok := allowed[pkg]; !ok {

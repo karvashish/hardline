@@ -16,6 +16,7 @@ Rollback fidelity comes from plugin `Capture` results. A capture records typed o
 - file metadata (mode/owner/group/attrs on an existing path)
 - services
 - packages
+- runtime policy: the state a daemon holds in memory, such as what `sshd -T` or `auditctl -l` reports. A step that only reloads a daemon writes no file, so without this object the before and after captures would be identical and rollback would skip a step that did change the host
 
 Each step stores:
 
@@ -79,8 +80,11 @@ Status transitions are meaningful:
 - `interrupted` if the apply context is cancelled
 - `failed` if apply exits unsuccessfully
 - `success` only after the full apply completes and the journal is ready to be used for later rollback
+- `rolling_back` once a manual rollback has claimed the journal and before it finishes
 
-That `success` status is important because manual `rollback` refuses to operate on a journal that does not represent a fully successful apply.
+That `success` status is important because manual `rollback` refuses to operate on a journal that does not represent a fully successful apply. `rolling_back` is the one other status it accepts: a rollback that fails partway leaves the journal in place with that status, and the next `hardline rollback` resumes it rather than refusing a host that is half reverted. Reverting a step that was already reverted restores state that is already in place, so resuming is safe.
+
+A resume also reads the conflict preflight differently. That check normally refuses any step whose objects no longer look the way apply left them, on the grounds that something else edited them; on a resume the steps the failed attempt got through look exactly that way, because reverting them is what put them back. So a resume first compares each step against its `before` capture, and a step already sitting there is passed over rather than reported. A step matching neither capture is still real drift and is still refused.
 
 ## Local Journal vs Remote Journal
 

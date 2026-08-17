@@ -384,15 +384,6 @@ func TestGuardPurgeTransaction(t *testing.T) {
 	}
 }
 
-func TestFirstLines(t *testing.T) {
-	if got := FirstLines("a\nb\nc\nd", 2); got != "a; b" {
-		t.Fatalf("got %q", got)
-	}
-	if got := FirstLines("only", 3); got != "only" {
-		t.Fatalf("got %q", got)
-	}
-}
-
 func TestTargets(t *testing.T) {
 	names, install, purge := Targets([]string{"curl", " ", "bash"}, []string{"telnet"})
 	want := []string{"bash", "curl", "telnet"}
@@ -799,6 +790,67 @@ func TestRenderPlan(t *testing.T) {
 		}
 		if !strings.Contains(strings.Join(got.Diff, "\n"), `package "telnetd"`) {
 			t.Errorf("declared collateral is still a change and must appear: %v", got.Diff)
+		}
+	})
+
+	t.Run("an arch-qualified purge target is not its own collateral", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			PurgeInfos:   []PkgInfo{{Name: "glibc.i686", Installed: true}},
+			PurgePreview: Preview{Packages: []string{"glibc"}},
+		})
+		if len(got.Highlights) != 0 {
+			t.Fatalf("the declared target must not be reported as collateral, got %v", got.Highlights)
+		}
+		joined := strings.Join(got.Details, "\n")
+		if strings.Contains(joined, "will also remove") {
+			t.Fatalf("details claim collateral damage for the target itself:\n%s", joined)
+		}
+		if strings.Contains(strings.Join(got.Diff, "\n"), "pulled in by purge") {
+			t.Fatalf("diff claims the target was pulled in by itself: %v", got.Diff)
+		}
+	})
+
+	t.Run("an arch-qualified install target is not its own dependency", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			InstallInfos:   []PkgInfo{{Name: "curl.x86_64", Installed: false}},
+			InstallPreview: Preview{Packages: []string{"curl"}},
+		})
+		if strings.Contains(strings.Join(got.Diff, "\n"), "(dependency)") {
+			t.Fatalf("the declared target was counted as a dependency: %v", got.Diff)
+		}
+	})
+
+	t.Run("a metadata refresh is not an irreversible change", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			UpdateMode: "always",
+			Update:     Decision{WillRun: true, Reason: "always"},
+		})
+		if got.RollbackFidelity != pluginapi.ModeDeterministic {
+			t.Fatalf("an index refresh reverts nothing, got %q", got.RollbackFidelity)
+		}
+	})
+
+	t.Run("purging an installed package is irreversible", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			UpdateMode:   "always",
+			Update:       Decision{WillRun: true, Reason: "always"},
+			PurgeInfos:   []PkgInfo{{Name: "telnet", Installed: true}},
+			PurgePreview: Preview{Packages: []string{"telnet"}},
+		})
+		if got.RollbackFidelity != pluginapi.ModeIrreversible {
+			t.Fatalf("a purge deletes state no journal restores, got %q", got.RollbackFidelity)
+		}
+	})
+
+	t.Run("installs and upgrades stay best-effort", func(t *testing.T) {
+		got := RenderPlan(PlanInputs{
+			UpgradeMode:  "always",
+			Upgrade:      Decision{WillRun: true, Reason: "always"},
+			InstallInfos: []PkgInfo{{Name: "curl", Installed: false}},
+			PurgeInfos:   []PkgInfo{{Name: "telnet", Installed: false}},
+		})
+		if got.RollbackFidelity != pluginapi.ModeBestEffort {
+			t.Fatalf("got %q", got.RollbackFidelity)
 		}
 	})
 

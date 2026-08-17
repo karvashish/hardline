@@ -75,6 +75,14 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				b.ConfigLine.Added != a.ConfigLine.Added {
 				return true
 			}
+		case ObjectRuntimePolicy:
+			if b.RuntimePolicy == nil || a.RuntimePolicy == nil {
+				return b.RuntimePolicy != a.RuntimePolicy
+			}
+			if b.RuntimePolicy.Name != a.RuntimePolicy.Name ||
+				b.RuntimePolicy.State != a.RuntimePolicy.State {
+				return true
+			}
 		}
 	}
 	return false
@@ -127,6 +135,22 @@ func ParseFileMode(raw string) (os.FileMode, error) {
 		return 0, fmt.Errorf("invalid file mode %q: out of range", raw)
 	}
 	return os.FileMode(parsed), nil
+}
+
+func FormatFileMode(mode os.FileMode) string {
+	return strconv.FormatUint(uint64(mode)&0o7777, 8)
+}
+
+func FirstLines(out string, n int) string {
+	trimmed := strings.TrimSpace(out)
+	if trimmed == "" {
+		return ""
+	}
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "; ")
 }
 
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
@@ -216,6 +240,11 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 	}
 	if err := host.RunRoot("chown " + ShellArg(snap.Owner+":"+snap.Group) + " " + ShellArg(snap.Path)); err != nil {
 		return fmt.Errorf("restore ownership of %q: %w", snap.Path, err)
+	}
+	if mode&0o7000 != 0 {
+		if err := host.RunRoot("chmod " + ShellArg(FormatFileMode(mode)) + " " + ShellArg(snap.Path)); err != nil {
+			return fmt.Errorf("restore mode of %q: %w", snap.Path, err)
+		}
 	}
 	return nil
 }

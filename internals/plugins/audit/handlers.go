@@ -44,8 +44,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("audit rollback: missing file snapshot")
 				}
 				return Restore(host, *obj.File)
-			case pluginapi.ObjectRuntimePolicy:
-				return nil
 			default:
 				return fmt.Errorf("audit plugin cannot roll back kind %q", obj.Kind)
 			}

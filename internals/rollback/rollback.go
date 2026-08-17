@@ -109,7 +109,7 @@ func rollbackCommand(c cli.Command, b *verify.VerifiedBundle) error {
 		return err
 	}
 
-	degraded, err := executeRollbackSteps(client, journal.Steps, true, false)
+	degraded, err := executeRollbackSteps(client, journal.Steps, true)
 	if err != nil {
 		return fmt.Errorf("%w; the host is partly reverted and run %s is still journalled, so running rollback again resumes it", err, journal.RunID)
 	}
@@ -259,7 +259,7 @@ func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	if err := preflightRollbackConflicts(client, steps, false, false); err != nil {
 		return err
 	}
-	degraded, err := executeRollbackSteps(client, steps, false, false)
+	degraded, err := executeRollbackSteps(client, steps, false)
 	if err != nil {
 		return err
 	}
@@ -269,8 +269,8 @@ func RollbackSteps(client *remote.Client, steps []StepRecord) error {
 	return nil
 }
 
-func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgress bool, strictBestEffort bool) ([]string, error) {
-	total := countRollbackSteps(steps)
+func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgress bool) ([]string, error) {
+	total := len(steps)
 	var deferredServiceSteps []StepRecord
 	var degraded []string
 	current := 0
@@ -291,7 +291,7 @@ func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgres
 			continue
 		}
 		current++
-		stepDegraded, err := runRollbackOneStep(client, step, current, total, showProgress, strictBestEffort)
+		stepDegraded, err := runRollbackOneStep(client, step, current, total, showProgress)
 		degraded = append(degraded, stepDegraded...)
 		if err != nil {
 			return degraded, err
@@ -300,7 +300,7 @@ func executeRollbackSteps(client *remote.Client, steps []StepRecord, showProgres
 
 	for _, step := range deferredServiceSteps {
 		current++
-		stepDegraded, err := runRollbackOneStep(client, step, current, total, showProgress, strictBestEffort)
+		stepDegraded, err := runRollbackOneStep(client, step, current, total, showProgress)
 		degraded = append(degraded, stepDegraded...)
 		if err != nil {
 			return degraded, err
@@ -355,7 +355,7 @@ func preflightRollbackConflicts(client *remote.Client, steps []StepRecord, force
 	return nil
 }
 
-func runRollbackOneStep(client *remote.Client, step StepRecord, current, total int, showProgress, strictBestEffort bool) ([]string, error) {
+func runRollbackOneStep(client *remote.Client, step StepRecord, current, total int, showProgress bool) ([]string, error) {
 	if showProgress {
 		logger.Infof("Reverting %02d/%02d %s [%s] ", current, total, step.ID, step.Type)
 	}
@@ -364,7 +364,7 @@ func runRollbackOneStep(client *remote.Client, step StepRecord, current, total i
 	if showProgress {
 		stop = utils.Throbber()
 	}
-	degraded, err := rollbackStepWithMode(client, step, strictBestEffort)
+	degraded, err := rollbackStepWithMode(client, step)
 	if stop != nil {
 		stop()
 	}
@@ -383,10 +383,6 @@ func runRollbackOneStep(client *remote.Client, step StepRecord, current, total i
 		}
 	}
 	return degraded, nil
-}
-
-func countRollbackSteps(steps []StepRecord) int {
-	return len(steps)
 }
 
 func formatRollbackDuration(d time.Duration) string {
@@ -442,7 +438,7 @@ func stepHasServiceObjects(step StepRecord) bool {
 	return false
 }
 
-func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffort bool) (degraded []string, err error) {
+func rollbackStepWithMode(client *remote.Client, step StepRecord) (degraded []string, err error) {
 	if step.RollbackMode == pluginapi.ModeNoop {
 		return nil, nil
 	}
@@ -454,11 +450,15 @@ func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffo
 
 	for i := len(step.Before) - 1; i >= 0; i-- {
 		obj := step.Before[i]
+		// A runtime policy records what a daemon held so the capture shows a delta; the plugin restores it through the file the daemon reads.
+		if obj.Kind == pluginapi.ObjectRuntimePolicy {
+			continue
+		}
 		rbErr := plug.Rollback(client, obj)
 		if rbErr == nil {
 			continue
 		}
-		if toleratesFailedRevert(step.RollbackMode) && !strictBestEffort {
+		if toleratesFailedRevert(step.RollbackMode) {
 			logger.Warnf("rollback warning (%s, step=%s): %v\n", step.RollbackMode, step.ID, rbErr)
 			degraded = append(degraded, fmt.Sprintf("step %q (%s): %v", step.ID, step.Type, rbErr))
 			continue

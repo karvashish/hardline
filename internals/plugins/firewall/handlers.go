@@ -84,8 +84,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("firewall rollback: missing include record")
 				}
 				return RestoreNftablesInclude(host, *obj.ConfigLine)
-			case pluginapi.ObjectRuntimePolicy:
-				return nil
 			default:
 				return fmt.Errorf("firewall plugin cannot roll back kind %q", obj.Kind)
 			}

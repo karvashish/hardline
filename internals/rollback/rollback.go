@@ -458,8 +458,8 @@ func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffo
 		if rbErr == nil {
 			continue
 		}
-		if step.RollbackMode == pluginapi.ModeBestEffort && !strictBestEffort {
-			logger.Warnf("rollback warning (best-effort, step=%s): %v\n", step.ID, rbErr)
+		if toleratesFailedRevert(step.RollbackMode) && !strictBestEffort {
+			logger.Warnf("rollback warning (%s, step=%s): %v\n", step.RollbackMode, step.ID, rbErr)
 			degraded = append(degraded, fmt.Sprintf("step %q (%s): %v", step.ID, step.Type, rbErr))
 			continue
 		}
@@ -467,4 +467,9 @@ func rollbackStepWithMode(client *remote.Client, step StepRecord, strictBestEffo
 	}
 
 	return degraded, nil
+}
+
+// A step hardline never claimed it could revert faithfully reports a failed object as degraded instead of stranding the steps queued behind it.
+func toleratesFailedRevert(mode string) bool {
+	return mode == pluginapi.ModeBestEffort || mode == pluginapi.ModeIrreversible
 }

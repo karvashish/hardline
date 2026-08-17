@@ -355,6 +355,37 @@ func TestRollbackStepModes(t *testing.T) {
 		}
 	})
 
+	t.Run("irreversible continues and reports the object as degraded", func(t *testing.T) {
+		restore := stubRollbackHooks()
+		defer restore()
+		reverted := 0
+		installPlugins(t, map[string]fakeBehavior{
+			"packages": {rollback: func(pluginapi.Host, pluginapi.ObjectRecord) error {
+				reverted++
+				return errors.New("the purged package is no longer in any repo")
+			}},
+		})
+		step := StepRecord{
+			ID:           "pkg",
+			Type:         "packages",
+			RollbackMode: pluginapi.ModeIrreversible,
+			Before: []pluginapi.ObjectRecord{
+				{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "a"}},
+				{Kind: pluginapi.ObjectPackage, Package: &pluginapi.PackageState{Name: "b"}},
+			},
+		}
+		degraded, err := rollbackStepWithMode(nil, step, false)
+		if err != nil {
+			t.Fatalf("a step hardline never claimed it could revert must not abort the run, got %v", err)
+		}
+		if reverted != 2 {
+			t.Fatalf("expected every object to be attempted, got %d", reverted)
+		}
+		if len(degraded) != 2 {
+			t.Fatalf("expected both failures reported as degraded, got %v", degraded)
+		}
+	})
+
 	t.Run("deterministic fails", func(t *testing.T) {
 		restore := stubRollbackHooks()
 		defer restore()

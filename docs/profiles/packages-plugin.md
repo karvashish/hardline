@@ -139,3 +139,12 @@ package that is installed is irreversible, because reinstalling it does not
 bring back the configuration the purge deleted; installs, upgrades and
 autoremoves are best-effort; a metadata refresh on its own reverts nothing and
 leaves the verdict at deterministic.
+
+The capture writes the same verdict into the journal, so the apply footer names
+the irreversible steps plan warned about instead of downgrading them all to
+best-effort. Only the declared `purge` list decides it: nothing in
+`purge_also_removes` is passed to the purge command, so collateral goes when a
+declared target goes and never on its own. The verdict does not change what
+rollback attempts. An irreversible step is still walked object by object, and a
+package it cannot reinstall is reported as degraded rather than aborting the
+steps queued behind it.

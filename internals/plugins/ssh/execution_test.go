@@ -419,6 +419,18 @@ func TestAssertManagementAccess(t *testing.T) {
 			contains:  "cannot evaluate",
 		},
 		{
+			name:      "unparsable deny pattern is refused rather than skipped",
+			effective: map[string][]string{"denyusers": {"bad[ deploy"}},
+			user:      "admin",
+			contains:  "does not parse",
+		},
+		{
+			name:      "unparsable allow pattern is refused rather than skipped",
+			effective: map[string][]string{"allowusers": {"adm[in"}},
+			user:      "admin",
+			contains:  "does not parse",
+		},
+		{
 			name:      "user@host pattern is refused rather than guessed",
 			effective: map[string][]string{"allowusers": {"admin@10.0.0.0/8"}},
 			user:      "admin",
@@ -673,11 +685,4 @@ func (s *multiPathStub) RunRootWithOutput(cmd string) (string, error) {
 		return "/usr/sbin/sshd\n/usr/local/sbin/sshd\n", nil
 	}
 	return s.sshHostStub.RunRootWithOutput(cmd)
-}
-
-func TestFirstLinesTruncates(t *testing.T) {
-	got := firstLines("a\nb\nc\nd\n", 2)
-	if got != "a; b" {
-		t.Fatalf("firstLines = %q", got)
-	}
 }

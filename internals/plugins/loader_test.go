@@ -301,13 +301,11 @@ func stubLoaderDeps() func() {
 	prevReadDir := readDirEntries
 	prevOpen := openSharedObject
 	prevRegister := registerPluginAction
-	prevStat := statPath
 	prevLstat := lstatPath
 	prevUID := currentUID
 
 	executablePath = os.Executable
 	readDirEntries = os.ReadDir
-	statPath = os.Stat
 	lstatPath = os.Lstat
 	currentUID = os.Geteuid
 	registerPluginAction = func(pluginapi.Plugin) error { return nil }
@@ -322,7 +320,6 @@ func stubLoaderDeps() func() {
 		readDirEntries = prevReadDir
 		openSharedObject = prevOpen
 		registerPluginAction = prevRegister
-		statPath = prevStat
 		lstatPath = prevLstat
 		currentUID = prevUID
 	}

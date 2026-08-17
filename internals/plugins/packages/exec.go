@@ -71,7 +71,7 @@ func CheckLock(host pluginapi.Host, lockCheck, lockHint string) error {
 	}
 	pids, ok := strings.CutPrefix(strings.TrimSpace(out), lockProbeMarker)
 	if !ok {
-		return fmt.Errorf("package manager lock check returned no verdict: %s", FirstLines(out, 3))
+		return fmt.Errorf("package manager lock check returned no verdict: %s", pluginapi.FirstLines(out, 3))
 	}
 	if pids = strings.TrimSpace(pids); pids != "" {
 		return fmt.Errorf("package manager lock is held by another process (PIDs: %s); wait for it to finish or %s", pids, lockHint)
@@ -91,14 +91,6 @@ func GuardPurgeTransaction(purge, alsoRemoves, preview []string) error {
 	return fmt.Errorf(
 		"refusing to purge %s: the transaction would also remove %s; list them in purge_also_removes to accept this",
 		strings.Join(purge, ", "), strings.Join(extra, ", "))
-}
-
-func FirstLines(out string, n int) string {
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) > n {
-		lines = lines[:n]
-	}
-	return strings.Join(lines, "; ")
 }
 
 func Targets(installList, purgeList []string) (names []string, install, purge map[string]struct{}) {

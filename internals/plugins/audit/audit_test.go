@@ -407,15 +407,41 @@ func TestCapture(t *testing.T) {
 	if rec.RollbackMode != pluginapi.ModeDeterministic {
 		t.Fatalf("rollback mode is %q", rec.RollbackMode)
 	}
-	if len(rec.Objects) != 1 || rec.Objects[0].File == nil || rec.Objects[0].File.Path != dest {
+	if len(rec.Objects) != 2 || rec.Objects[0].File == nil || rec.Objects[0].File.Path != dest {
 		t.Fatalf("unexpected record: %+v", rec)
+	}
+	if rec.Objects[1].Kind != pluginapi.ObjectRuntimePolicy || rec.Objects[1].RuntimePolicy == nil {
+		t.Fatalf("the loaded policy was not journalled: %+v", rec.Objects[1])
 	}
 
 	if _, err := Capture(pluginapi.Context{}, "audit", spec()); err == nil {
 		t.Fatal("expected a host-required error")
 	}
+	if _, err := Capture(pluginapi.Context{Host: hostStub{outErr: errors.New("boom")}}, "audit", spec()); err == nil {
+		t.Fatal("expected a failed policy read to refuse the capture")
+	}
 	if _, err := Capture(pluginapi.Context{Host: host}, "audit", &Spec{Src: "x", Dest: "/etc/passwd"}); err == nil {
 		t.Fatal("expected an unmanaged dest to be refused")
+	}
+}
+
+func TestCaptureSeesALoadThatLeavesTheFileAlone(t *testing.T) {
+	host := hostStub{files: map[string]string{dest: sampleRules}}
+	before, err := Capture(pluginapi.Context{Host: host}, "audit", spec())
+	if err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+
+	after, err := Capture(pluginapi.Context{Host: hostStub{
+		files:  map[string]string{dest: sampleRules},
+		loaded: "-w /etc/passwd -p wa -k identity\n",
+	}}, "audit", spec())
+	if err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+
+	if !pluginapi.CapturesDiffer(before, after) {
+		t.Fatal("a load that changed the kernel policy without touching the file was not journalled as a change")
 	}
 }
 

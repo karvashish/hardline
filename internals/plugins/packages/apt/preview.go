@@ -122,10 +122,10 @@ func classifyDpkgProbe(name, out string) (bool, string, string, error) {
 		noise = append(noise, trimmed)
 	}
 	if codes != 1 {
-		return false, "", "", fmt.Errorf("query package %q: dpkg-query probe did not complete: %s", name, packages.FirstLines(out, 3))
+		return false, "", "", fmt.Errorf("query package %q: dpkg-query probe did not complete: %s", name, pluginapi.FirstLines(out, 3))
 	}
 	if len(noise) > 0 {
-		return false, "", "", fmt.Errorf("query package %q: dpkg-query reported %s", name, packages.FirstLines(strings.Join(noise, "\n"), 3))
+		return false, "", "", fmt.Errorf("query package %q: dpkg-query reported %s", name, pluginapi.FirstLines(strings.Join(noise, "\n"), 3))
 	}
 	if status == "" {
 		if missed {

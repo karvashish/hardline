@@ -146,7 +146,7 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 	}
 
 	if out, err := host.RunRootWithOutput("nft -f " + pluginapi.ShellArg(mainConfig) + " 2>&1"); err != nil {
-		if detail := firstNftLines(out, 5); detail != "" {
+		if detail := pluginapi.FirstLines(out, 5); detail != "" {
 			return fmt.Errorf("load %s: %s", mainConfig, detail)
 		}
 		return fmt.Errorf("load %s: %w", mainConfig, err)
@@ -164,7 +164,7 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 
 func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 	policy := desired.Policies["input"]
-	if policy != "drop" && policy != "reject" {
+	if policy != "drop" && policy != "reject" && !deniesNewTCP(desired) {
 		return nil
 	}
 
@@ -172,15 +172,19 @@ func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 	if err != nil {
 		return err
 	}
+
+	reasons := make([]string, 0, len(ports))
 	for _, port := range ports {
-		if acceptsInputPort(desired, port) {
+		reason := inputPortRefusal(desired, port)
+		if reason == "" {
 			return nil
 		}
+		reasons = append(reasons, fmt.Sprintf("port %d: %s", port, reason))
 	}
 	return fmt.Errorf(
-		"refusing to load: the input chain policy is %q and no rule accepts tcp on the port sshd is listening on (%s); "+
-			"add an accept rule for it, or hardline would lock itself out of this host",
-		policy, joinPorts(ports))
+		"refusing to load: the input chain would not accept a new tcp connection on the port sshd is listening on (%s), "+
+			"so hardline would lock itself out of this host:\n  %s",
+		joinPorts(ports), strings.Join(reasons, "\n  "))
 }
 
 func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
@@ -269,17 +273,68 @@ func listenPort(local string) (int, bool) {
 	return port, true
 }
 
-func acceptsInputPort(desired NormalizedSpec, port int) bool {
+func inputPortRefusal(desired NormalizedSpec, port int) string {
 	for _, rule := range desired.Rules {
-		if rule.Chain != "input" || rule.Action != "accept" || rule.Proto != "tcp" || rule.Port != port {
+		if rule.Chain != "input" || !matchesNewTCP(rule, port) {
 			continue
 		}
-		if rule.Source != "" || rule.Destination != "" || rule.InInterface != "" || rule.OutInterface != "" {
+		if scopedRule(rule) {
+			if rule.Action == "accept" {
+				continue
+			}
+			return fmt.Sprintf("%q is evaluated before any rule that accepts it, and hardline cannot tell whether it covers this run's connection; put an unscoped accept for this port above it",
+				RenderNormalizedRule(desired.Family, rule))
+		}
+		if rule.Action == "accept" {
+			return ""
+		}
+		return fmt.Sprintf("%q is evaluated before any rule that accepts it", RenderNormalizedRule(desired.Family, rule))
+	}
+	if policy := desired.Policies["input"]; policy == "drop" || policy == "reject" {
+		return fmt.Sprintf("no rule accepts it and the chain policy is %q", policy)
+	}
+	return ""
+}
+
+func deniesNewTCP(desired NormalizedSpec) bool {
+	for _, rule := range desired.Rules {
+		if rule.Chain != "input" || rule.Action == "accept" {
 			continue
 		}
-		return true
+		if (rule.Proto == "" || rule.Proto == "tcp") && coversNewState(rule.CTStates) {
+			return true
+		}
 	}
 	return false
+}
+
+func matchesNewTCP(rule NormalizedRule, port int) bool {
+	switch rule.Proto {
+	case "":
+	case "tcp":
+		if rule.Port != port {
+			return false
+		}
+	default:
+		return false
+	}
+	return coversNewState(rule.CTStates)
+}
+
+func coversNewState(states []string) bool {
+	if len(states) == 0 {
+		return true
+	}
+	for _, state := range states {
+		if state == "new" {
+			return true
+		}
+	}
+	return false
+}
+
+func scopedRule(rule NormalizedRule) bool {
+	return rule.Source != "" || rule.Destination != "" || rule.InInterface != "" || rule.OutInterface != ""
 }
 
 func joinPorts(ports []int) string {
@@ -288,18 +343,6 @@ func joinPorts(ports []int) string {
 		out = append(out, strconv.Itoa(port))
 	}
 	return strings.Join(out, ", ")
-}
-
-func firstNftLines(out string, n int) string {
-	trimmed := strings.TrimSpace(out)
-	if trimmed == "" {
-		return ""
-	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) > n {
-		lines = lines[:n]
-	}
-	return strings.Join(lines, "; ")
 }
 
 const candidateSuffix = ".hardline-candidate"
@@ -316,7 +359,7 @@ func installFirewallCandidate(host pluginapi.Host, destPath, rendered string) er
 		if rmErr := host.RunRoot("rm -f " + pluginapi.ShellArg(candidate)); rmErr != nil {
 			logger.Warnf("firewall: could not remove the rejected candidate %s: %v\n", candidate, rmErr)
 		}
-		if detail := firstNftLines(out, 5); detail != "" {
+		if detail := pluginapi.FirstLines(out, 5); detail != "" {
 			return fmt.Errorf("firewall candidate rejected by nft: %s", detail)
 		}
 		return fmt.Errorf("firewall candidate rejected by nft: %w", checkErr)
@@ -658,11 +701,27 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 		Added:       !flushPresent(ctx.Host, mainConfig),
 	}
 
+	desired, err := NormalizeDesiredSpec(spec)
+	if err != nil {
+		return record, fmt.Errorf("step %q (type=firewall): %w", stepID, err)
+	}
+	live, err := currentFirewallState(ctx.Host, desired.Family, desired.Table)
+	if err != nil {
+		return record, fmt.Errorf("step %q (type=firewall): %w", stepID, err)
+	}
+
 	record.RollbackMode = pluginapi.ModeDeterministic
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &snap, Message: mainConfig},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &flush},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &include},
+		{
+			Kind: pluginapi.ObjectRuntimePolicy,
+			RuntimePolicy: &pluginapi.RuntimePolicy{
+				Name:  "nft list ruleset",
+				State: RenderNormalized(live),
+			},
+		},
 	}
 	return record, nil
 }
@@ -756,7 +815,7 @@ func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mai
 func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 	if err := host.RunRoot("test -f " + pluginapi.ShellArg(mainConfig)); err != nil {
 		if out, flushErr := host.RunRootWithOutput("nft flush ruleset 2>&1"); flushErr != nil {
-			if detail := firstNftLines(out, 5); detail != "" {
+			if detail := pluginapi.FirstLines(out, 5); detail != "" {
 				return fmt.Errorf("firewall rollback: flush the loaded ruleset: %s", detail)
 			}
 			return fmt.Errorf("firewall rollback: flush the loaded ruleset: %w", flushErr)
@@ -769,7 +828,7 @@ func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 		cmd = fmt.Sprintf(`printf 'flush ruleset\ninclude "%%s"\n' %s | nft -f -`, pluginapi.ShellArg(mainConfig))
 	}
 	if out, err := host.RunRootWithOutput(cmd + " 2>&1"); err != nil {
-		if detail := firstNftLines(out, 5); detail != "" {
+		if detail := pluginapi.FirstLines(out, 5); detail != "" {
 			return fmt.Errorf("firewall rollback: reload %s: %s", mainConfig, detail)
 		}
 		return fmt.Errorf("firewall rollback: reload %s: %w", mainConfig, err)

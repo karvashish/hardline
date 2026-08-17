@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/karvashish/hardline/pkg/logger"
+	"github.com/karvashish/hardline/pkg/pluginapi"
 	"github.com/pkg/sftp"
 )
 
@@ -83,7 +83,7 @@ func (c *Client) WriteRootFile(remotePath string, data []byte, mode os.FileMode)
 		return err
 	}
 
-	modeOct := strconv.FormatUint(uint64(mode.Perm()), 8)
+	modeOct := pluginapi.FormatFileMode(mode)
 	quotedTmp := shellQuote(tmpPath)
 	cmd := fmt.Sprintf("install -m %s -- %s %s && rm -f -- %s", modeOct, quotedTmp, shellQuote(remotePath), quotedTmp)
 

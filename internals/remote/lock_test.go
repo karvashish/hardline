@@ -23,7 +23,7 @@ func TestMutationLock_AcquireAndRelease(t *testing.T) {
 
 	var sessions []*fakeSession
 	newSession = func(*ssh.Client) (session, error) {
-		sess := &fakeSession{}
+		sess := &fakeSession{stdoutText: lockTakenMarker + "\n"}
 		sessions = append(sessions, sess)
 		return sess, nil
 	}
@@ -55,7 +55,7 @@ func TestMutationLock_ContentionNamesBothCommands(t *testing.T) {
 	defer func() { newSession = prevNewSession }()
 
 	newSession = func(*ssh.Client) (session, error) {
-		return &fakeSession{runErr: errors.New("mkdir: File exists")}, nil
+		return &fakeSession{stdoutText: "mkdir: File exists\n" + lockHeldMarker + "\n"}, nil
 	}
 
 	err := AcquireMutationLock(New(nil))
@@ -66,5 +66,39 @@ func TestMutationLock_ContentionNamesBothCommands(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("expected error to mention %q, got %v", want, err)
 		}
+	}
+}
+
+func TestMutationLock_UnrelatedFailureIsNotReportedAsContention(t *testing.T) {
+	prevNewSession := newSession
+	defer func() { newSession = prevNewSession }()
+
+	newSession = func(*ssh.Client) (session, error) {
+		return &fakeSession{stdoutText: "mkdir: cannot create directory '/var/lib/hardline': Read-only file system\n"}, nil
+	}
+
+	err := AcquireMutationLock(New(nil))
+	if err == nil {
+		t.Fatal("expected a failed mkdir to fail acquisition")
+	}
+	if strings.Contains(err.Error(), "apply or rollback") {
+		t.Fatalf("expected the real cause, not a contention message, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Read-only file system") {
+		t.Fatalf("expected the underlying mkdir failure to survive, got %v", err)
+	}
+}
+
+func TestMutationLock_SessionErrorSurvives(t *testing.T) {
+	prevNewSession := newSession
+	defer func() { newSession = prevNewSession }()
+
+	newSession = func(*ssh.Client) (session, error) {
+		return &fakeSession{runErr: errors.New("connection lost")}, nil
+	}
+
+	err := AcquireMutationLock(New(nil))
+	if err == nil || !strings.Contains(err.Error(), "connection lost") {
+		t.Fatalf("expected the transport error to survive, got %v", err)
 	}
 }

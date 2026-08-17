@@ -16,11 +16,12 @@ const (
 	ModeNoop          = "noop"
 	ModeIrreversible  = "irreversible"
 
-	ObjectFile       = "file"
-	ObjectFileMeta   = "file_meta"
-	ObjectService    = "service"
-	ObjectPackage    = "package"
-	ObjectConfigLine = "config_line"
+	ObjectFile          = "file"
+	ObjectFileMeta      = "file_meta"
+	ObjectService       = "service"
+	ObjectPackage       = "package"
+	ObjectConfigLine    = "config_line"
+	ObjectRuntimePolicy = "runtime_policy"
 )
 
 type FileSnapshot struct {
@@ -72,14 +73,20 @@ type ConfigLineSnapshot struct {
 	Added       bool   `json:"added"`
 }
 
+type RuntimePolicy struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
 type ObjectRecord struct {
-	Kind       string              `json:"kind"`
-	File       *FileSnapshot       `json:"file,omitempty"`
-	FileMeta   *FileMetaSnapshot   `json:"file_meta,omitempty"`
-	Service    *ServiceState       `json:"service,omitempty"`
-	Package    *PackageState       `json:"package,omitempty"`
-	ConfigLine *ConfigLineSnapshot `json:"config_line,omitempty"`
-	Message    string              `json:"message,omitempty"`
+	Kind          string              `json:"kind"`
+	File          *FileSnapshot       `json:"file,omitempty"`
+	FileMeta      *FileMetaSnapshot   `json:"file_meta,omitempty"`
+	Service       *ServiceState       `json:"service,omitempty"`
+	Package       *PackageState       `json:"package,omitempty"`
+	ConfigLine    *ConfigLineSnapshot `json:"config_line,omitempty"`
+	RuntimePolicy *RuntimePolicy      `json:"runtime_policy,omitempty"`
+	Message       string              `json:"message,omitempty"`
 }
 
 type CaptureResult struct {

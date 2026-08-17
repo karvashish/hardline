@@ -35,7 +35,7 @@ func sshdBinary(host pluginapi.Host) (string, error) {
 func checkFile(host pluginapi.Host, bin, file string) error {
 	out, err := host.RunRootWithOutput(pluginapi.ShellArg(bin) + " -t -f " + pluginapi.ShellArg(file) + " 2>&1")
 	if err != nil {
-		return fmt.Errorf("sshd rejected the rendered configuration: %s", firstLines(out, 5))
+		return fmt.Errorf("sshd rejected the rendered configuration: %s", pluginapi.FirstLines(out, 5))
 	}
 	return nil
 }
@@ -43,7 +43,7 @@ func checkFile(host pluginapi.Host, bin, file string) error {
 func checkMainConfig(host pluginapi.Host, bin string) error {
 	out, err := host.RunRootWithOutput(pluginapi.ShellArg(bin) + " -t 2>&1")
 	if err != nil {
-		return fmt.Errorf("the host sshd configuration does not parse with this drop-in in place: %s", firstLines(out, 5))
+		return fmt.Errorf("the host sshd configuration does not parse with this drop-in in place: %s", pluginapi.FirstLines(out, 5))
 	}
 	return nil
 }
@@ -59,7 +59,7 @@ func effectiveConfig(host pluginapi.Host, bin string, mc *MatchContext) (map[str
 
 	out, err := host.RunRootWithOutput(cmd + " 2>&1")
 	if err != nil {
-		return nil, fmt.Errorf("read the effective sshd configuration (%s): %s", label, firstLines(out, 5))
+		return nil, fmt.Errorf("read the effective sshd configuration (%s): %s", label, pluginapi.FirstLines(out, 5))
 	}
 	effective := ParseEffective(out)
 	if len(effective) == 0 {
@@ -125,7 +125,12 @@ func assertListed(effective map[string][]string, key string, names []string, mus
 				key, strings.Join(patterns, " "), pattern)
 		}
 		for _, name := range names {
-			if ok, err := path.Match(pattern, name); err == nil && ok {
+			ok, err := path.Match(pattern, name)
+			if err != nil {
+				return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, whose pattern %q does not parse (%v); hardline will not guess whether it keeps its own access",
+					key, strings.Join(patterns, " "), pattern, err)
+			}
+			if ok {
 				matched = true
 			}
 		}
@@ -183,15 +188,7 @@ func reload(host pluginapi.Host, service string) error {
 func aligned(current pluginapi.FileSnapshot, rendered []byte, mode os.FileMode) bool {
 	return current.Existed &&
 		current.ContentB64 == base64.StdEncoding.EncodeToString(rendered) &&
-		current.Mode == fmt.Sprintf("%o", mode.Perm())
-}
-
-func firstLines(out string, n int) string {
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) > n {
-		lines = lines[:n]
-	}
-	return strings.TrimSpace(strings.Join(lines, "; "))
+		current.Mode == pluginapi.FormatFileMode(mode)
 }
 
 func install(host pluginapi.Host, bin, dest string, rendered []byte, mode os.FileMode) error {

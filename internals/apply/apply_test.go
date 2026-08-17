@@ -958,9 +958,8 @@ var (
 
 func applyWithBundle(ctx context.Context, c cli.Command) error {
 	return Apply(ctx, c, &verify.VerifiedBundle{
-		ManifestDigest: "digest",
-		Profile:        applyBundleProfile,
-		Overrides:      applyBundleOverrides,
+		Profile:   applyBundleProfile,
+		Overrides: applyBundleOverrides,
 	})
 }
 
@@ -985,6 +984,29 @@ func TestJournalledRollbackFidelity(t *testing.T) {
 				{ID: "s2", RollbackMode: pluginapi.ModeBestEffort},
 			}},
 			want: "BEST-EFFORT for 1 step(s)",
+		},
+		{
+			name: "an irreversible step outranks a best-effort one",
+			journal: &rollback.Journal{Steps: []rollback.StepRecord{
+				{ID: "s1", RollbackMode: pluginapi.ModeBestEffort},
+				{ID: "s2", RollbackMode: pluginapi.ModeIrreversible},
+			}},
+			want: "IRREVERSIBLE for 1 step(s)",
+		},
+		{
+			name: "a step that reported no mode is not called available",
+			journal: &rollback.Journal{Steps: []rollback.StepRecord{
+				{ID: "s1", RollbackMode: pluginapi.ModeDeterministic},
+				{ID: "s2"},
+			}},
+			want: "UNKNOWN for 1 step(s)",
+		},
+		{
+			name: "noop steps stay available",
+			journal: &rollback.Journal{Steps: []rollback.StepRecord{
+				{ID: "s1", RollbackMode: pluginapi.ModeNoop},
+			}},
+			want: "AVAILABLE",
 		},
 	}
 

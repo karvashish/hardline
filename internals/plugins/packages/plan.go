@@ -38,6 +38,14 @@ type PlanInputs struct {
 	PurgeAlsoRemoves []string
 }
 
+func infoNames(infos []PkgInfo) []string {
+	out := make([]string, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, info.Name)
+	}
+	return out
+}
+
 func WouldChange(installInfos, purgeInfos []PkgInfo) bool {
 	for _, info := range installInfos {
 		if !info.Installed {
@@ -129,10 +137,7 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 				logger.ColorRed+fmt.Sprintf("install: failed to preview dependency installs (%v)", in.InstallPreview.Err)+logger.ColorReset,
 			)
 		} else {
-			explicit := make(map[string]struct{}, len(in.InstallInfos))
-			for _, info := range in.InstallInfos {
-				explicit[info.Name] = struct{}{}
-			}
+			explicit := DeclaredNameSet(infoNames(in.InstallInfos))
 			for _, name := range in.InstallPreview.Packages {
 				if _, ok := explicit[name]; ok {
 					continue
@@ -171,10 +176,7 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 				logger.ColorRed+fmt.Sprintf("purge: failed to preview the removal transaction (%v)", in.PurgePreview.Err)+logger.ColorReset,
 			)
 		} else {
-			explicit := make(map[string]struct{}, len(in.PurgeInfos))
-			for _, info := range in.PurgeInfos {
-				explicit[info.Name] = struct{}{}
-			}
+			explicit := DeclaredNameSet(infoNames(in.PurgeInfos))
 			for _, name := range in.PurgePreview.Packages {
 				if _, ok := explicit[name]; ok {
 					continue
@@ -187,11 +189,7 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 						len(purgeDepsWillChange), strings.Join(purgeDepsWillChange, ", "))+logger.ColorReset,
 				)
 			}
-			var want []string
-			for _, info := range in.PurgeInfos {
-				want = append(want, info.Name)
-			}
-			want = append(want, in.PurgeAlsoRemoves...)
+			want := append(infoNames(in.PurgeInfos), in.PurgeAlsoRemoves...)
 			if extra := UnexpectedRemovals(want, in.PurgePreview.Packages); len(extra) > 0 {
 				msg := fmt.Sprintf(
 					"purge would also remove %s, which the step does not declare; apply will refuse until they are listed in purge_also_removes",
@@ -334,10 +332,12 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 }
 
 func planRollbackFidelity(in PlanInputs) string {
-	if in.Update.WillRun {
-		return pluginapi.ModeIrreversible
+	for _, info := range in.PurgeInfos {
+		if info.Installed {
+			return pluginapi.ModeIrreversible
+		}
 	}
-	if in.Upgrade.WillRun || in.Autoremove.WillRun || len(in.InstallInfos) > 0 || len(in.PurgeInfos) > 0 {
+	if in.Upgrade.WillRun || in.Autoremove.WillRun || len(in.InstallInfos) > 0 {
 		return pluginapi.ModeBestEffort
 	}
 	return pluginapi.ModeDeterministic

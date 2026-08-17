@@ -348,7 +348,10 @@ func (b Backend) capture(ctx pluginapi.Context, stepID string, spec *Spec) (plug
 
 	purgeTargets := append(append([]string(nil), spec.Purge...), spec.PurgeAlsoRemoves...)
 	names, installSet, purgeSet := Targets(spec.Install, purgeTargets)
+	// Only the declared purge list reaches the purge command; collateral goes with it and cannot be removed on its own.
+	_, _, declaredPurgeSet := Targets(nil, spec.Purge)
 	records := make([]pluginapi.ObjectRecord, 0, len(names))
+	purgesInstalled := false
 	for _, name := range names {
 		was, version, pin, err := b.Query(ctx.Host, name)
 		if err != nil {
@@ -356,6 +359,9 @@ func (b Backend) capture(ctx pluginapi.Context, stepID string, spec *Spec) (plug
 		}
 		_, wantInstall := installSet[name]
 		_, wantPurge := purgeSet[name]
+		if _, declared := declaredPurgeSet[name]; declared && was {
+			purgesInstalled = true
+		}
 		records = append(records, pluginapi.ObjectRecord{
 			Kind: pluginapi.ObjectPackage,
 			Package: &pluginapi.PackageState{
@@ -370,6 +376,9 @@ func (b Backend) capture(ctx pluginapi.Context, stepID string, spec *Spec) (plug
 	}
 
 	record.RollbackMode = pluginapi.ModeBestEffort
+	if purgesInstalled {
+		record.RollbackMode = pluginapi.ModeIrreversible
+	}
 	record.Objects = records
 	record.Notes = CaptureNotes(spec.Update, spec.Upgrade, spec.Autoremove)
 	return record, nil

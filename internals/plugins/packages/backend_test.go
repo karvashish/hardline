@@ -576,7 +576,7 @@ func TestBackendCapture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Capture failed: %v", err)
 	}
-	if res.RollbackMode != pluginapi.ModeBestEffort || len(res.Objects) != 2 || len(res.Notes) != 3 {
+	if res.RollbackMode != pluginapi.ModeIrreversible || len(res.Objects) != 2 || len(res.Notes) != 3 {
 		t.Fatalf("capture metadata is wrong: %+v", res)
 	}
 	old := res.Objects[1].Package
@@ -605,6 +605,37 @@ func TestBackendCapture(t *testing.T) {
 		dep := res.Objects[1].Package
 		if dep.Name != "old-dep" || !dep.RequestedPurge || !dep.WasInstalled || dep.PinSpec != "old-dep=0.9" {
 			t.Fatalf("collateral record is wrong: %+v", dep)
+		}
+	})
+
+	t.Run("the journal agrees with the plan on what a purge costs", func(t *testing.T) {
+		f := newEngineFixture()
+		f.queries["gone"] = engineQueryResult{installed: false}
+		res, err := f.backend().capture(pluginapi.Context{Host: f.host()}, "step-id", &Spec{Purge: []string{"gone"}})
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		if res.RollbackMode != pluginapi.ModeBestEffort {
+			t.Fatalf("purging a package that is not installed deletes nothing, got %q", res.RollbackMode)
+		}
+
+		want := RenderPlan(PlanInputs{PurgeInfos: []PkgInfo{{Name: "gone", Installed: false}}}).RollbackFidelity
+		if want == pluginapi.ModeIrreversible {
+			t.Fatalf("plan and capture disagree: plan says %q", want)
+		}
+	})
+
+	t.Run("collateral alone does not make a step irreversible", func(t *testing.T) {
+		f := newEngineFixture()
+		f.queries["old-dep"] = engineQueryResult{installed: true, version: "0.9", pin: "old-dep=0.9"}
+		res, err := f.backend().capture(pluginapi.Context{Host: f.host()}, "step-id", &Spec{
+			Purge: []string{"gone"}, PurgeAlsoRemoves: []string{"old-dep"},
+		})
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		if res.RollbackMode != pluginapi.ModeBestEffort {
+			t.Fatalf("collateral only goes when the declared target does, got %q", res.RollbackMode)
 		}
 	})
 

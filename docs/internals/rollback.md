@@ -138,6 +138,7 @@ Plugins declare a `RollbackMode` in their capture result. Today the important mo
 
 - `deterministic`
 - `best_effort`
+- `irreversible`
 - `noop`
 
 `deterministic` means the plugin captured enough information to restore the prior state exactly enough for Hardline's model. The built-in plugins that manage files and services use this:
@@ -150,6 +151,8 @@ Plugins declare a `RollbackMode` in their capture result. Today the important mo
 - `ssh`
 
 `best_effort` means the step can be meaningfully reversed, but not with strong transactional guarantees. The built-in `packages` plugin uses this mode because package-manager operations like `apt update`, `upgrade`, and `autoremove` are not losslessly reversible.
+
+`irreversible` means the step deletes state no journal can put back, so the revert is a gesture rather than a restoration. The `packages` plugin reports it for a run that purges a package that is currently installed: reinstalling brings back the binaries, not the configuration the purge removed. The capture decides this from the same question plan asks, so the plan verdict and the apply footer name the same steps rather than one warning and the other downgrading it. Only the declared `purge` list counts: `purge_also_removes` names collateral that goes with a declared target and cannot be removed on its own.
 
 `noop` means there is nothing to revert for rollback purposes.
 
@@ -200,8 +203,10 @@ Rollback walks step records in reverse order.
 Within each step, it restores the recorded `Before` objects in reverse object order, delegating each one to the owning plugin's `Rollback`. Three mode-dependent behaviors follow from that:
 
 - a step whose `RollbackMode` is `noop` returns immediately without touching the host
-- under `best_effort`, an object that fails to restore is logged as a warning and the walk continues to the next object
+- under `best_effort` and `irreversible`, an object that fails to restore is logged as a warning and the walk continues to the next object. Both modes already say the revert carries no guarantee, so a failure there is the expected case, and aborting on it would strand every step still queued behind it
 - under `deterministic`, the first failing object aborts the whole rollback
+
+The mode therefore answers two questions at once: how faithfully the step can be reverted, which is what plan and the apply footer report, and whether a failure to revert one object is fatal to the run.
 
 A step whose plugin is no longer registered is a hard error, not a skip: `rollback step "<id>": plugin "<type>" is not registered`. Removing a plugin from the binary therefore strands any journal that used it.
 

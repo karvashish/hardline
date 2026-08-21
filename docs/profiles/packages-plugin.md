@@ -113,6 +113,12 @@ transaction reaches any further, naming what it would have taken. Declared
 collateral is captured in the journal like an explicit purge, so rollback can
 attempt to reinstall it too.
 
+The autoremove that follows is bounded the same way and against the same two
+lists. Capture only journals the names the step declared, so a package
+autoremove collects on its own has no record to restore from; rather than
+delete it unrecorded, apply previews the autoremove and refuses the step,
+naming what to list in `purge_also_removes` to accept it.
+
 ## Rollback
 
 Rollback runs from the journal alone, with no profile in hand. The journalled

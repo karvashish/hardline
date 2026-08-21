@@ -274,6 +274,17 @@ func (b Backend) apply(ctx pluginapi.Context, spec *Spec) error {
 		return fmt.Errorf("%s step: %w", b.Name, err)
 	}
 	if runAutoremove {
+		// Capture only journals the declared names, so anything else autoremove takes is gone for good.
+		preview, err := b.Previews.Autoremove(ctx.Host)
+		if err != nil {
+			return fmt.Errorf("preview autoremove transaction: %w", err)
+		}
+		declared := append(append([]string(nil), spec.Purge...), spec.PurgeAlsoRemoves...)
+		if extra := UnexpectedRemovals(declared, preview); len(extra) > 0 {
+			return fmt.Errorf(
+				"%s step: refusing to autoremove: the transaction would remove %s, which this step never declared and no capture recorded; list them in purge_also_removes to accept this",
+				b.Name, strings.Join(extra, ", "))
+		}
 		if err := RunRoot(ctx.Host, b.Commands.Autoremove); err != nil {
 			return fmt.Errorf("package autoremove failed: %w", err)
 		}

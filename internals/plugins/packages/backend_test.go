@@ -346,8 +346,41 @@ func TestBackendApplyOrderingAndModes(t *testing.T) {
 			"run:install-cmd 'pkg'",
 			"preview:purge:old",
 			"run:purge-cmd 'old'",
+			"preview:autoremove",
 			"run:autoremove-cmd",
 		})
+	})
+
+	t.Run("refuses an autoremove that reaches past the declared collateral", func(t *testing.T) {
+		f := newEngineFixture()
+		f.previews["autoremove"] = []string{"old-dep", "unrelated"}
+		b := f.backend()
+		err := b.apply(pluginapi.Context{Host: f.host()}, &Spec{
+			Autoremove: "always", Purge: []string{"old"}, PurgeAlsoRemoves: []string{"old-dep"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "refusing to autoremove") {
+			t.Fatalf("expected an undeclared removal to be refused, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "unrelated") {
+			t.Fatalf("expected the undeclared package to be named, got %v", err)
+		}
+		if strings.Contains(strings.Join(f.events, "\n"), "run:autoremove-cmd") {
+			t.Fatalf("nothing may be removed once the transaction is refused: %v", f.events)
+		}
+	})
+
+	t.Run("runs an autoremove bounded by the declared collateral", func(t *testing.T) {
+		f := newEngineFixture()
+		f.previews["autoremove"] = []string{"old-dep"}
+		b := f.backend()
+		if err := b.apply(pluginapi.Context{Host: f.host()}, &Spec{
+			Autoremove: "always", Purge: []string{"old"}, PurgeAlsoRemoves: []string{"old-dep"},
+		}); err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+		if !strings.Contains(strings.Join(f.events, "\n"), "run:autoremove-cmd") {
+			t.Fatalf("expected the bounded autoremove to run: %v", f.events)
+		}
 	})
 
 	t.Run("once probes and skips aligned operations", func(t *testing.T) {

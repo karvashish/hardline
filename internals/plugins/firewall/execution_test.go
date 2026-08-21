@@ -1303,11 +1303,18 @@ func TestRollbackLeavesAnIncludeItDidNotAdd(t *testing.T) {
 }
 
 func TestRollbackRemovesAMainConfigItCreated(t *testing.T) {
+	current := FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(testDest) + "\n"
 	var cmds []string
-	host := firewallExecHostStub{runRoot: func(cmd string) error {
-		cmds = append(cmds, cmd)
-		return nil
-	}}
+	host := firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile: func(string) (string, error) { return current, nil },
+	}
 
 	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
 		Path:        testMainConfig,
@@ -1320,6 +1327,42 @@ func TestRollbackRemovesAMainConfigItCreated(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(cmds, "\n"), "rm -f '"+testMainConfig+"'") {
 		t.Fatalf("expected the created main config to be removed, got %v", cmds)
+	}
+}
+
+func TestRollbackKeepsAMainConfigCarryingContentHardlineNeverWrote(t *testing.T) {
+	for name, extra := range map[string]string{
+		"an unmanaged include": `include "/etc/nftables.d/50-other.nft"`,
+		"an inline ruleset":    "table inet ops { chain input { type filter hook input priority 0; } }",
+	} {
+		t.Run(name, func(t *testing.T) {
+			current := FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(testDest) + "\n" + extra + "\n"
+			var cmds []string
+			host := firewallExecHostStub{
+				runRoot: func(cmd string) error {
+					cmds = append(cmds, cmd)
+					return nil
+				},
+				runRootWithOutput: func(string) (string, error) {
+					return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+				},
+				readRootFile:  func(string) (string, error) { return current, nil },
+				writeRootFile: func(string, []byte, os.FileMode) error { return nil },
+			}
+
+			err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+				Path:        testMainConfig,
+				Line:        IncludeLine(testDest),
+				FileExisted: false,
+				Added:       true,
+			})
+			if err != nil {
+				t.Fatalf("RestoreNftablesInclude failed: %v", err)
+			}
+			if strings.Contains(strings.Join(cmds, "\n"), "rm -f '"+testMainConfig+"'") {
+				t.Fatalf("a main config carrying %s must survive, got %v", name, cmds)
+			}
+		})
 	}
 }
 
@@ -2320,6 +2363,50 @@ func TestActivateFirewallAcceptsAnOutputPolicyThatKeepsReplies(t *testing.T) {
 	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
 	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
 		t.Fatalf("expected the ruleset to be loaded, got %v", err)
+	}
+}
+
+func TestSingleHostPrefixesReadBackAsTheKernelSpellsThem(t *testing.T) {
+	for raw, want := range map[string]string{
+		"10.0.0.1/32":     "10.0.0.1",
+		"2001:db8::1/128": "2001:db8::1",
+		"10.0.0.0/8":      "10.0.0.0/8",
+		"2001:db8::/64":   "2001:db8::/64",
+	} {
+		got, err := normalizeAddress("source", raw)
+		if err != nil {
+			t.Fatalf("normalizeAddress(%q): %v", raw, err)
+		}
+		if got != want {
+			t.Fatalf("normalizeAddress(%q) = %q, want %q; nft reads a single-host prefix back bare", raw, got, want)
+		}
+	}
+}
+
+func TestActivateFirewallRefusesAnEphemeralOutputDropAheadOfTheAccept(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "accept"})
+	spec.Rules = append(spec.Rules,
+		Rule{Chain: "output", Proto: "tcp", Port: 40000, Action: "drop"},
+		Rule{Chain: "output", CTStates: []string{"established"}, Action: "accept"},
+	)
+	desired := normalizedTestSpec(t, spec)
+
+	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "established reply") {
+		t.Fatalf("a drop on a port a client could be answering from must be refused, got %v", err)
+	}
+}
+
+func TestActivateFirewallAllowsAnOutputDropOnAServicePort(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "accept"})
+	spec.Rules = append(spec.Rules, Rule{Chain: "output", Proto: "tcp", Port: 25, Action: "drop"})
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("blocking outbound smtp cannot sever an ssh reply, got %v", err)
 	}
 }
 

@@ -195,24 +195,36 @@ func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 		joinPorts(ports), strings.Join(reasons, "\n  "))
 }
 
-// An ssh reply leaves on the output chain as an established packet. The spec has no source-port
-// vocabulary, so only an unscoped accept for the established state can be shown to carry it.
+// Linux hands out client source ports from 32768 up by default, so a tcp rule bound below that
+// cannot be carrying the reply to this run's own session.
+const firstEphemeralPort = 32768
+
+// An ssh reply leaves on the output chain as an established packet addressed to the client's source
+// port, which hardline cannot know. Any rule that could be that port settles the question if the
+// chain reaches it first; the spec has no source-port vocabulary, so only an unscoped accept for the
+// established state can be shown to carry the reply.
 func outputReplyRefusal(desired NormalizedSpec) string {
 	for _, rule := range desired.Rules {
-		if rule.Chain != "output" || rule.Proto != "" || !coversState(rule.CTStates, "established") {
+		if rule.Chain != "output" || !coversState(rule.CTStates, "established") {
 			continue
 		}
-		if scopedRule(rule) {
-			if rule.Action == "accept" {
+		switch rule.Proto {
+		case "":
+		case "tcp":
+			if rule.Port < firstEphemeralPort {
 				continue
 			}
-			return fmt.Sprintf("%q is evaluated before any rule that accepts it, and hardline cannot tell whether it covers this run's connection; put an unscoped accept for the established state above it",
+		default:
+			continue
+		}
+		if rule.Action != "accept" {
+			return fmt.Sprintf("%q is evaluated before any rule that accepts an established reply, and hardline cannot tell whether it covers this run's connection; put an unscoped accept for the established state above it",
 				RenderNormalizedRule(desired.Family, rule))
 		}
-		if rule.Action == "accept" {
-			return ""
+		if scopedRule(rule) || rule.Proto != "" {
+			continue
 		}
-		return fmt.Sprintf("%q is evaluated before any rule that accepts it", RenderNormalizedRule(desired.Family, rule))
+		return ""
 	}
 	if policy := desired.Policies["output"]; policy == "drop" || policy == "reject" {
 		return fmt.Sprintf("no rule accepts an established connection and the chain policy is %q", policy)
@@ -759,22 +771,28 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
+// The record says the line was there exactly when this run did not have to add it, so one
+// comparison answers a before record and an after one. Abstaining on Added would make a caller
+// asking "is the host back at before?" read silence as yes.
 func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) []string {
-	if host == nil || rec.Added {
+	if host == nil {
 		return nil
 	}
+	var present bool
 	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
-		if flushPresent(host, rec.Path) {
+		present = flushPresent(host, rec.Path)
+	} else {
+		dest := normalizeIncludeLine(rec.Line)
+		if dest == "" {
 			return nil
 		}
-		return []string{fmt.Sprintf("%s no longer contains %s", rec.Path, rec.Line)}
+		present = firewallIncludePresent(host, rec.Path, dest)
 	}
-	dest := normalizeIncludeLine(rec.Line)
-	if dest == "" {
+	switch {
+	case present == !rec.Added:
 		return nil
-	}
-	if firewallIncludePresent(host, rec.Path, dest) {
-		return nil
+	case present:
+		return []string{fmt.Sprintf("%s already contains %s", rec.Path, rec.Line)}
 	}
 	return []string{fmt.Sprintf("%s no longer contains %s", rec.Path, rec.Line)}
 }
@@ -786,22 +804,22 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 	if !ValidMainConfig(rec.Path) {
 		return fmt.Errorf("firewall rollback: unexpected main config path %q", rec.Path)
 	}
+	content, existed, err := readMainConfig(host, rec.Path)
+	if err != nil {
+		return err
+	}
+	if !existed {
+		return nil
+	}
+
 	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
 		// Ownership is read from the file, not from rec.Added: the profile that rolls back last is
 		// the one that finds no managed include left, and it is the one that has to take the header
-		// with it - not whichever profile happened to write it first. Another profile's ruleset
-		// still included here means the header is still load-bearing.
-		remains, err := managedIncludeRemains(host, rec.Path, "")
-		if err != nil {
-			return err
-		}
-		if remains {
+		// with it - not whichever profile happened to write it first.
+		if managedIncludeRemains(content, "") || !hardlineWroteFlush(host, rec.Path) {
 			return nil
 		}
-		if !hardlineWroteFlush(host, rec.Path) {
-			return nil
-		}
-		if !rec.FileExisted && rec.Added {
+		if rec.Added && !rec.FileExisted && onlyHardlineContent(content, "") {
 			return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
 		}
 		return RemoveNftablesFlush(host, rec.Path)
@@ -809,42 +827,56 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 	if !rec.Added {
 		return nil
 	}
-	if !rec.FileExisted {
-		// This run created the file, but another profile has since included its own
-		// ruleset from it; removing the file would take that profile's policy with it.
-		remains, err := managedIncludeRemains(host, rec.Path, normalizeIncludeLine(rec.Line))
-		if err != nil {
-			return err
-		}
-		if !remains {
-			return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
-		}
+	if !rec.FileExisted && onlyHardlineContent(content, rec.Line) {
+		return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
 	}
 	return RemoveNftablesInclude(host, rec.Path, rec.Line)
 }
 
-func managedIncludeRemains(host pluginapi.Host, mainConfig, except string) (bool, error) {
+func readMainConfig(host pluginapi.Host, mainConfig string) (string, bool, error) {
 	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
 	if err != nil {
-		return false, fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
+		return "", false, fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
 	}
 	if !snap.Existed {
-		return false, nil
+		return "", false, nil
 	}
 	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
 	if err != nil {
-		return false, fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
+		return "", false, fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
 	}
-	for _, line := range strings.Split(string(current), "\n") {
+	return string(current), true, nil
+}
+
+func managedIncludeRemains(content, except string) bool {
+	for _, line := range strings.Split(content, "\n") {
 		target := normalizeIncludeLine(line)
 		if target == "" || target == except {
 			continue
 		}
 		if pluginapi.EnforceManagedPath(target) == nil {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
+}
+
+// Deleting a file this run created is only safe while nothing but hardline's own lines are left in
+// it. An include naming a file no profile manages, or a ruleset written inline by an administrator,
+// is content hardline never wrote and would take with it.
+func onlyHardlineContent(content, ownInclude string) bool {
+	own := normalizeIncludeLine(ownInclude)
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || trimmed == FlushMarker || trimmed == FlushLine {
+			continue
+		}
+		if own != "" && normalizeIncludeLine(line) == own {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mainConfig string) error {
@@ -1362,6 +1394,16 @@ func normalizeInterface(field, raw string) (string, error) {
 	return v, nil
 }
 
+// nft renders a prefix that covers a single host as a bare address, so the desired spec has to spell
+// it the same way or the post-load read-back reports drift that no reapply can settle.
+func collapseFullPrefix(v string) string {
+	prefix, err := netip.ParsePrefix(v)
+	if err != nil || prefix.Bits() != prefix.Addr().BitLen() {
+		return v
+	}
+	return prefix.Addr().String()
+}
+
 func normalizeAddress(field, raw string) (string, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
@@ -1379,7 +1421,7 @@ func normalizeAddress(field, raw string) (string, error) {
 		if masked := prefix.Masked(); masked != prefix {
 			return "", fmt.Errorf("rule %s %q has host bits set outside its prefix; write it as %q", field, raw, masked.String())
 		}
-		return prefix.String(), nil
+		return collapseFullPrefix(prefix.String()), nil
 	}
 
 	addr, err := netip.ParseAddr(v)
@@ -1804,7 +1846,7 @@ func DecodeNftStringValues(raw json.RawMessage) []string {
 				addr, addrOK := prefix["addr"].(string)
 				length, lenOK := prefix["len"].(float64)
 				if addrOK && lenOK {
-					appendOne(fmt.Sprintf("%s/%d", addr, int(length)))
+					appendOne(collapseFullPrefix(fmt.Sprintf("%s/%d", addr, int(length))))
 				}
 			}
 		}

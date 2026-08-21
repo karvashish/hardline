@@ -54,6 +54,8 @@ func procLockHolders(joined string) string {
 	return "{ [ -d /proc/1/fd ] || { echo 'cannot read /proc to check the package manager lock, and fuser is not installed (package psmisc)' >&2; exit 3; }; " +
 		"for fd in /proc/[0-9]*/fd/*; do " +
 		`target=$(readlink "$fd" 2>/dev/null) || continue; ` +
+		// A holder whose lock file was unlinked still holds it; /proc spells that target "<path> (deleted)".
+		`target=${target%" (deleted)"}; ` +
 		"for lock in " + joined + "; do " +
 		`if [ "$target" = "$lock" ]; then ` +
 		"pid=${fd#/proc/}; pid=${pid%%/*}; " +

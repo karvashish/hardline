@@ -206,6 +206,7 @@ func TestClassifyDpkgProbe(t *testing.T) {
 		{"error state", "HL:install reinstreq installed\t1.0\nHL-RC:0\n", false, "", "", "error state"},
 		{"missing version", "HL:install ok installed\nHL-RC:0\n", false, "", "", "no version"},
 		{"indeterminate state", "HL:install ok unpacked\t1.0\nHL-RC:0\n", false, "", "", "neither installed nor absent"},
+		{"multiarch rows", "HL:install ok installed\t1.0\nHL:unknown ok not-installed\t\nHL-RC:0\n", false, "", "", "answers for 2 architectures"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -100,6 +100,7 @@ var dpkgAbsentStates = map[string]bool{
 func classifyDpkgProbe(name, out string) (bool, string, string, error) {
 	codes := 0
 	missed := false
+	answers := 0
 	var noise []string
 	var status, version string
 	for _, line := range strings.Split(out, "\n") {
@@ -108,6 +109,7 @@ func classifyDpkgProbe(name, out string) (bool, string, string, error) {
 			continue
 		}
 		if answer, ok := strings.CutPrefix(trimmed, "HL:"); ok {
+			answers++
 			status, version, _ = strings.Cut(answer, "\t")
 			continue
 		}
@@ -126,6 +128,13 @@ func classifyDpkgProbe(name, out string) (bool, string, string, error) {
 	}
 	if len(noise) > 0 {
 		return false, "", "", fmt.Errorf("query package %q: dpkg-query reported %s", name, pluginapi.FirstLines(strings.Join(noise, "\n"), 3))
+	}
+	// A multiarch name answers once per architecture, and letting the last row win would pin and
+	// install whichever one dpkg printed second.
+	if answers > 1 {
+		return false, "", "", fmt.Errorf(
+			"query package %q: dpkg-query answers for %d architectures; name the architecture, as in %q",
+			name, answers, name+":amd64")
 	}
 	if status == "" {
 		if missed {

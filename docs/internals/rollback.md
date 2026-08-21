@@ -119,7 +119,7 @@ So remote journals behave like a stack of successful applies for a profile on a 
 
 ## Integrity And Format
 
-Journals currently use version `2`.
+Journals currently use version `3`.
 
 When serialized:
 
@@ -128,7 +128,7 @@ When serialized:
 - a SHA-256 checksum of that canonical JSON is computed
 - the checksum is written back into the final JSON
 
-When loaded, rollback rejects any journal whose `version` is not exactly `2`, then verifies the checksum before trusting the contents. A journal with an empty `checksum` field is accepted without the check.
+When loaded, rollback rejects any journal whose `version` is not exactly `3`, then verifies the checksum before trusting the contents. A journal carrying no checksum is refused rather than trusted, and a journal written by an older hardline has to be rolled back with the binary that wrote it.
 
 That checksum does not make the journal tamper-proof against a privileged attacker, but it does protect against corruption and accidental damage. If the file on disk does not match the recorded checksum, rollback refuses to trust it.
 

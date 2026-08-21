@@ -35,7 +35,7 @@ The process also installs a signal handler. The first `SIGINT` or `SIGTERM` canc
 
 Step 7 runs before step 8 on purpose: coverage rejects any reference pointing outside the signed tree, so the stat never touches a path the signature did not cover.
 
-`Verify` returns a `VerifiedBundle` holding the profile directory, the digest of the exact manifest bytes whose signature was checked, and the loaded `*profile.Profile`. `plan`, `apply`, and `rollback` take that bundle rather than a directory path, so they operate on the profile whose signature was checked instead of re-reading a directory that may have changed since.
+`Verify` returns a `VerifiedBundle` holding the loaded `*profile.Profile` and the resolved override snapshot. The profile is built from the verified bytes themselves, not re-read from disk, and `plan`, `apply`, and `rollback` take that bundle rather than a directory path, so they operate on the profile whose signature was checked instead of a directory that may have changed since.
 
 This stage is deliberately local. No SSH connection is required.
 
@@ -47,7 +47,7 @@ Then `plan.Plan`:
 2. takes the profile from the `VerifiedBundle` rather than reloading it
 3. checks `min_hardline` and `profile_schema` against the binary
 4. validates plugin availability
-5. resolves runtime overrides, validates them, and stores them on the profile
+5. stores the overrides `Verify` already resolved and validated on the profile
 6. connects to the remote host over SSH
 7. checks the remote OS
 8. runs each step's `Plugin.Plan`
@@ -76,15 +76,14 @@ Then `apply.Apply` itself:
 3. acquires `/var/lib/hardline/.apply-lock.d` via `mkdir`, which is atomic, and releases it on the way out
 4. checks the remote OS
 5. re-checks `min_hardline` and `profile_schema`, and plugin availability
-6. resolves overrides again and stores them on the profile
-7. re-hashes `manifest.json` and compares it to the digest recorded at verify time, aborting if the profile directory changed in between
-8. creates a local rollback journal
-9. captures pre-step state, applies a step, captures post-step state
-10. updates step-change tracking for downstream `service` steps
-11. auto-rolls back on failure after prior mutation
-12. persists the successful journal remotely, then deletes the local copy unless `--keep-local-rollback` was passed
+6. stores the same overrides `Verify` resolved on the profile
+7. creates a local rollback journal
+8. captures pre-step state, applies a step, captures post-step state
+9. updates step-change tracking for downstream `service` steps
+10. auto-rolls back on failure after prior mutation
+11. persists the successful journal remotely, then deletes the local copy unless `--keep-local-rollback` was passed
 
-Step 7 is the window-closing check: verification happens before the SSH connection is even opened, so without it an edit made to the profile directory during the connect-and-preflight phase would be applied unsigned.
+There is no second integrity check here, and none is needed: verification happens before the SSH connection is even opened, and what it hands on is the verified bytes rather than a path. An edit made to the profile directory during the connect-and-preflight phase is never read, so it can never be applied.
 
 Within each step, the apply package does:
 

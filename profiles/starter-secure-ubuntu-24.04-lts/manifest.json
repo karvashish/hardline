@@ -8,7 +8,7 @@
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "d623540c81df5eeff087a0f83f25887aa5682dded343bd58c98507fc430837e8"
+      "sha256": "5e7c4b7e2ce19e453a4cf78f1192759ace140fcfa4ed1e6210f96922e277206a"
     },
     {
       "path": "actions/15-unattended-upgrades.json",

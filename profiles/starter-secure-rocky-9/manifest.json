@@ -8,7 +8,7 @@
     },
     {
       "path": "actions/10-ssh.json",
-      "sha256": "8ba22ff74bace55012a30deb734e5f1964423c51d84d47727cad0c20a1de8be9"
+      "sha256": "7ce5fd98e2ccfcbdfc35e37b3aec4b659cb49c75a93ef99d7cba7e954b64293f"
     },
     {
       "path": "actions/15-dnf-automatic.json",

@@ -1676,8 +1676,8 @@ func TestEnsureNftablesFlushPutsTheHeaderFirst(t *testing.T) {
 	if err := EnsureNftablesFlush(host, MainConfigRHEL); err != nil {
 		t.Fatalf("EnsureNftablesFlush failed: %v", err)
 	}
-	if !strings.HasPrefix(wrote, FlushLine+"\n") {
-		t.Fatalf("the flush header must be the first line, got %q", wrote)
+	if !strings.HasPrefix(wrote, FlushMarker+"\n"+FlushLine+"\n") {
+		t.Fatalf("the flush header must lead the file, under the marker that says hardline wrote it, got %q", wrote)
 	}
 	if !strings.Contains(wrote, `include "/etc/nftables.d/50-other.nft"`) {
 		t.Fatalf("expected the existing content to survive, got %q", wrote)
@@ -1870,7 +1870,7 @@ func TestRollbackStopsWhenTheFileCannotBeRestored(t *testing.T) {
 			return errors.New("read-only filesystem")
 		},
 	}
-	snap := pluginapi.FileSnapshot{Path: testDest, Existed: true, Mode: "644", ContentB64: "dGVzdA=="}
+	snap := pluginapi.FileSnapshot{Path: testDest, Existed: true, Mode: "644", Owner: "root", Group: "root", ContentB64: "dGVzdA=="}
 
 	err := RestoreManagedRuleset(host, snap, MainConfigDebian)
 	if err == nil || !strings.Contains(err.Error(), "read-only filesystem") {
@@ -2079,19 +2079,83 @@ func TestRollbackRemovesAMainConfigNoOtherProfileUses(t *testing.T) {
 	}
 }
 
-func TestRollbackKeepsAFlushLineItDidNotAdd(t *testing.T) {
-	host := firewallExecHostStub{writeRootFile: func(string, []byte, os.FileMode) error {
-		t.Fatal("a flush line this run did not add must not be removed")
-		return nil
-	}}
+func TestRollbackKeepsAFlushLineHardlineDidNotWrite(t *testing.T) {
+	current := FlushLine + "\n"
+	host := firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			if cmd == flushMarkerCheckCmd(MainConfigDebian) {
+				return errors.New("no marker")
+			}
+			return nil
+		},
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile: func(string) (string, error) { return current, nil },
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			t.Fatal("a flush line hardline never wrote is the operator's, not hardline's to remove")
+			return nil
+		},
+	}
 	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
 		Path:        MainConfigDebian,
 		Line:        FlushLine,
 		FileExisted: true,
-		Added:       false,
+		Added:       true,
 	})
 	if err != nil {
 		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+}
+
+// The profile that writes the flush header is rarely the profile that rolls back last, so removal
+// has to follow the file's state rather than which run recorded Added.
+func TestRollbackRemovesTheFlushWhicheverProfileGoesLast(t *testing.T) {
+	const mine = "/etc/nftables.d/99-hardline-firewall.nft"
+	const other = "/etc/nftables.d/99-hardline-other.nft"
+
+	newHost := func(t *testing.T, content *string) firewallExecHostStub {
+		t.Helper()
+		return firewallExecHostStub{
+			runRootWithOutput: func(string) (string, error) {
+				return fmt.Sprintf("regular file|644|root|root|%d", len(*content)), nil
+			},
+			readRootFile: func(string) (string, error) { return *content, nil },
+			writeRootFile: func(_ string, data []byte, _ os.FileMode) error {
+				*content = string(data)
+				return nil
+			},
+		}
+	}
+
+	// This profile wrote the header, but the other profile's ruleset still loads through it.
+	content := FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(other) + "\n"
+	kept := content
+	if err := RestoreNftablesInclude(newHost(t, &content), pluginapi.ConfigLineSnapshot{
+		Path: MainConfigDebian, Line: FlushLine, FileExisted: true, Added: true,
+	}); err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if content != kept {
+		t.Fatalf("the header must stay while another managed include needs it, got %q", content)
+	}
+
+	// The other profile goes last. Its own record says it found the header already there, and
+	// rollback walks its include out before its flush, the way the capture order gives them back.
+	content = FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(mine) + "\n"
+	host := newHost(t, &content)
+	if err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path: MainConfigDebian, Line: IncludeLine(mine), FileExisted: true, Added: true,
+	}); err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path: MainConfigDebian, Line: FlushLine, FileExisted: true, Added: false,
+	}); err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if strings.Contains(content, FlushLine) || strings.Contains(content, FlushMarker) {
+		t.Fatalf("the last profile out has to take the header with it, got %q", content)
 	}
 }
 

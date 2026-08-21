@@ -416,6 +416,11 @@ func checkStepConflicts(client *remote.Client, step StepRecord, resuming bool) [
 
 	var conflicts []string
 	for _, afterObj := range step.After {
+		// Rollback restores a runtime policy through the file the daemon reads, never as an object of
+		// its own, so asking the plugin about one asks about something this rollback will not touch.
+		if afterObj.Kind == pluginapi.ObjectRuntimePolicy {
+			continue
+		}
 		// An interrupted attempt leaves some objects back at Before and the rest still at After,
 		// so an object already sitting at what this rollback would restore is progress, not drift.
 		if beforeObj, paired := beforeByKey[pluginapi.ObjectKey(afterObj)]; paired &&

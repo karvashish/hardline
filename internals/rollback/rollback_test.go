@@ -724,6 +724,32 @@ func TestPreflightStillRefusesRealDriftOnAResume(t *testing.T) {
 	}
 }
 
+func TestCheckStepConflictsSkipsRuntimePolicyObjects(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	var asked []string
+	installPlugins(t, map[string]fakeBehavior{
+		"firewall": {detectConflict: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) []string {
+			asked = append(asked, obj.Kind)
+			return []string{"drifted"}
+		}},
+	})
+
+	step := StepRecord{
+		Type: "firewall",
+		After: []pluginapi.ObjectRecord{
+			{Kind: pluginapi.ObjectRuntimePolicy, RuntimePolicy: &pluginapi.RuntimePolicy{Name: "nft list ruleset", State: "table inet hardline"}},
+		},
+	}
+	if got := checkStepConflicts(nil, step, false); got != nil {
+		t.Fatalf("rollback never restores a runtime policy as an object, got %v", got)
+	}
+	if len(asked) != 0 {
+		t.Fatalf("the plugin was asked about %v, which this rollback will not touch", asked)
+	}
+}
+
 func TestCheckStepConflictsUnregistered(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()

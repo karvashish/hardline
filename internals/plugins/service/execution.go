@@ -365,10 +365,13 @@ func unitStateWord(host pluginapi.Host, verb, unit string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// "indirect" is restorable: enable can create the symlinks that move such a unit to "enabled", so
+// disable is exactly the undo, and leaving it out would let rollback hand back an enabled unit.
 var restorableUnitFileStates = map[string]struct{}{
 	"enabled":         {},
 	"enabled-runtime": {},
 	"disabled":        {},
+	"indirect":        {},
 }
 
 // Unit-file states that carry no install state to put back: apply could not
@@ -377,7 +380,6 @@ var restorableUnitFileStates = map[string]struct{}{
 // not disable, so it stays a refusal.
 var unconfigurableUnitFileStates = map[string]struct{}{
 	"static":    {},
-	"indirect":  {},
 	"generated": {},
 	"transient": {},
 }

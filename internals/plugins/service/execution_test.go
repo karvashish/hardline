@@ -530,7 +530,38 @@ func TestRestoreServiceState_RefusesInexpressibleStates(t *testing.T) {
 		}
 	})
 
-	for _, state := range []string{"static", "indirect", "generated"} {
+	t.Run("indirect is disabled again", func(t *testing.T) {
+		var cmds []string
+		host := serviceRuntimeStub{
+			runRoot: func(cmd string) error {
+				cmds = append(cmds, cmd)
+				return nil
+			},
+			runRootWithOutput: func(string) (string, error) {
+				return "# /usr/lib/systemd/system/telnet.socket\n[Unit]\n", nil
+			},
+		}
+		err := restoreServiceState(host, pluginapi.ServiceState{
+			Unit: "telnet.socket", Known: true, EnabledState: "indirect", ActiveState: "active", Active: true,
+		})
+		if err != nil {
+			t.Fatalf("indirect is expressible: %v", err)
+		}
+		var disabled bool
+		for _, cmd := range cmds {
+			if cmd == "systemctl disable 'telnet.socket'" {
+				disabled = true
+			}
+			if strings.Contains(cmd, "systemctl enable") {
+				t.Fatalf("an indirect unit was never enabled at apply time, got %q", cmd)
+			}
+		}
+		if !disabled {
+			t.Fatalf("apply could have enabled this unit, so rollback has to disable it, got %v", cmds)
+		}
+	})
+
+	for _, state := range []string{"static", "generated"} {
 		t.Run(state+" restores the active state only", func(t *testing.T) {
 			var cmds []string
 			host := serviceRuntimeStub{

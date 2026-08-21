@@ -652,9 +652,9 @@ func TestLoadLocalPublicKey_ValidKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	pubKey, err := loadLocalPublicKey(keyPath)
 	if err != nil {
@@ -668,6 +668,28 @@ func TestLoadLocalPublicKey_ValidKey(t *testing.T) {
 	}
 }
 
+func TestLoadLocalPublicKey_RefusesSymlink(t *testing.T) {
+	_, pubPEM := generateTestKeyPEM(t)
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "real.pem")
+	if err := os.WriteFile(realPath, pubPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(dir, "pub.pem")
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
+
+	_, err := loadLocalPublicKey(linkPath)
+	if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+		t.Fatalf("expected a refusal to trust a symlinked key, got %v", err)
+	}
+}
+
 func TestLoadLocalPublicKey_GroupWritable(t *testing.T) {
 	_, pubPEM := generateTestKeyPEM(t)
 	keyPath := filepath.Join(t.TempDir(), "pub.pem")
@@ -678,9 +700,9 @@ func TestLoadLocalPublicKey_GroupWritable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err == nil || !strings.Contains(err.Error(), "insecure permissions") {
@@ -698,9 +720,9 @@ func TestLoadLocalPublicKey_WorldWritable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err == nil || !strings.Contains(err.Error(), "insecure permissions") {
@@ -709,9 +731,9 @@ func TestLoadLocalPublicKey_WorldWritable(t *testing.T) {
 }
 
 func TestLoadLocalPublicKey_NotFound(t *testing.T) {
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	_, err := loadLocalPublicKey(filepath.Join(t.TempDir(), "nonexistent.pem"))
 	if err == nil || !strings.Contains(err.Error(), "local signing key not found") {
@@ -726,9 +748,9 @@ func TestLoadLocalPublicKey_NotEd25519(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err == nil || !strings.Contains(err.Error(), "not Ed25519") {
@@ -743,9 +765,9 @@ func TestLoadLocalPublicKey_StrictPerms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err != nil {
@@ -770,9 +792,9 @@ func TestVerifyProfileIntegrity_WithLocalKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := statFunc
-	statFunc = os.Stat
-	defer func() { statFunc = origStat }()
+	origStat := lstatFunc
+	lstatFunc = os.Lstat
+	defer func() { lstatFunc = origStat }()
 
 	profileDir := t.TempDir()
 	writeTestFile(t, filepath.Join(profileDir, "a.txt"), []byte("hello"))

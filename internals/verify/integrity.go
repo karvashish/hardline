@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -46,7 +47,7 @@ type manifestEntry struct {
 //go:embed profile_signing_pub.pem
 var embeddedProfileSigningPubPEM []byte
 
-var statFunc = os.Stat
+var lstatFunc = os.Lstat
 
 type VerifiedManifest struct {
 	Digest string
@@ -161,11 +162,17 @@ func resolvePublicKey(useLocalKey bool) (ed25519.PublicKey, error) {
 }
 
 func loadLocalPublicKey(keyPath string) (ed25519.PublicKey, error) {
-	info, err := statFunc(keyPath)
+	info, err := lstatFunc(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("local signing key not found at %s: %w", keyPath, err)
 	}
 
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf(
+			"local signing key %s is not a regular file (mode %s): refusing to trust whatever a symlink or device node resolves to",
+			keyPath, info.Mode(),
+		)
+	}
 	mode := info.Mode().Perm()
 	if mode&0o022 != 0 {
 		return nil, fmt.Errorf(
@@ -173,8 +180,29 @@ func loadLocalPublicKey(keyPath string) (ed25519.PublicKey, error) {
 			keyPath, mode,
 		)
 	}
+	if uid, ok := fileOwnerUID(info); ok && uid != 0 && int(uid) != os.Geteuid() {
+		return nil, fmt.Errorf(
+			"local signing key %s is owned by uid %d, which is neither root nor the user running hardline (uid %d)",
+			keyPath, uid, os.Geteuid(),
+		)
+	}
 
-	pemBytes, err := os.ReadFile(keyPath)
+	file, err := os.Open(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read local signing key %s: %w", keyPath, err)
+	}
+	defer file.Close()
+
+	// The checks above describe the inode lstat saw; only the open handle proves they describe the bytes read.
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("read local signing key %s: %w", keyPath, err)
+	}
+	if !os.SameFile(info, opened) {
+		return nil, fmt.Errorf("local signing key %s was replaced while it was being read", keyPath)
+	}
+
+	pemBytes, err := io.ReadAll(io.LimitReader(file, maxProfileFileBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read local signing key %s: %w", keyPath, err)
 	}

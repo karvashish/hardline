@@ -417,7 +417,11 @@ func ServiceUnit(record pluginapi.ObjectRecord) (string, error) {
 	case "ssh", "sshd":
 		return unit, nil
 	case "":
-		return "", fmt.Errorf("ssh rollback: the journal records no sshd unit name for %s", record.File.Path)
+		path := "an unnamed file"
+		if record.File != nil {
+			path = record.File.Path
+		}
+		return "", fmt.Errorf("ssh rollback: the journal records no sshd unit name for %s", path)
 	default:
 		return "", fmt.Errorf("ssh rollback: the journal records an unsupported sshd unit name %q", unit)
 	}

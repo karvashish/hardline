@@ -616,6 +616,9 @@ func TestServiceUnit(t *testing.T) {
 	if _, err := ServiceUnit(pluginapi.ObjectRecord{File: snap, Message: "sshd; rm -rf /"}); err == nil {
 		t.Fatalf("expected an error for an unsupported unit")
 	}
+	if _, err := ServiceUnit(pluginapi.ObjectRecord{}); err == nil {
+		t.Fatalf("a journal with neither a unit name nor a file snapshot must be refused, not panic")
+	}
 }
 
 func TestRestoreReloadsAfterParsing(t *testing.T) {

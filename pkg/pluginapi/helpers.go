@@ -18,16 +18,30 @@ func CapturesDiffer(before, after CaptureResult) bool {
 	if len(before.Objects) != len(after.Objects) {
 		return true
 	}
-	for i := range before.Objects {
-		b, a := before.Objects[i], after.Objects[i]
-		if b.Kind != a.Kind {
+	beforeByKey := make(map[string]ObjectRecord, len(before.Objects))
+	for _, obj := range before.Objects {
+		beforeByKey[ObjectKey(obj)] = obj
+	}
+	if len(beforeByKey) != len(before.Objects) {
+		return true
+	}
+
+	for _, a := range after.Objects {
+		b, paired := beforeByKey[ObjectKey(a)]
+		if !paired {
 			return true
+		}
+		// A missing payload is this object's answer, not the whole capture's: returning here
+		// would let one object decide for every object behind it.
+		bHas, aHas := objectPayloadPresent(b), objectPayloadPresent(a)
+		if bHas != aHas {
+			return true
+		}
+		if !bHas {
+			continue
 		}
 		switch b.Kind {
 		case ObjectFile:
-			if b.File == nil || a.File == nil {
-				return b.File != a.File
-			}
 			if b.File.Existed != a.File.Existed ||
 				b.File.ContentB64 != a.File.ContentB64 ||
 				b.File.Mode != a.File.Mode ||
@@ -36,9 +50,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				return true
 			}
 		case ObjectFileMeta:
-			if b.FileMeta == nil || a.FileMeta == nil {
-				return b.FileMeta != a.FileMeta
-			}
 			if b.FileMeta.Existed != a.FileMeta.Existed ||
 				b.FileMeta.Mode != a.FileMeta.Mode ||
 				b.FileMeta.Owner != a.FileMeta.Owner ||
@@ -47,9 +58,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				return true
 			}
 		case ObjectService:
-			if b.Service == nil || a.Service == nil {
-				return b.Service != a.Service
-			}
 			if b.Service.Active != a.Service.Active ||
 				b.Service.Enabled != a.Service.Enabled ||
 				b.Service.EnabledState != a.Service.EnabledState ||
@@ -57,18 +65,12 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				return true
 			}
 		case ObjectPackage:
-			if b.Package == nil || a.Package == nil {
-				return b.Package != a.Package
-			}
 			if b.Package.WasInstalled != a.Package.WasInstalled ||
 				b.Package.Version != a.Package.Version ||
 				b.Package.PinSpec != a.Package.PinSpec {
 				return true
 			}
 		case ObjectConfigLine:
-			if b.ConfigLine == nil || a.ConfigLine == nil {
-				return b.ConfigLine != a.ConfigLine
-			}
 			if b.ConfigLine.Path != a.ConfigLine.Path ||
 				b.ConfigLine.Line != a.ConfigLine.Line ||
 				b.ConfigLine.FileExisted != a.ConfigLine.FileExisted ||
@@ -76,14 +78,62 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				return true
 			}
 		case ObjectRuntimePolicy:
-			if b.RuntimePolicy == nil || a.RuntimePolicy == nil {
-				return b.RuntimePolicy != a.RuntimePolicy
-			}
 			if b.RuntimePolicy.Name != a.RuntimePolicy.Name ||
 				b.RuntimePolicy.State != a.RuntimePolicy.State {
 				return true
 			}
 		}
+	}
+	return false
+}
+
+// Two captures of one step describe the same objects, but nothing in the plugin contract fixes the
+// order a plugin emits them in. Pairing them by what they identify rather than by position is what
+// lets a caller compare or resume them without depending on that.
+func ObjectKey(o ObjectRecord) string {
+	switch o.Kind {
+	case ObjectFile:
+		if o.File != nil {
+			return string(o.Kind) + "\x00" + o.File.Path
+		}
+	case ObjectFileMeta:
+		if o.FileMeta != nil {
+			return string(o.Kind) + "\x00" + o.FileMeta.Path
+		}
+	case ObjectService:
+		if o.Service != nil {
+			return string(o.Kind) + "\x00" + o.Service.Unit
+		}
+	case ObjectPackage:
+		if o.Package != nil {
+			return string(o.Kind) + "\x00" + o.Package.Name
+		}
+	case ObjectConfigLine:
+		if o.ConfigLine != nil {
+			return string(o.Kind) + "\x00" + o.ConfigLine.Path + "\x00" + o.ConfigLine.Line
+		}
+	case ObjectRuntimePolicy:
+		if o.RuntimePolicy != nil {
+			return string(o.Kind) + "\x00" + o.RuntimePolicy.Name
+		}
+	}
+	return ""
+}
+
+func objectPayloadPresent(o ObjectRecord) bool {
+	switch o.Kind {
+	case ObjectFile:
+		return o.File != nil
+	case ObjectFileMeta:
+		return o.FileMeta != nil
+	case ObjectService:
+		return o.Service != nil
+	case ObjectPackage:
+		return o.Package != nil
+	case ObjectConfigLine:
+		return o.ConfigLine != nil
+	case ObjectRuntimePolicy:
+		return o.RuntimePolicy != nil
 	}
 	return false
 }
@@ -134,11 +184,38 @@ func ParseFileMode(raw string) (os.FileMode, error) {
 	if parsed > 0o7777 {
 		return 0, fmt.Errorf("invalid file mode %q: out of range", raw)
 	}
-	return os.FileMode(parsed), nil
+	return FileModeFromOctal(uint32(parsed)), nil
+}
+
+// POSIX carries setuid, setgid and sticky in the 07000 range and os.FileMode carries them in high
+// bits of its own. Every mode inside hardline is held in the os.FileMode spelling, so that a mode
+// read off a host and a mode parsed from a profile are the same value when they mean the same thing.
+func FileModeFromOctal(octal uint32) os.FileMode {
+	mode := os.FileMode(octal) & os.ModePerm
+	if octal&0o4000 != 0 {
+		mode |= os.ModeSetuid
+	}
+	if octal&0o2000 != 0 {
+		mode |= os.ModeSetgid
+	}
+	if octal&0o1000 != 0 {
+		mode |= os.ModeSticky
+	}
+	return mode
 }
 
 func FormatFileMode(mode os.FileMode) string {
-	return strconv.FormatUint(uint64(mode)&0o7777, 8)
+	out := uint64(mode.Perm())
+	if mode&os.ModeSetuid != 0 {
+		out |= 0o4000
+	}
+	if mode&os.ModeSetgid != 0 {
+		out |= 0o2000
+	}
+	if mode&os.ModeSticky != 0 {
+		out |= 0o1000
+	}
+	return strconv.FormatUint(out, 8)
 }
 
 func FirstLines(out string, n int) string {
@@ -218,6 +295,9 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 	if err != nil {
 		return fmt.Errorf("restore file %q: %w", snap.Path, err)
 	}
+	if snap.Owner == "" || snap.Group == "" {
+		return fmt.Errorf("restore file %q: the journal records no owner or group", snap.Path)
+	}
 
 	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
 	if err != nil {
@@ -235,13 +315,10 @@ func RestoreFileSnapshot(host Host, snap FileSnapshot) error {
 		return fmt.Errorf("restore file %q: %w", snap.Path, err)
 	}
 
-	if snap.Owner == "" || snap.Group == "" {
-		return fmt.Errorf("restore file %q: the journal records no owner or group", snap.Path)
-	}
 	if err := host.RunRoot("chown " + ShellArg(snap.Owner+":"+snap.Group) + " " + ShellArg(snap.Path)); err != nil {
 		return fmt.Errorf("restore ownership of %q: %w", snap.Path, err)
 	}
-	if mode&0o7000 != 0 {
+	if mode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
 		if err := host.RunRoot("chmod " + ShellArg(FormatFileMode(mode)) + " " + ShellArg(snap.Path)); err != nil {
 			return fmt.Errorf("restore mode of %q: %w", snap.Path, err)
 		}

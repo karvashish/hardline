@@ -202,7 +202,7 @@ func TestPlan(t *testing.T) {
 		}
 		joinedDiff := strings.Join(res.Diff, "\n")
 		for _, want := range []string{
-			`file mode "/etc/ssh/sshd_config.d/99-hardline-test.conf": 0600 -> 0644`,
+			`file mode "/etc/ssh/sshd_config.d/99-hardline-test.conf": 600 -> 644`,
 			`--- current /etc/ssh/sshd_config.d/99-hardline-test.conf`,
 			`+++ desired /etc/ssh/sshd_config.d/99-hardline-test.conf`,
 			`-hullo`,
@@ -274,6 +274,33 @@ func TestStatTemplateDestination(t *testing.T) {
 			t.Fatalf("unexpected success result size=%d mode=%#o err=%v", size, mode, err)
 		}
 	})
+}
+
+func TestTemplateDestinationMatchesComparesTheWholeMode(t *testing.T) {
+	// The stub reads back an empty destination, so an empty render is the aligned content here.
+	rendered := []byte("")
+	rt := templateRuntimeHelperStub{runRootWithOutput: "640 0"}
+
+	plain, err := pluginapi.ParseFileMode("0640")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := templateDestinationMatches(rt, templateManagedConfigDest, rendered, plain)
+	if err != nil || !matches {
+		t.Fatalf("expected an aligned destination to match, matches=%v err=%v", matches, err)
+	}
+
+	setgid, err := pluginapi.ParseFileMode("2640")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err = templateDestinationMatches(rt, templateManagedConfigDest, rendered, setgid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("mode 0640 must not read as aligned with a requested 2640, or the setgid bit is never applied")
+	}
 }
 
 func TestCapture(t *testing.T) {

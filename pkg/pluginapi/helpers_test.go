@@ -485,6 +485,82 @@ func TestRestoreFileSnapshot_RejectsUnrecordedOwnership(t *testing.T) {
 	}
 }
 
+func TestRestoreFileSnapshot_RefusesBeforeItWrites(t *testing.T) {
+	var cmds []string
+	wrote := false
+	host := pluginAPIHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+		writeRootFile: func(string, []byte, os.FileMode) error {
+			wrote = true
+			return nil
+		},
+	}
+
+	err := RestoreFileSnapshot(host, FileSnapshot{
+		Path: managedTestPath, Existed: true, Mode: "640",
+		ContentB64: base64.StdEncoding.EncodeToString([]byte("x")),
+	})
+	if err == nil || !strings.Contains(err.Error(), "no owner or group") {
+		t.Fatalf("expected an ownership-free snapshot to be refused, got %v", err)
+	}
+	if wrote {
+		t.Fatal("a refused restore must not have already replaced the file's contents")
+	}
+	if len(cmds) != 0 {
+		t.Fatalf("a refused restore must not touch the host at all, got %v", cmds)
+	}
+}
+
+func TestCapturesDiffer_NilPayloadDoesNotDecideForLaterObjects(t *testing.T) {
+	file := func(content string) ObjectRecord {
+		return ObjectRecord{Kind: ObjectFile, File: &FileSnapshot{
+			Path: managedTestPath, Existed: true, Mode: "640", Owner: "root", Group: "root",
+			ContentB64: base64.StdEncoding.EncodeToString([]byte(content)),
+		}}
+	}
+	nilPolicy := ObjectRecord{Kind: ObjectRuntimePolicy}
+
+	before := CaptureResult{Objects: []ObjectRecord{nilPolicy, file("before")}}
+	after := CaptureResult{Objects: []ObjectRecord{nilPolicy, file("after")}}
+	if !CapturesDiffer(before, after) {
+		t.Fatal("a payload-free object at index 0 must not hide a changed file behind it")
+	}
+
+	same := CaptureResult{Objects: []ObjectRecord{nilPolicy, file("before")}}
+	if CapturesDiffer(before, same) {
+		t.Fatal("two identical captures must still compare equal")
+	}
+
+	oneSided := CaptureResult{Objects: []ObjectRecord{
+		{Kind: ObjectRuntimePolicy, RuntimePolicy: &RuntimePolicy{Name: "nft", State: "x"}},
+		file("before"),
+	}}
+	if !CapturesDiffer(before, oneSided) {
+		t.Fatal("a payload appearing on one side only is a difference")
+	}
+}
+
+func TestFormatFileMode_KeepsGoHighBits(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode os.FileMode
+		want string
+	}{
+		{name: "setgid", mode: os.FileMode(0o640) | os.ModeSetgid, want: "2640"},
+		{name: "setuid", mode: os.FileMode(0o755) | os.ModeSetuid, want: "4755"},
+		{name: "sticky", mode: os.FileMode(0o777) | os.ModeSticky, want: "1777"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := FormatFileMode(tc.mode); got != tc.want {
+				t.Fatalf("FormatFileMode(%v) = %q, want %q", tc.mode, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseFileMode(t *testing.T) {
 	rejects := map[string]string{
 		"empty":        "",
@@ -505,8 +581,11 @@ func TestParseFileMode(t *testing.T) {
 	if err != nil || got != os.FileMode(0o640) {
 		t.Fatalf("expected 0640, got %o err=%v", got, err)
 	}
-	if got, err := ParseFileMode("4755"); err != nil || got != os.FileMode(0o4755) {
-		t.Fatalf("expected setuid bits to survive, got %o err=%v", got, err)
+	if got, err := ParseFileMode("4755"); err != nil || got != os.FileMode(0o755)|os.ModeSetuid {
+		t.Fatalf("expected setuid to survive as os.ModeSetuid, got %v err=%v", got, err)
+	}
+	if got, err := ParseFileMode("3640"); err != nil || got != os.FileMode(0o640)|os.ModeSetgid|os.ModeSticky {
+		t.Fatalf("expected setgid and sticky to survive, got %v err=%v", got, err)
 	}
 }
 
@@ -543,8 +622,8 @@ func TestRestoreFileSnapshot_KeepsTheSetgidBit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RestoreFileSnapshot failed: %v", err)
 	}
-	if wroteMode != os.FileMode(0o2640) {
-		t.Fatalf("expected the recorded mode to reach the write, got %o", wroteMode)
+	if wroteMode != os.FileMode(0o640)|os.ModeSetgid {
+		t.Fatalf("expected the recorded mode to reach the write, got %v", wroteMode)
 	}
 	if !strings.Contains(strings.Join(cmds, "\n"), "chmod '2640'") {
 		t.Fatalf("expected the mode to be reapplied after chown clears it, got %v", cmds)

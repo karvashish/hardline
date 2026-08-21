@@ -176,7 +176,7 @@ func statFirewallTemplateDestination(rt firewallTemplateStatRuntime, dest string
 		return 0, 0, fmt.Errorf("parse stat size for %q: %w", dest, err)
 	}
 
-	return size, os.FileMode(perm), nil
+	return size, pluginapi.FileModeFromOctal(uint32(perm)), nil
 }
 
 func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
@@ -296,7 +296,7 @@ func restoreMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
 	mode := os.FileMode(0o600)
 	if trimmed := strings.TrimSpace(snap.Mode); trimmed != "" {
 		if parsed, err := strconv.ParseUint(trimmed, 8, 32); err == nil {
-			mode = os.FileMode(parsed)
+			mode = pluginapi.FileModeFromOctal(uint32(parsed))
 		}
 	}
 

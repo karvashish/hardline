@@ -69,7 +69,7 @@ func TestWriteRootFile(t *testing.T) {
 		t.Fatalf("unexpected root install cmd %q", sess.cmd)
 	}
 
-	if err := New(nil).WriteRootFile("/etc/example", []byte("abc"), os.FileMode(0o2640)); err != nil {
+	if err := New(nil).WriteRootFile("/etc/example", []byte("abc"), os.FileMode(0o640)|os.ModeSetgid); err != nil {
 		t.Fatalf("WriteRootFile failed: %v", err)
 	}
 	if !strings.Contains(sess.cmd, "install -m 2640 -- ") {

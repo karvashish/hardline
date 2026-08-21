@@ -73,7 +73,7 @@ func templateDestinationMatches(rt templateCompareRuntime, dest string, rendered
 	if err != nil {
 		return false, err
 	}
-	if size < 0 || currentMode.Perm() != mode.Perm() {
+	if size < 0 || currentMode != mode {
 		return false, nil
 	}
 
@@ -132,24 +132,24 @@ func Plan(ctx pluginapi.Context, t *Spec) (pluginapi.PlanResult, error) {
 			logger.ColorGreen, logger.ColorReset,
 		)
 		details = append(details, line)
-		diff = append(diff, fmt.Sprintf("file %q: absent -> present (mode %#o)", dest, mode.Perm()))
+		diff = append(diff, fmt.Sprintf("file %q: absent -> present (mode %s)", dest, pluginapi.FormatFileMode(mode)))
 		diff = append(diff, renderTemplateContentDiff(dest, "", string(rendered), false)...)
 	} else {
 		exists = true
 		line := fmt.Sprintf(
-			"%sdestination %q:%s %sexists (size=%d bytes, mode=%#o)%s",
+			"%sdestination %q:%s %sexists (size=%d bytes, mode=%s)%s",
 			logger.ColorBlue, dest, logger.ColorReset,
-			logger.ColorYellow, size, currentMode.Perm(), logger.ColorReset,
+			logger.ColorYellow, size, pluginapi.FormatFileMode(currentMode), logger.ColorReset,
 		)
 		details = append(details, line)
-		modeMatches = currentMode.Perm() == mode.Perm()
+		modeMatches = currentMode == mode
 		if modeMatches {
 			details = append(details,
-				logger.ColorGreen+fmt.Sprintf("destination mode matches desired mode %#o", mode.Perm())+logger.ColorReset,
+				logger.ColorGreen+fmt.Sprintf("destination mode matches desired mode %s", pluginapi.FormatFileMode(mode))+logger.ColorReset,
 			)
 		} else {
 			details = append(details,
-				logger.ColorYellow+fmt.Sprintf("destination mode differs (current=%#o desired=%#o)", currentMode.Perm(), mode.Perm())+logger.ColorReset,
+				logger.ColorYellow+fmt.Sprintf("destination mode differs (current=%s desired=%s)", pluginapi.FormatFileMode(currentMode), pluginapi.FormatFileMode(mode))+logger.ColorReset,
 			)
 		}
 
@@ -176,7 +176,7 @@ func Plan(ctx pluginapi.Context, t *Spec) (pluginapi.PlanResult, error) {
 
 		if !modeMatches {
 			diff = append(diff,
-				fmt.Sprintf("file mode %q: %#o -> %#o", dest, currentMode.Perm(), mode.Perm()),
+				fmt.Sprintf("file mode %q: %s -> %s", dest, pluginapi.FormatFileMode(currentMode), pluginapi.FormatFileMode(mode)),
 			)
 		}
 		if compareReady && !contentMatches {
@@ -355,7 +355,7 @@ func statTemplateDestination(rt templateStatRuntime, dest string) (int64, os.Fil
 		return 0, 0, fmt.Errorf("parse stat size for %q: %w", dest, err)
 	}
 
-	return size, os.FileMode(perm), nil
+	return size, pluginapi.FileModeFromOctal(uint32(perm)), nil
 }
 
 func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.CaptureResult, error) {

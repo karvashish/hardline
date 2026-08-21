@@ -412,7 +412,7 @@ func firewallDestinationMatches(rt firewallCompareRuntime, dest string, rendered
 	if err != nil {
 		return false, err
 	}
-	if size < 0 || currentMode.Perm() != mode.Perm() {
+	if size < 0 || currentMode != mode {
 		return false, nil
 	}
 
@@ -450,7 +450,7 @@ func statFirewallDestination(rt firewallStatRuntime, dest string) (int64, os.Fil
 		return 0, 0, fmt.Errorf("parse stat size for %q: %w", dest, err)
 	}
 
-	return size, os.FileMode(perm), nil
+	return size, pluginapi.FileModeFromOctal(uint32(perm)), nil
 }
 
 func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
@@ -501,22 +501,22 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 		details = append(details,
 			logger.ColorBlue+fmt.Sprintf("managed destination %q: does not exist (file will be created)", fw.ManagedDest)+logger.ColorReset,
 		)
-		diff = append(diff, fmt.Sprintf("file %q: absent -> present (mode %#o)", fw.ManagedDest, desiredMode.Perm()))
+		diff = append(diff, fmt.Sprintf("file %q: absent -> present (mode %s)", fw.ManagedDest, pluginapi.FormatFileMode(desiredMode)))
 		diff = append(diff, renderFirewallContentDiff(fw.ManagedDest, "", desiredRendered, false)...)
 	} else {
 		details = append(details,
-			logger.ColorBlue+fmt.Sprintf("managed destination %q: exists (size=%d mode=%#o)", fw.ManagedDest, info.Size(), info.Mode().Perm())+logger.ColorReset,
+			logger.ColorBlue+fmt.Sprintf("managed destination %q: exists (size=%d mode=%s)", fw.ManagedDest, info.Size(), pluginapi.FormatFileMode(info.Mode()))+logger.ColorReset,
 		)
-		if info.Mode().Perm() == desiredMode.Perm() {
+		if info.Mode() == desiredMode {
 			details = append(details,
-				logger.ColorGreen+fmt.Sprintf("managed destination mode matches desired mode %#o", desiredMode.Perm())+logger.ColorReset,
+				logger.ColorGreen+fmt.Sprintf("managed destination mode matches desired mode %s", pluginapi.FormatFileMode(desiredMode))+logger.ColorReset,
 			)
 		} else {
 			details = append(details,
-				logger.ColorYellow+fmt.Sprintf("managed destination mode differs (current=%#o desired=%#o)", info.Mode().Perm(), desiredMode.Perm())+logger.ColorReset,
+				logger.ColorYellow+fmt.Sprintf("managed destination mode differs (current=%s desired=%s)", pluginapi.FormatFileMode(info.Mode()), pluginapi.FormatFileMode(desiredMode))+logger.ColorReset,
 			)
 			diff = append(diff,
-				fmt.Sprintf("file mode %q: %#o -> %#o", fw.ManagedDest, info.Mode().Perm(), desiredMode.Perm()),
+				fmt.Sprintf("file mode %q: %s -> %s", fw.ManagedDest, pluginapi.FormatFileMode(info.Mode()), pluginapi.FormatFileMode(desiredMode)),
 			)
 		}
 
@@ -530,7 +530,7 @@ func Plan(ctx pluginapi.Context, fw *Spec) (pluginapi.PlanResult, error) {
 			details = append(details,
 				logger.ColorGreen+"managed destination content matches rendered firewall policy"+logger.ColorReset,
 			)
-			destinationMatches = info.Mode().Perm() == desiredMode.Perm()
+			destinationMatches = info.Mode() == desiredMode
 		} else {
 			details = append(details,
 				logger.ColorYellow+"managed destination content differs from rendered firewall policy"+logger.ColorReset,
@@ -786,13 +786,11 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 	if !ValidMainConfig(rec.Path) {
 		return fmt.Errorf("firewall rollback: unexpected main config path %q", rec.Path)
 	}
-	if !rec.Added {
-		return nil
-	}
 	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
-		// Another profile's ruleset is still included here; dropping the flush
-		// would make the next reload merge into the live ruleset instead of
-		// replacing it.
+		// Ownership is read from the file, not from rec.Added: the profile that rolls back last is
+		// the one that finds no managed include left, and it is the one that has to take the header
+		// with it - not whichever profile happened to write it first. Another profile's ruleset
+		// still included here means the header is still load-bearing.
 		remains, err := managedIncludeRemains(host, rec.Path, "")
 		if err != nil {
 			return err
@@ -800,10 +798,16 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 		if remains {
 			return nil
 		}
-		if !rec.FileExisted {
+		if !hardlineWroteFlush(host, rec.Path) {
+			return nil
+		}
+		if !rec.FileExisted && rec.Added {
 			return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
 		}
 		return RemoveNftablesFlush(host, rec.Path)
+	}
+	if !rec.Added {
+		return nil
 	}
 	if !rec.FileExisted {
 		// This run created the file, but another profile has since included its own
@@ -917,6 +921,23 @@ func flushCheckCmd(mainConfig string) string {
 		pluginapi.ShellArg(mainConfig))
 }
 
+// The flush header is shared: every managed include in this file needs it, and the profile that
+// happened to write it is not the profile that gets to remove it. A per-run boolean cannot say
+// that, so hardline writes its own marker above the line and reads ownership back out of the file.
+const FlushMarker = "# hardline: flush required by the managed include(s) below"
+
+func flushMarkerCheckCmd(mainConfig string) string {
+	return fmt.Sprintf(`grep -F -x -q %s %s 2>/dev/null`,
+		pluginapi.ShellArg(FlushMarker), pluginapi.ShellArg(mainConfig))
+}
+
+func hardlineWroteFlush(host pluginapi.Host, mainConfig string) bool {
+	if host == nil {
+		return false
+	}
+	return host.RunRoot(flushMarkerCheckCmd(mainConfig)) == nil
+}
+
 func flushPresent(host pluginapi.Host, mainConfig string) bool {
 	if host == nil {
 		return false
@@ -950,7 +971,7 @@ func EnsureNftablesFlush(host pluginapi.Host, mainConfig string) error {
 		}
 	}
 
-	next := FlushLine + "\n"
+	next := FlushMarker + "\n" + FlushLine + "\n"
 	if len(current) > 0 {
 		next += string(current)
 	}
@@ -1004,6 +1025,9 @@ func withoutFlushLine(content string) (string, bool) {
 	for _, line := range lines {
 		if strings.Join(strings.Fields(line), " ") == FlushLine {
 			removed = true
+			continue
+		}
+		if strings.TrimSpace(line) == FlushMarker {
 			continue
 		}
 		out = append(out, line)

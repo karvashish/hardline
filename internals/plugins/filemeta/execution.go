@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/karvashish/hardline/pkg/logger"
@@ -301,7 +300,7 @@ func normalizeMode(mode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strconv.FormatUint(uint64(parsed), 8), nil
+	return pluginapi.FormatFileMode(parsed), nil
 }
 
 func snapshotFileMeta(host pluginapi.Host, target string) (pluginapi.FileMetaSnapshot, error) {

@@ -44,10 +44,15 @@ func LockProbe(paths ...string) string {
 			panic("packages.LockProbe: unsupported lock path " + p)
 		}
 	}
-	joined := strings.Join(paths, " ")
+	// fuser needs the shell to expand a wildcard into real filenames; the /proc fallback needs the
+	// wildcard intact, because an unlinked lock file no glob can reach is exactly the case it covers.
+	quoted := make([]string, len(paths))
+	for i, p := range paths {
+		quoted[i] = pluginapi.ShellArg(p)
+	}
 	return "printf '%s' " + pluginapi.ShellArg(lockProbeMarker) + "; " +
-		"if command -v fuser >/dev/null 2>&1; then fuser " + joined + " 2>/dev/null; " +
-		"else " + procLockHolders(joined) + "; fi; echo"
+		"if command -v fuser >/dev/null 2>&1; then fuser " + strings.Join(paths, " ") + " 2>/dev/null; " +
+		"else " + procLockHolders(strings.Join(quoted, " ")) + "; fi; echo"
 }
 
 func procLockHolders(joined string) string {
@@ -57,9 +62,9 @@ func procLockHolders(joined string) string {
 		// A holder whose lock file was unlinked still holds it; /proc spells that target "<path> (deleted)".
 		`target=${target%" (deleted)"}; ` +
 		"for lock in " + joined + "; do " +
-		`if [ "$target" = "$lock" ]; then ` +
+		`case "$target" in $lock) ` +
 		"pid=${fd#/proc/}; pid=${pid%%/*}; " +
-		`printf '%s ' "$pid"; break; fi; ` +
+		`printf '%s ' "$pid"; break;; esac; ` +
 		"done; done; }"
 }
 

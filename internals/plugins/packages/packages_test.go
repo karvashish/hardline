@@ -304,15 +304,24 @@ func TestLockProbe(t *testing.T) {
 			t.Errorf("probe missing %q:\n%s", want, probe)
 		}
 	}
-	if strings.Contains(probe, "'/var/cache/libdnf5/*.pid'") {
+	fuserBranch, procBranch, split := strings.Cut(probe, "else ")
+	if !split {
+		t.Fatalf("probe has no /proc fallback:\n%s", probe)
+	}
+	if strings.Contains(fuserBranch, "'/var/cache/libdnf5/*.pid'") {
 		t.Error("a quoted glob would make fuser look for a file named *")
+	}
+	if !strings.Contains(procBranch, "for lock in '/var/lib/rpm/.rpm.lock' '/var/cache/libdnf5/*.pid'") {
+		t.Errorf("the /proc fallback needs the wildcard unexpanded to reach an unlinked lock:\n%s", procBranch)
+	}
+	if !strings.Contains(procBranch, `case "$target" in $lock)`) {
+		t.Errorf("the /proc fallback has to match the lock as a pattern, not compare it:\n%s", procBranch)
 	}
 
 	for _, want := range []string{
 		"/proc/[0-9]*/fd/*",
 		"[ -d /proc/1/fd ]",
 		"exit 3",
-		"for lock in /var/lib/rpm/.rpm.lock /var/cache/libdnf5/*.pid",
 	} {
 		if !strings.Contains(probe, want) {
 			t.Errorf("probe missing %q:\n%s", want, probe)

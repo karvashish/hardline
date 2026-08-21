@@ -645,6 +645,30 @@ func generateTestKeyPEM(t *testing.T) (ed25519.PrivateKey, []byte) {
 	return priv, pubPEM
 }
 
+func stubRootOwnedKey(t *testing.T) func() {
+	t.Helper()
+	orig := fileOwnerUID
+	fileOwnerUID = func(os.FileInfo) (uint32, bool) { return 0, true }
+	return func() { fileOwnerUID = orig }
+}
+
+func TestLoadLocalPublicKey_RefusesANonRootOwner(t *testing.T) {
+	_, pubPEM := generateTestKeyPEM(t)
+	keyPath := filepath.Join(t.TempDir(), "pub.pem")
+	if err := os.WriteFile(keyPath, pubPEM, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := fileOwnerUID
+	fileOwnerUID = func(os.FileInfo) (uint32, bool) { return 1000, true }
+	defer func() { fileOwnerUID = orig }()
+
+	_, err := loadLocalPublicKey(keyPath)
+	if err == nil || !strings.Contains(err.Error(), "has to be root-owned") {
+		t.Fatalf("a key its owner can rewrite is not a trust anchor, got %v", err)
+	}
+}
+
 func TestLoadLocalPublicKey_ValidKey(t *testing.T) {
 	priv, pubPEM := generateTestKeyPEM(t)
 	keyPath := filepath.Join(t.TempDir(), "pub.pem")
@@ -652,9 +676,7 @@ func TestLoadLocalPublicKey_ValidKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	pubKey, err := loadLocalPublicKey(keyPath)
 	if err != nil {
@@ -680,13 +702,11 @@ func TestLoadLocalPublicKey_RefusesSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	_, err := loadLocalPublicKey(linkPath)
-	if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
-		t.Fatalf("expected a refusal to trust a symlinked key, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "local signing key not found") {
+		t.Fatalf("expected the open itself to refuse to follow the link, got %v", err)
 	}
 }
 
@@ -700,9 +720,7 @@ func TestLoadLocalPublicKey_GroupWritable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err == nil || !strings.Contains(err.Error(), "insecure permissions") {
@@ -720,9 +738,7 @@ func TestLoadLocalPublicKey_WorldWritable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err == nil || !strings.Contains(err.Error(), "insecure permissions") {
@@ -731,9 +747,7 @@ func TestLoadLocalPublicKey_WorldWritable(t *testing.T) {
 }
 
 func TestLoadLocalPublicKey_NotFound(t *testing.T) {
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	_, err := loadLocalPublicKey(filepath.Join(t.TempDir(), "nonexistent.pem"))
 	if err == nil || !strings.Contains(err.Error(), "local signing key not found") {
@@ -748,9 +762,7 @@ func TestLoadLocalPublicKey_NotEd25519(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err == nil || !strings.Contains(err.Error(), "not Ed25519") {
@@ -765,9 +777,7 @@ func TestLoadLocalPublicKey_StrictPerms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	_, err := loadLocalPublicKey(keyPath)
 	if err != nil {
@@ -792,9 +802,7 @@ func TestVerifyProfileIntegrity_WithLocalKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origStat := lstatFunc
-	lstatFunc = os.Lstat
-	defer func() { lstatFunc = origStat }()
+	defer stubRootOwnedKey(t)()
 
 	profileDir := t.TempDir()
 	writeTestFile(t, filepath.Join(profileDir, "a.txt"), []byte("hello"))

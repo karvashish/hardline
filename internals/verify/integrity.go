@@ -47,8 +47,6 @@ type manifestEntry struct {
 //go:embed profile_signing_pub.pem
 var embeddedProfileSigningPubPEM []byte
 
-var lstatFunc = os.Lstat
-
 type VerifiedManifest struct {
 	Digest string
 	Files  map[string][]byte
@@ -162,44 +160,32 @@ func resolvePublicKey(useLocalKey bool) (ed25519.PublicKey, error) {
 }
 
 func loadLocalPublicKey(keyPath string) (ed25519.PublicKey, error) {
-	info, err := lstatFunc(keyPath)
+	file, err := openNoFollow(keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("local signing key not found at %s: %w", keyPath, err)
 	}
+	defer file.Close()
 
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf(
-			"local signing key %s is not a regular file (mode %s): refusing to trust whatever a symlink or device node resolves to",
-			keyPath, info.Mode(),
-		)
+	// Every check below describes the descriptor that is about to be read, so there is no window
+	// between what was checked and what is trusted, and no symlink to be redirected through.
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("read local signing key %s: %w", keyPath, err)
 	}
-	mode := info.Mode().Perm()
-	if mode&0o022 != 0 {
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("local signing key %s is not a regular file (mode %s)", keyPath, info.Mode())
+	}
+	if mode := info.Mode().Perm(); mode&0o022 != 0 {
 		return nil, fmt.Errorf(
 			"local signing key %s has insecure permissions %04o: must not be group-writable or world-writable (expected 0644 or stricter)",
 			keyPath, mode,
 		)
 	}
-	if uid, ok := fileOwnerUID(info); ok && uid != 0 && int(uid) != os.Geteuid() {
+	if uid, ok := fileOwnerUID(info); ok && uid != 0 {
 		return nil, fmt.Errorf(
-			"local signing key %s is owned by uid %d, which is neither root nor the user running hardline (uid %d)",
-			keyPath, uid, os.Geteuid(),
+			"local signing key %s is owned by uid %d: a trust anchor has to be root-owned, or that uid can replace the key hardline verifies against",
+			keyPath, uid,
 		)
-	}
-
-	file, err := os.Open(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("read local signing key %s: %w", keyPath, err)
-	}
-	defer file.Close()
-
-	// The checks above describe the inode lstat saw; only the open handle proves they describe the bytes read.
-	opened, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("read local signing key %s: %w", keyPath, err)
-	}
-	if !os.SameFile(info, opened) {
-		return nil, fmt.Errorf("local signing key %s was replaced while it was being read", keyPath)
 	}
 
 	pemBytes, err := io.ReadAll(io.LimitReader(file, maxProfileFileBytes))

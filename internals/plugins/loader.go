@@ -28,6 +28,7 @@ var (
 	executablePath   = os.Executable
 	readDirEntries   = os.ReadDir
 	lstatPath        = os.Lstat
+	evalSymlinks     = filepath.EvalSymlinks
 	currentUID       = os.Geteuid
 	openSharedObject = func(path string) (pluginLookup, error) {
 		return plugin.Open(path)
@@ -76,6 +77,58 @@ func assertTrustedArtifact(path string, wantDir bool) error {
 	return nil
 }
 
+// The plugins directory can pass every check of its own and still hang under a parent that another
+// user can rename or repoint, which puts a plugin of their choosing in this load path. Symlinked
+// parents are not refused outright - /var is one on macOS - so both the literal chain and what it
+// resolves to have to be writable by nobody else.
+func assertTrustedAncestry(dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve plugins path %q: %w", dir, err)
+	}
+	parent := filepath.Dir(abs)
+	linked, err := assertTrustedChain(parent)
+	if err != nil {
+		return err
+	}
+	if !linked {
+		return nil
+	}
+	resolved, err := evalSymlinks(parent)
+	if err != nil {
+		return fmt.Errorf("resolve plugins path %q: %w", parent, err)
+	}
+	_, err = assertTrustedChain(resolved)
+	return err
+}
+
+// Reports whether the chain passed through a symlink. A symlink's own mode says nothing, so it is
+// the directory holding it - the next step up - that has to be trustworthy.
+func assertTrustedChain(dir string) (bool, error) {
+	linked := false
+	for p := dir; ; p = filepath.Dir(p) {
+		info, err := lstatPath(p)
+		if err != nil {
+			return linked, fmt.Errorf("stat %q: %w", p, err)
+		}
+		switch {
+		case info.Mode()&fs.ModeSymlink != 0:
+			linked = true
+		case info.Mode().Perm()&0o022 != 0 && info.Mode()&fs.ModeSticky == 0:
+			return linked, fmt.Errorf("%q, a parent of the plugins directory, is writable by group or others (mode %04o) and not sticky; anyone who can write it can swap what hardline loads as root",
+				p, info.Mode().Perm())
+		default:
+			if uid, ok := fileOwnerUID(info); ok && uid != 0 && int(uid) != currentUID() {
+				return linked, fmt.Errorf("%q, a parent of the plugins directory, is owned by uid %d, which is neither root nor the user running hardline (uid %d); refusing to load plugins",
+					p, uid, currentUID())
+			}
+		}
+		if up := filepath.Dir(p); up == p {
+			return linked, nil
+		}
+	}
+}
+
 func LoadFromDir(dir string) error {
 	entries, err := readDirEntries(dir)
 	if err != nil {
@@ -87,6 +140,9 @@ func LoadFromDir(dir string) error {
 	}
 
 	if err := assertTrustedArtifact(dir, true); err != nil {
+		return err
+	}
+	if err := assertTrustedAncestry(dir); err != nil {
 		return err
 	}
 

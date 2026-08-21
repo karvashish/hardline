@@ -411,6 +411,70 @@ func TestLoadFromDirRejectsUntrustedArtifacts(t *testing.T) {
 			t.Fatalf("expected a trusted plugin to load, got %v", err)
 		}
 	})
+
+	t.Run("loose parent directory", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		dir := filepath.Join(t.TempDir(), "loose", "plugins")
+		mustPluginDir(t, dir)
+		if err := os.Chmod(filepath.Dir(dir), 0o777); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+
+		err := LoadFromDir(dir)
+		if err == nil || !strings.Contains(err.Error(), "a parent of the plugins directory") {
+			t.Fatalf("expected a parent rejection, got %v", err)
+		}
+	})
+
+	t.Run("symlinked parent resolving somewhere loose", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		base := t.TempDir()
+		real := filepath.Join(base, "loose")
+		mustPluginDir(t, filepath.Join(real, "plugins"))
+		if err := os.Chmod(real, 0o777); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+		if err := os.Symlink(real, filepath.Join(base, "link")); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+
+		err := LoadFromDir(filepath.Join(base, "link", "plugins"))
+		if err == nil || !strings.Contains(err.Error(), "a parent of the plugins directory") {
+			t.Fatalf("a symlink hid the loose directory it points at, got %v", err)
+		}
+	})
+
+	t.Run("symlinked parent resolving somewhere trusted", func(t *testing.T) {
+		restore := stubLoaderDeps()
+		defer restore()
+
+		base := t.TempDir()
+		real := filepath.Join(base, "real")
+		mustPluginDir(t, filepath.Join(real, "plugins"))
+		if err := os.Symlink(real, filepath.Join(base, "link")); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+
+		if err := LoadFromDir(filepath.Join(base, "link", "plugins")); err != nil {
+			t.Fatalf("a symlinked parent of a trusted directory is not a lockout, got %v", err)
+		}
+	})
+}
+
+func mustPluginDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	path := filepath.Join(dir, "ok.so")
+	mustWrite(t, path)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
 }
 
 func TestAssertTrustedArtifactRejectsAnIrregularFile(t *testing.T) {

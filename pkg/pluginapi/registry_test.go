@@ -215,6 +215,32 @@ func TestValidateProfileSteps_RunsPluginValidator(t *testing.T) {
 	}
 }
 
+func TestValidateProfileStepsHandsTheValidatorItsOwnOverrides(t *testing.T) {
+	r := NewRegistry()
+	plugin := validPlugin("template")
+	plugin.Validate = func(_ profile.Step, overrides map[string]json.RawMessage) error {
+		overrides["allow_tcp_ports"][1] = '9'
+		overrides["injected"] = json.RawMessage("true")
+		return nil
+	}
+	if err := r.Register(plugin); err != nil {
+		t.Fatalf("register plugin failed: %v", err)
+	}
+
+	overrides := map[string]json.RawMessage{"allow_tcp_ports": json.RawMessage("[22]")}
+	err := ValidateProfileSteps(r, &profile.Profile{
+		ActionFiles: []profile.ActionFile{
+			{Steps: []profile.Step{{ID: "s1", Plugin: "template"}}},
+		},
+	}, overrides)
+	if err != nil {
+		t.Fatalf("ValidateProfileSteps failed: %v", err)
+	}
+	if string(overrides["allow_tcp_ports"]) != "[22]" || len(overrides) != 1 {
+		t.Fatalf("a validator rewrote what plan and apply will read: %v", overrides)
+	}
+}
+
 func validPlugin(name string) Plugin {
 	return Plugin{
 		Name:     name,

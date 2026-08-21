@@ -229,6 +229,17 @@ func RequireStepPlugin(r *Registry, step profile.Step) (Plugin, error) {
 	return plugin, nil
 }
 
+func copyOverrides(overrides map[string]json.RawMessage) map[string]json.RawMessage {
+	if overrides == nil {
+		return nil
+	}
+	out := make(map[string]json.RawMessage, len(overrides))
+	for name, raw := range overrides {
+		out[name] = append(json.RawMessage(nil), raw...)
+	}
+	return out
+}
+
 func ValidateProfileSteps(r *Registry, p *profile.Profile, overrides map[string]json.RawMessage) error {
 	if p == nil {
 		return fmt.Errorf("profile is nil")
@@ -240,7 +251,9 @@ func ValidateProfileSteps(r *Registry, p *profile.Profile, overrides map[string]
 			if err != nil {
 				return err
 			}
-			if err := plugin.Validate(step, overrides); err != nil {
+			// An external Validate is untrusted code holding the map Plan and Apply read next, so it
+			// gets a copy of its own to write into.
+			if err := plugin.Validate(step, copyOverrides(overrides)); err != nil {
 				return fmt.Errorf("step %q (%s): %w", step.ID, step.PluginName(), err)
 			}
 		}

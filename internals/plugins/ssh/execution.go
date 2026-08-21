@@ -118,19 +118,18 @@ func assertListed(effective map[string][]string, key string, names []string, mus
 		return nil
 	}
 
+	// An OpenSSH pattern is a literal plus * and ?. Negation, host@user, and anything path.Match
+	// would read as a character class or an escape is refused here rather than evaluated with a
+	// grammar sshd does not use - and the refusal has to happen whether or not names is empty,
+	// since an empty list would otherwise never reach the pattern at all.
 	matched := false
 	for _, pattern := range patterns {
-		if strings.HasPrefix(pattern, "!") || strings.Contains(pattern, "@") {
+		if strings.HasPrefix(pattern, "!") || strings.ContainsAny(pattern, `@[]\`) {
 			return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, whose pattern %q this check cannot evaluate; hardline will not guess whether it keeps its own access",
 				key, strings.Join(patterns, " "), pattern)
 		}
 		for _, name := range names {
-			ok, err := path.Match(pattern, name)
-			if err != nil {
-				return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, whose pattern %q does not parse (%v); hardline will not guess whether it keeps its own access",
-					key, strings.Join(patterns, " "), pattern, err)
-			}
-			if ok {
+			if ok, _ := path.Match(pattern, name); ok {
 				matched = true
 			}
 		}

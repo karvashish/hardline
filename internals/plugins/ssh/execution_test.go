@@ -419,16 +419,23 @@ func TestAssertManagementAccess(t *testing.T) {
 			contains:  "cannot evaluate",
 		},
 		{
-			name:      "unparsable deny pattern is refused rather than skipped",
+			name:      "character-class deny pattern is refused rather than skipped",
 			effective: map[string][]string{"denyusers": {"bad[ deploy"}},
 			user:      "admin",
-			contains:  "does not parse",
+			contains:  "cannot evaluate",
 		},
 		{
-			name:      "unparsable allow pattern is refused rather than skipped",
+			name:      "character-class allow pattern is refused rather than skipped",
 			effective: map[string][]string{"allowusers": {"adm[in"}},
 			user:      "admin",
-			contains:  "does not parse",
+			contains:  "cannot evaluate",
+		},
+		{
+			name:      "deny pattern is checked even with an empty name list",
+			effective: map[string][]string{"denygroups": {"adm[in"}},
+			user:      "admin",
+			groups:    nil,
+			contains:  "cannot evaluate",
 		},
 		{
 			name:      "user@host pattern is refused rather than guessed",

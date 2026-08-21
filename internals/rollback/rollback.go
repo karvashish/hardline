@@ -406,27 +406,18 @@ func checkStepConflicts(client *remote.Client, step StepRecord, resuming bool) [
 	if !ok {
 		return nil
 	}
-	if resuming && stepAlreadyReverted(client, plug, step) {
-		return nil
-	}
+	// An interrupted attempt leaves some objects back at Before and the rest still at After, so
+	// comparing every object against After alone reads the reverted ones as third-party drift.
+	// Before and After come from the same capture of the same step, so they pair off by position.
+	paired := resuming && len(step.Before) == len(step.After)
 	var conflicts []string
-	for _, afterObj := range step.After {
+	for i, afterObj := range step.After {
+		if paired && len(plug.DetectConflict(client, step.Before[i])) == 0 {
+			continue
+		}
 		conflicts = append(conflicts, plug.DetectConflict(client, afterObj)...)
 	}
 	return conflicts
-}
-
-// A step an earlier attempt already reverted sits at Before, which the After comparison reads as third-party drift.
-func stepAlreadyReverted(client *remote.Client, plug pluginapi.Plugin, step StepRecord) bool {
-	if len(step.Before) == 0 {
-		return false
-	}
-	for _, beforeObj := range step.Before {
-		if len(plug.DetectConflict(client, beforeObj)) > 0 {
-			return false
-		}
-	}
-	return true
 }
 
 func stepHasServiceObjects(step StepRecord) bool {

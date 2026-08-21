@@ -658,6 +658,45 @@ func TestPreflightLetsAResumeFinishAnAlreadyRevertedStep(t *testing.T) {
 	}
 }
 
+func TestPreflightResumesAPartiallyRevertedStep(t *testing.T) {
+	restore := stubRollbackHooks()
+	defer restore()
+
+	const stillApplied = "/etc/ssh/sshd_config.d/99-hardline-a.conf"
+	const alreadyReverted = "/etc/ssh/sshd_config.d/99-hardline-b.conf"
+
+	step := StepRecord{
+		ID:           "two-objects",
+		Type:         "template",
+		RollbackMode: pluginapi.ModeDeterministic,
+		Before: []pluginapi.ObjectRecord{
+			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: stillApplied, Existed: false}},
+			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: alreadyReverted, Existed: false}},
+		},
+		After: []pluginapi.ObjectRecord{
+			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: stillApplied, Existed: true, ContentB64: "x"}},
+			{Kind: pluginapi.ObjectFile, File: &pluginapi.FileSnapshot{Path: alreadyReverted, Existed: true, ContentB64: "y"}},
+		},
+	}
+	// The interrupted attempt put the second object back and never reached the first.
+	onHost := map[string]bool{stillApplied: true, alreadyReverted: false}
+	installPlugins(t, map[string]fakeBehavior{
+		"template": {detectConflict: func(_ pluginapi.Host, obj pluginapi.ObjectRecord) []string {
+			if obj.File.Existed != onHost[obj.File.Path] {
+				return []string{obj.File.Path + " is not what this record describes"}
+			}
+			return nil
+		}},
+	})
+
+	if err := preflightRollbackConflicts(nil, []StepRecord{step}, false, true); err != nil {
+		t.Fatalf("a resume must not read an already-reverted object as third-party drift, got %v", err)
+	}
+	if err := preflightRollbackConflicts(nil, []StepRecord{step}, false, false); err == nil {
+		t.Fatal("a fresh rollback must still report the drift")
+	}
+}
+
 func TestPreflightStillRefusesRealDriftOnAResume(t *testing.T) {
 	restore := stubRollbackHooks()
 	defer restore()

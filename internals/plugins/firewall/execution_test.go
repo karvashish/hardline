@@ -992,6 +992,8 @@ func validDeterministicFirewallSpec() *Spec {
 
 func activationProbeAnswer(cmd string, noSSHD bool, liveJSON string) (string, bool) {
 	switch {
+	case strings.HasPrefix(cmd, "if test -f "):
+		return "HL:present", true
 	case strings.HasPrefix(cmd, "ss -Hltnp"):
 		if noSSHD {
 			return "", true
@@ -1749,14 +1751,11 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 	t.Run("flushes when the main config is gone", func(t *testing.T) {
 		var cmds []string
 		host := firewallExecHostStub{
-			runRoot: func(cmd string) error {
-				if strings.HasPrefix(cmd, "test -f ") {
-					return errors.New("missing")
-				}
-				return nil
-			},
 			runRootWithOutput: func(cmd string) (string, error) {
 				cmds = append(cmds, cmd)
+				if strings.HasPrefix(cmd, "if test -f ") {
+					return "HL:absent", nil
+				}
 				return "", nil
 			},
 		}
@@ -1775,20 +1774,46 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 	})
 }
 
+func TestRollbackRefusesToFlushOnAnUnreadableProbe(t *testing.T) {
+	snap := pluginapi.FileSnapshot{Path: testDest, Existed: false}
+
+	for _, tc := range []struct {
+		name string
+		out  string
+		err  error
+		want string
+	}{
+		{name: "transport failure", err: errors.New("connection lost"), want: "probe " + MainConfigDebian},
+		{name: "unrecognized answer", out: "sudo: a password is required", want: "unexpected answer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cmds []string
+			host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+				cmds = append(cmds, cmd)
+				if strings.HasPrefix(cmd, "if test -f ") {
+					return tc.out, tc.err
+				}
+				return "", nil
+			}}
+			err := RestoreManagedRuleset(host, snap, MainConfigDebian)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q, got %v", tc.want, err)
+			}
+			if containsCmd(cmds, "nft flush ruleset") {
+				t.Fatalf("a probe that did not answer must not flush the host ruleset, got %v", cmds)
+			}
+		})
+	}
+}
+
 func TestRollbackReportsAFailedReload(t *testing.T) {
 	snap := pluginapi.FileSnapshot{Path: testDest, Existed: false}
-	missingMainConfig := func(cmd string) error {
-		if strings.HasPrefix(cmd, "test -f ") {
-			return errors.New("missing")
-		}
-		return nil
-	}
 
 	cases := []struct {
-		name    string
-		runRoot func(string) error
-		out     string
-		want    string
+		name   string
+		absent bool
+		out    string
+		want   string
 	}{
 		{
 			name: "names what nft complained about",
@@ -1800,23 +1825,28 @@ func TestRollbackReportsAFailedReload(t *testing.T) {
 			want: "reload " + MainConfigDebian,
 		},
 		{
-			name:    "reports a failed flush",
-			runRoot: missingMainConfig,
-			out:     "Error: Could not process rule",
-			want:    "Could not process rule",
+			name:   "reports a failed flush",
+			absent: true,
+			out:    "Error: Could not process rule",
+			want:   "Could not process rule",
 		},
 		{
-			name:    "reports a silent flush failure",
-			runRoot: missingMainConfig,
-			want:    "flush the loaded ruleset",
+			name:   "reports a silent flush failure",
+			absent: true,
+			want:   "flush the loaded ruleset",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			host := firewallExecHostStub{
-				runRoot: tc.runRoot,
 				runRootWithOutput: func(cmd string) (string, error) {
+					if strings.HasPrefix(cmd, "if test -f ") {
+						if tc.absent {
+							return "HL:absent", nil
+						}
+						return "HL:present", nil
+					}
 					if strings.Contains(cmd, "nft ") {
 						return tc.out, errors.New("exit 1")
 					}
@@ -1977,6 +2007,78 @@ func TestRollbackKeepsTheFlushWhileAnotherManagedIncludeRemains(t *testing.T) {
 	}
 }
 
+func TestRollbackKeepsAMainConfigAnotherProfileStillUses(t *testing.T) {
+	const mine = "/etc/nftables.d/99-hardline-firewall.nft"
+	const other = `include "/etc/nftables.d/99-hardline-other.nft"`
+	current := FlushLine + "\n" + IncludeLine(mine) + "\n" + other + "\n"
+
+	var wrote string
+	var cmds []string
+	host := firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+		runRootWithOutput: func(cmd string) (string, error) {
+			cmds = append(cmds, cmd)
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile:  func(string) (string, error) { return current, nil },
+		writeRootFile: func(_ string, data []byte, _ os.FileMode) error { wrote = string(data); return nil },
+	}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        MainConfigDebian,
+		Line:        IncludeLine(mine),
+		FileExisted: false,
+		Added:       true,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	for _, cmd := range cmds {
+		if strings.HasPrefix(cmd, "rm -f ") {
+			t.Fatalf("a main config another profile includes from must survive, got %v", cmds)
+		}
+	}
+	if strings.Contains(wrote, mine) {
+		t.Fatalf("expected this profile's include to be gone, got %q", wrote)
+	}
+	if !strings.Contains(wrote, other) {
+		t.Fatalf("expected the other profile's include to survive, got %q", wrote)
+	}
+}
+
+func TestRollbackRemovesAMainConfigNoOtherProfileUses(t *testing.T) {
+	const mine = "/etc/nftables.d/99-hardline-firewall.nft"
+	current := FlushLine + "\n" + IncludeLine(mine) + "\n"
+
+	var cmds []string
+	host := firewallExecHostStub{
+		runRoot: func(cmd string) error {
+			cmds = append(cmds, cmd)
+			return nil
+		},
+		runRootWithOutput: func(string) (string, error) {
+			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
+		},
+		readRootFile: func(string) (string, error) { return current, nil },
+	}
+
+	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
+		Path:        MainConfigDebian,
+		Line:        IncludeLine(mine),
+		FileExisted: false,
+		Added:       true,
+	})
+	if err != nil {
+		t.Fatalf("RestoreNftablesInclude failed: %v", err)
+	}
+	if !containsCmd(cmds, "rm -f "+pluginapi.ShellArg(MainConfigDebian)) {
+		t.Fatalf("expected the main config this run created to be removed, got %v", cmds)
+	}
+}
+
 func TestRollbackKeepsAFlushLineItDidNotAdd(t *testing.T) {
 	host := firewallExecHostStub{writeRootFile: func(string, []byte, os.FileMode) error {
 		t.Fatal("a flush line this run did not add must not be removed")
@@ -2123,6 +2225,57 @@ func TestActivateFirewallRefusesToLockItselfOut(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
 		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
+	}
+}
+
+func TestActivateFirewallRefusesAnOutputPolicyThatDropsReplies(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "drop"})
+	desired := normalizedTestSpec(t, spec)
+
+	var cmds []string
+	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+		cmds = append(cmds, cmd)
+		return "", nil
+	}}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "answer an established connection") {
+		t.Fatalf("expected an output-chain lockout refusal, got %v", err)
+	}
+	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
+		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
+	}
+}
+
+func TestActivateFirewallAcceptsAnOutputPolicyThatKeepsReplies(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "drop"})
+	spec.Rules = append(spec.Rules, Rule{Chain: "output", CTStates: []string{"established", "related"}, Action: "accept"})
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("expected the ruleset to be loaded, got %v", err)
+	}
+}
+
+func TestActivateFirewallRefusesWhenOnlyOneSSHListenerSurvives(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
+		if strings.HasPrefix(cmd, "ss -Hltnp") {
+			return `LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=800,fd=3))` + "\n" +
+				`LISTEN 0 128 0.0.0.0:2222 0.0.0.0:* users:(("sshd",pid=800,fd=4))`, nil
+		}
+		return "", nil
+	}}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
+		t.Fatalf("expected an accepted port 22 not to excuse a blocked port 2222, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "port 2222") {
+		t.Fatalf("expected the blocked listener to be named, got %v", err)
 	}
 }
 

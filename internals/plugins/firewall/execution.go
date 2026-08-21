@@ -163,6 +163,12 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 }
 
 func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
+	if reason := outputReplyRefusal(desired); reason != "" {
+		return fmt.Errorf(
+			"refusing to load: the output chain would not let this host answer an established connection, "+
+				"so hardline would lock itself out of this host:\n  %s", reason)
+	}
+
 	policy := desired.Policies["input"]
 	if policy != "drop" && policy != "reject" && !deniesNewTCP(desired) {
 		return nil
@@ -173,18 +179,45 @@ func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 		return err
 	}
 
+	// Every listener has to survive: hardline cannot tell which one carries this run's session.
 	reasons := make([]string, 0, len(ports))
 	for _, port := range ports {
-		reason := inputPortRefusal(desired, port)
-		if reason == "" {
-			return nil
+		if reason := inputPortRefusal(desired, port); reason != "" {
+			reasons = append(reasons, fmt.Sprintf("port %d: %s", port, reason))
 		}
-		reasons = append(reasons, fmt.Sprintf("port %d: %s", port, reason))
+	}
+	if len(reasons) == 0 {
+		return nil
 	}
 	return fmt.Errorf(
-		"refusing to load: the input chain would not accept a new tcp connection on the port sshd is listening on (%s), "+
+		"refusing to load: the input chain would not accept a new tcp connection on every port sshd is listening on (%s), "+
 			"so hardline would lock itself out of this host:\n  %s",
 		joinPorts(ports), strings.Join(reasons, "\n  "))
+}
+
+// An ssh reply leaves on the output chain as an established packet. The spec has no source-port
+// vocabulary, so only an unscoped accept for the established state can be shown to carry it.
+func outputReplyRefusal(desired NormalizedSpec) string {
+	for _, rule := range desired.Rules {
+		if rule.Chain != "output" || rule.Proto != "" || !coversState(rule.CTStates, "established") {
+			continue
+		}
+		if scopedRule(rule) {
+			if rule.Action == "accept" {
+				continue
+			}
+			return fmt.Sprintf("%q is evaluated before any rule that accepts it, and hardline cannot tell whether it covers this run's connection; put an unscoped accept for the established state above it",
+				RenderNormalizedRule(desired.Family, rule))
+		}
+		if rule.Action == "accept" {
+			return ""
+		}
+		return fmt.Sprintf("%q is evaluated before any rule that accepts it", RenderNormalizedRule(desired.Family, rule))
+	}
+	if policy := desired.Policies["output"]; policy == "drop" || policy == "reject" {
+		return fmt.Sprintf("no rule accepts an established connection and the chain policy is %q", policy)
+	}
+	return ""
 }
 
 func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
@@ -301,7 +334,7 @@ func deniesNewTCP(desired NormalizedSpec) bool {
 		if rule.Chain != "input" || rule.Action == "accept" {
 			continue
 		}
-		if (rule.Proto == "" || rule.Proto == "tcp") && coversNewState(rule.CTStates) {
+		if (rule.Proto == "" || rule.Proto == "tcp") && coversState(rule.CTStates, "new") {
 			return true
 		}
 	}
@@ -318,15 +351,15 @@ func matchesNewTCP(rule NormalizedRule, port int) bool {
 	default:
 		return false
 	}
-	return coversNewState(rule.CTStates)
+	return coversState(rule.CTStates, "new")
 }
 
-func coversNewState(states []string) bool {
+func coversState(states []string, want string) bool {
 	if len(states) == 0 {
 		return true
 	}
 	for _, state := range states {
-		if state == "new" {
+		if state == want {
 			return true
 		}
 	}
@@ -756,26 +789,37 @@ func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapsho
 	if !rec.Added {
 		return nil
 	}
-	if !rec.FileExisted {
-		return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
-	}
 	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
 		// Another profile's ruleset is still included here; dropping the flush
 		// would make the next reload merge into the live ruleset instead of
 		// replacing it.
-		remains, err := managedIncludeRemains(host, rec.Path)
+		remains, err := managedIncludeRemains(host, rec.Path, "")
 		if err != nil {
 			return err
 		}
 		if remains {
 			return nil
 		}
+		if !rec.FileExisted {
+			return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
+		}
 		return RemoveNftablesFlush(host, rec.Path)
+	}
+	if !rec.FileExisted {
+		// This run created the file, but another profile has since included its own
+		// ruleset from it; removing the file would take that profile's policy with it.
+		remains, err := managedIncludeRemains(host, rec.Path, normalizeIncludeLine(rec.Line))
+		if err != nil {
+			return err
+		}
+		if !remains {
+			return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
+		}
 	}
 	return RemoveNftablesInclude(host, rec.Path, rec.Line)
 }
 
-func managedIncludeRemains(host pluginapi.Host, mainConfig string) (bool, error) {
+func managedIncludeRemains(host pluginapi.Host, mainConfig, except string) (bool, error) {
 	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
 	if err != nil {
 		return false, fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
@@ -789,7 +833,7 @@ func managedIncludeRemains(host pluginapi.Host, mainConfig string) (bool, error)
 	}
 	for _, line := range strings.Split(string(current), "\n") {
 		target := normalizeIncludeLine(line)
-		if target == "" {
+		if target == "" || target == except {
 			continue
 		}
 		if pluginapi.EnforceManagedPath(target) == nil {
@@ -813,7 +857,11 @@ func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mai
 }
 
 func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
-	if err := host.RunRoot("test -f " + pluginapi.ShellArg(mainConfig)); err != nil {
+	present, err := mainConfigPresent(host, mainConfig)
+	if err != nil {
+		return err
+	}
+	if !present {
 		if out, flushErr := host.RunRootWithOutput("nft flush ruleset 2>&1"); flushErr != nil {
 			if detail := pluginapi.FirstLines(out, 5); detail != "" {
 				return fmt.Errorf("firewall rollback: flush the loaded ruleset: %s", detail)
@@ -834,6 +882,22 @@ func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {
 		return fmt.Errorf("firewall rollback: reload %s: %w", mainConfig, err)
 	}
 	return nil
+}
+
+// The absence branch flushes the whole ruleset, so a transport loss, a sudo refusal or a timeout must not be read as absence.
+func mainConfigPresent(host pluginapi.Host, mainConfig string) (bool, error) {
+	out, err := host.RunRootWithOutput(
+		"if test -f " + pluginapi.ShellArg(mainConfig) + "; then echo HL:present; else echo HL:absent; fi")
+	if err != nil {
+		return false, fmt.Errorf("firewall rollback: probe %s: %w", mainConfig, err)
+	}
+	switch strings.TrimSpace(out) {
+	case "HL:present":
+		return true, nil
+	case "HL:absent":
+		return false, nil
+	}
+	return false, fmt.Errorf("firewall rollback: probe %s: unexpected answer %q", mainConfig, pluginapi.FirstLines(out, 1))
 }
 
 func ManagedDestination(fw *Spec) string {

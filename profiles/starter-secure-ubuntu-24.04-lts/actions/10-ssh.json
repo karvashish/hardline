@@ -33,6 +33,14 @@
           "X11Forwarding": "no"
         }
       }
+    },
+    {
+      "id": "ssh-service-enabled",
+      "plugin": "service",
+      "config": {
+        "name": "ssh",
+        "enabled": true
+      }
     }
   ]
 }

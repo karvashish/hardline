@@ -49,9 +49,14 @@ func assertPolicyMutable(host pluginapi.Host) error {
 	return nil
 }
 
+// auditctl prints either "enabled 2" or "AUDIT_STATUS: enabled=2 ...", so both spellings have to
+// answer this question: reading only the spaced one calls a locked policy mutable.
 func auditEnabledLocked(status string) bool {
 	fields := strings.Fields(status)
 	for i, field := range fields {
+		if value, ok := strings.CutPrefix(field, "enabled="); ok {
+			return strings.TrimSpace(value) == "2"
+		}
 		if field == "enabled" && i+1 < len(fields) {
 			return strings.TrimSpace(fields[i+1]) == "2"
 		}

@@ -701,6 +701,9 @@ func TestAuditEnabledLockedReadsTheStatusLine(t *testing.T) {
 		"enabled 0":                                false,
 		"":                                         false,
 		"enabled":                                  false,
+		"AUDIT_STATUS: enabled=2 flag=1 pid=900":   true,
+		"AUDIT_STATUS: enabled=1 flag=1 pid=900":   false,
+		"AUDIT_STATUS: enabled=0 flag=1 rate_limit=0": false,
 	}
 	for status, want := range cases {
 		if got := auditEnabledLocked(status); got != want {

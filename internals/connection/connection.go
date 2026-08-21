@@ -204,8 +204,12 @@ func parseOSReleaseField(content, field string) string {
 		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
-		val := strings.TrimPrefix(line, prefix)
-		val = strings.Trim(val, `"`)
+		val := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		// os-release quotes a value with either delimiter, so trimming one spelling leaves the other
+		// in the compared string.
+		if len(val) >= 2 && (val[0] == '"' || val[0] == '\'') && val[len(val)-1] == val[0] {
+			val = val[1 : len(val)-1]
+		}
 		return strings.TrimSpace(val)
 	}
 	return ""

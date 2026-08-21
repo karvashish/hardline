@@ -353,6 +353,12 @@ ID_LIKE=debian
 		{"NAME", "Ubuntu"},
 		{"MISSING", ""},
 	}
+	single := "VARIANT_ID='coreos'\nID='fedora'\n"
+	for field, want := range map[string]string{"VARIANT_ID": "coreos", "ID": "fedora"} {
+		if got := parseOSReleaseField(single, field); got != want {
+			t.Errorf("a single-quoted %s reads as %q, want %q", field, got, want)
+		}
+	}
 	for _, tt := range tests {
 		got := parseOSReleaseField(content, tt.field)
 		if got != tt.want {

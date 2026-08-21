@@ -37,7 +37,7 @@ var pluginConfigConstraints = map[string]map[string]any{
 	"service": {
 		"name":           stringPattern(serviceUnitPattern),
 		"enabled":        boolean(),
-		"state":          stringEnum("started", "stopped", "restarted", "reloaded", "reload-or-restart"),
+		"state":          stringEnum("started", "start", "stopped", "stop", "restarted", "restart", "reloaded", "reload", "reload-or-restart"),
 		"restart_policy": restartPolicyConfig(),
 	},
 	"file_meta": {
@@ -163,11 +163,14 @@ func restartPolicyConfig() map[string]any {
 		"additionalProperties": false,
 		"properties": map[string]any{
 			"type":  stringEnum("always", "on_change"),
-			"steps": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"steps": stringArrayPattern(stepIDPattern),
 		},
 		"required": []any{"type"},
 	}
 }
+
+// A watched step is matched against a step id raw, and a step id cannot carry surrounding whitespace.
+const stepIDPattern = `^\S(?:.*\S)?$`
 
 const opModePattern = `^(never|always|once|if_[1-9][0-9]*[hdw]_since_last)$`
 

@@ -437,7 +437,7 @@ func TestAffirm_RejectsBrokenStepGraph(t *testing.T) {
 			first: `{"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/one.conf","mode":"0600"}}`,
 			second: `{"id":"svc","plugin":"service","config":{"name":"sshd.service","state":"reloaded",
 				"restart_policy":{"type":"on_change","steps":[" "]}}}`,
-			want: "empty step id",
+			want: "restart_policy/properties/steps",
 		},
 	}
 

@@ -554,6 +554,7 @@
                     "properties": {
                       "steps": {
                         "items": {
+                          "pattern": "^\\S(?:.*\\S)?$",
                           "type": "string"
                         },
                         "type": "array"
@@ -574,9 +575,13 @@
                   "state": {
                     "enum": [
                       "started",
+                      "start",
                       "stopped",
+                      "stop",
                       "restarted",
+                      "restart",
                       "reloaded",
+                      "reload",
                       "reload-or-restart"
                     ],
                     "type": "string"

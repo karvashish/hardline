@@ -135,11 +135,15 @@ func (s Step) watchedSteps() ([]string, error) {
 
 	out := make([]string, 0, len(spec.RestartPolicy.Steps))
 	for _, dep := range spec.RestartPolicy.Steps {
-		trimmed := strings.TrimSpace(dep)
-		if trimmed == "" {
+		if strings.TrimSpace(dep) == "" {
 			return nil, fmt.Errorf("restart_policy steps contains an empty step id")
 		}
-		out = append(out, trimmed)
+		// The change map and the journal both match this value raw, and a step id can never
+		// carry surrounding whitespace, so trimming here would verify one string and run another.
+		if strings.TrimSpace(dep) != dep {
+			return nil, fmt.Errorf("restart_policy step id %q must not have leading or trailing whitespace", dep)
+		}
+		out = append(out, dep)
 	}
 	return out, nil
 }

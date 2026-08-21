@@ -357,6 +357,21 @@ func TestStepRecordSnapshotsCloneCaptureState(t *testing.T) {
 					RequestedInstall: true,
 				},
 			},
+			{
+				Kind: pluginapi.ObjectConfigLine,
+				ConfigLine: &pluginapi.ConfigLineSnapshot{
+					Path:  "/etc/nftables.conf",
+					Line:  "flush ruleset",
+					Added: true,
+				},
+			},
+			{
+				Kind: pluginapi.ObjectRuntimePolicy,
+				RuntimePolicy: &pluginapi.RuntimePolicy{
+					Name:  "nft list ruleset",
+					State: "table inet hardline",
+				},
+			},
 		},
 		Notes: []string{"captured before apply"},
 	}
@@ -381,17 +396,22 @@ func TestStepRecordSnapshotsCloneCaptureState(t *testing.T) {
 	before.Objects[0].File.Path = "/mutated"
 	before.Objects[1].Service.Unit = "mutated"
 	before.Objects[2].Package.Name = "mutated"
+	before.Objects[3].ConfigLine.Line = "mutated"
+	before.Objects[4].RuntimePolicy.State = "mutated"
 	before.Notes[0] = "changed"
 	after.Objects[0].File.Mode = "0666"
 
 	if step.ID != "s1" || step.Type != "template" || step.RollbackMode != pluginapi.ModeDeterministic {
 		t.Fatalf("unexpected step metadata: %+v", step)
 	}
-	if len(step.Before) != 3 || step.Before[0].File.Path != "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" {
+	if len(step.Before) != 5 || step.Before[0].File.Path != "/etc/ssh/sshd_config.d/99-hardline-ssh.conf" {
 		t.Fatalf("expected cloned before file snapshot, got %+v", step.Before)
 	}
 	if step.Before[1].Service.Unit != "ssh" || step.Before[2].Package.Name != "curl" {
 		t.Fatalf("expected cloned before service/package snapshots, got %+v", step.Before)
+	}
+	if step.Before[3].ConfigLine.Line != "flush ruleset" || step.Before[4].RuntimePolicy.State != "table inet hardline" {
+		t.Fatalf("the journalled config line and runtime policy still alias the capture, got %+v", step.Before)
 	}
 	if len(step.After) != 1 || step.After[0].File.Mode != "0600" {
 		t.Fatalf("expected cloned after file snapshot, got %+v", step.After)

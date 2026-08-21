@@ -268,6 +268,14 @@ func cloneObjectRecords(records []pluginapi.ObjectRecord) []pluginapi.ObjectReco
 			pkg := *record.Package
 			cloned[i].Package = &pkg
 		}
+		if record.ConfigLine != nil {
+			line := *record.ConfigLine
+			cloned[i].ConfigLine = &line
+		}
+		if record.RuntimePolicy != nil {
+			policy := *record.RuntimePolicy
+			cloned[i].RuntimePolicy = &policy
+		}
 	}
 	return cloned
 }

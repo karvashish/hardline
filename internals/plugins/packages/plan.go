@@ -221,6 +221,14 @@ func RenderPlan(in PlanInputs) pluginapi.PlanResult {
 					msg += " (may change after upgrade)"
 				}
 				details = append(details, logger.ColorGreen+msg+" ("+in.Autoremove.Reason+")"+logger.ColorReset)
+				want := append(infoNames(in.PurgeInfos), in.PurgeAlsoRemoves...)
+				if extra := UnexpectedRemovals(want, autoremoveWillChange); len(extra) > 0 {
+					refusal := fmt.Sprintf(
+						"autoremove would remove %s, which the step does not declare; apply will refuse until they are listed in purge_also_removes",
+						strings.Join(extra, ", "))
+					highlights = append(highlights, refusal)
+					details = append(details, logger.ColorRed+"autoremove: "+refusal+logger.ColorReset)
+				}
 			}
 		} else {
 			details = append(details, logger.ColorDim+"autoremove: skipped ("+in.Autoremove.Reason+")"+logger.ColorReset)

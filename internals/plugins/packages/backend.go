@@ -178,8 +178,9 @@ func (b Backend) validate(spec *Spec) error {
 			return err
 		}
 	}
-	if len(spec.PurgeAlsoRemoves) > 0 && len(spec.Purge) == 0 {
-		return fmt.Errorf("%s: purge_also_removes has no effect without purge", b.Name)
+	// It also bounds the autoremove, which runs without a purge.
+	if len(spec.PurgeAlsoRemoves) > 0 && len(spec.Purge) == 0 && (spec.Autoremove == "" || spec.Autoremove == "never") {
+		return fmt.Errorf("%s: purge_also_removes has no effect without purge or autoremove", b.Name)
 	}
 	if err := ValidatePurgeCollateral(spec.Install, spec.Purge, spec.PurgeAlsoRemoves); err != nil {
 		return err

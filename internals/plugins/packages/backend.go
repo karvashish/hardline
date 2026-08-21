@@ -387,13 +387,23 @@ func (b Backend) capture(ctx pluginapi.Context, stepID string, spec *Spec) (plug
 		})
 	}
 
-	record.RollbackMode = pluginapi.ModeBestEffort
-	if purgesInstalled {
-		record.RollbackMode = pluginapi.ModeIrreversible
-	}
+	record.RollbackMode = capturedRollbackMode(spec, purgesInstalled)
 	record.Objects = records
 	record.Notes = CaptureNotes(spec.Update, spec.Upgrade, spec.Autoremove)
 	return record, nil
+}
+
+// The journal has to promise what Plan promised: a step that only refreshes metadata removes
+// nothing, so recording best_effort for it would understate a rollback that is exact.
+func capturedRollbackMode(spec *Spec, purgesInstalled bool) string {
+	if purgesInstalled {
+		return pluginapi.ModeIrreversible
+	}
+	mayRun := func(mode string) bool { return mode != "" && mode != "never" }
+	if len(spec.Install) > 0 || mayRun(spec.Upgrade) || mayRun(spec.Autoremove) {
+		return pluginapi.ModeBestEffort
+	}
+	return pluginapi.ModeDeterministic
 }
 
 func (b Backend) rollbackPreview() PackagesPreviewFunc {

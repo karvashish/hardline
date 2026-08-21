@@ -648,13 +648,12 @@ func TestBackendCapture(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if res.RollbackMode != pluginapi.ModeBestEffort {
-			t.Fatalf("purging a package that is not installed deletes nothing, got %q", res.RollbackMode)
-		}
-
 		want := RenderPlan(PlanInputs{PurgeInfos: []PkgInfo{{Name: "gone", Installed: false}}}).RollbackFidelity
-		if want == pluginapi.ModeIrreversible {
-			t.Fatalf("plan and capture disagree: plan says %q", want)
+		if want != pluginapi.ModeDeterministic {
+			t.Fatalf("purging a package that is not installed deletes nothing, plan says %q", want)
+		}
+		if res.RollbackMode != want {
+			t.Fatalf("plan and capture disagree: plan says %q, journal says %q", want, res.RollbackMode)
 		}
 	})
 
@@ -667,8 +666,31 @@ func TestBackendCapture(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if res.RollbackMode != pluginapi.ModeBestEffort {
+		if res.RollbackMode == pluginapi.ModeIrreversible {
 			t.Fatalf("collateral only goes when the declared target does, got %q", res.RollbackMode)
+		}
+	})
+
+	t.Run("a metadata-only step keeps the deterministic verdict the plan gave it", func(t *testing.T) {
+		f := newEngineFixture()
+		res, err := f.backend().capture(pluginapi.Context{Host: f.host()}, "step-id", &Spec{Update: "always"})
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		want := RenderPlan(PlanInputs{UpdateMode: "always", Update: Decision{WillRun: true}}).RollbackFidelity
+		if want != pluginapi.ModeDeterministic || res.RollbackMode != want {
+			t.Fatalf("plan says %q, journal says %q", want, res.RollbackMode)
+		}
+	})
+
+	t.Run("an autoremove step is best effort", func(t *testing.T) {
+		f := newEngineFixture()
+		res, err := f.backend().capture(pluginapi.Context{Host: f.host()}, "step-id", &Spec{Autoremove: "always"})
+		if err != nil {
+			t.Fatalf("Capture failed: %v", err)
+		}
+		if res.RollbackMode != pluginapi.ModeBestEffort {
+			t.Fatalf("autoremove removes what the step never named, got %q", res.RollbackMode)
 		}
 	})
 

@@ -406,13 +406,20 @@ func checkStepConflicts(client *remote.Client, step StepRecord, resuming bool) [
 	if !ok {
 		return nil
 	}
-	// An interrupted attempt leaves some objects back at Before and the rest still at After, so
-	// comparing every object against After alone reads the reverted ones as third-party drift.
-	// Before and After come from the same capture of the same step, so they pair off by position.
-	paired := resuming && len(step.Before) == len(step.After)
+	var beforeByKey map[string]pluginapi.ObjectRecord
+	if resuming {
+		beforeByKey = make(map[string]pluginapi.ObjectRecord, len(step.Before))
+		for _, obj := range step.Before {
+			beforeByKey[pluginapi.ObjectKey(obj)] = obj
+		}
+	}
+
 	var conflicts []string
-	for i, afterObj := range step.After {
-		if paired && len(plug.DetectConflict(client, step.Before[i])) == 0 {
+	for _, afterObj := range step.After {
+		// An interrupted attempt leaves some objects back at Before and the rest still at After,
+		// so an object already sitting at what this rollback would restore is progress, not drift.
+		if beforeObj, paired := beforeByKey[pluginapi.ObjectKey(afterObj)]; paired &&
+			len(plug.DetectConflict(client, beforeObj)) == 0 {
 			continue
 		}
 		conflicts = append(conflicts, plug.DetectConflict(client, afterObj)...)

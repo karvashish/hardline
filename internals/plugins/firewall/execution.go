@@ -170,13 +170,21 @@ func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
 	}
 
 	policy := desired.Policies["input"]
-	if policy != "drop" && policy != "reject" && !deniesNewTCP(desired) {
+	closedToUnnamedPorts := policy == "drop" || policy == "reject" || deniesUnportedNewTCP(desired)
+	if !closedToUnnamedPorts && !deniesNewTCP(desired) {
 		return nil
 	}
 
 	ports, err := sshdListeningPorts(host)
 	if err != nil {
-		return err
+		if closedToUnnamedPorts {
+			return err
+		}
+		// The chain still accepts every port these rules do not name, so an sshd this probe cannot
+		// find is only locked out if it sits on one of the named ports. That is not enough to refuse
+		// a load the policy itself does not endanger.
+		logger.Warnf("firewall: %v; the input policy accepts what the deny rules do not name, so the load continues\n", err)
+		return nil
 	}
 
 	// Every listener has to survive: hardline cannot tell which one carries this run's session.
@@ -347,6 +355,21 @@ func deniesNewTCP(desired NormalizedSpec) bool {
 			continue
 		}
 		if (rule.Proto == "" || rule.Proto == "tcp") && coversState(rule.CTStates, "new") {
+			return true
+		}
+	}
+	return false
+}
+
+// A deny rule that names no port closes whichever port sshd is on, so the listener list has to be
+// known before such a ruleset loads. A port-specific deny can only lock this host out if sshd is on
+// that port.
+func deniesUnportedNewTCP(desired NormalizedSpec) bool {
+	for _, rule := range desired.Rules {
+		if rule.Chain != "input" || rule.Action == "accept" || rule.Proto != "" {
+			continue
+		}
+		if coversState(rule.CTStates, "new") {
 			return true
 		}
 	}

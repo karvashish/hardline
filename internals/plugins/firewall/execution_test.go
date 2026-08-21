@@ -2572,6 +2572,31 @@ func TestActivateFirewallSkipsTheGuardForAnAcceptPolicy(t *testing.T) {
 	}
 }
 
+func TestActivateFirewallLoadsAPortSpecificDropWithoutAnSSHProbe(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
+	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 445, Action: "drop"}}
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{noSSHD: true, liveRulesetJSON: liveRulesetJSON(desired)}
+	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
+		t.Fatalf("dropping an unrelated port under an accept policy cannot lock this host out, got %v", err)
+	}
+}
+
+func TestActivateFirewallFailsClosedForAPortlessDropWithoutAnSSHProbe(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
+	spec.Rules = []Rule{{Chain: "input", CTStates: []string{"new"}, Action: "drop"}}
+	desired := normalizedTestSpec(t, spec)
+
+	host := firewallExecHostStub{noSSHD: true, liveRulesetJSON: liveRulesetJSON(desired)}
+	err := ActivateFirewall(host, MainConfigDebian, desired)
+	if err == nil || !strings.Contains(err.Error(), "could not determine which port sshd") {
+		t.Fatalf("a deny that names no port closes whatever port sshd is on, got %v", err)
+	}
+}
+
 func TestActivateFirewallGuards(t *testing.T) {
 	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
 	if err := ActivateFirewall(nil, MainConfigDebian, desired); err == nil {

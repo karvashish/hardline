@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"path"
 	"strings"
 
 	"github.com/karvashish/hardline/pkg/logger"
@@ -68,82 +67,14 @@ func effectiveConfig(host pluginapi.Host, bin string, mc *MatchContext) (map[str
 	return effective, nil
 }
 
-func connectingUser(host pluginapi.Host) (string, error) {
-	out, err := host.RunRootWithOutput(`printf '%s' "${SUDO_USER:-root}"`)
-	if err != nil {
-		return "", fmt.Errorf("determine the connecting user: %w", err)
-	}
-	user := strings.TrimSpace(out)
-	if user == "" {
-		return "", fmt.Errorf("could not determine the connecting user; refusing to change sshd policy that may lock this host out")
-	}
-	return user, nil
-}
-
-func userGroups(host pluginapi.Host, user string) ([]string, error) {
-	out, err := host.RunRootWithOutput("id -nG " + pluginapi.ShellArg(user) + " 2>/dev/null || true")
-	if err != nil {
-		return nil, fmt.Errorf("read the groups of %q: %w", user, err)
-	}
-	return strings.Fields(out), nil
-}
-
-func assertManagementAccess(effective map[string][]string, user string, groups []string) error {
-	if user == "root" {
-		switch value := firstValue(effective, "permitrootlogin"); strings.ToLower(value) {
-		case "no", "forced-commands-only":
-			return fmt.Errorf("refusing to activate: this run is connected as root and the resulting policy sets PermitRootLogin %s, which would lock hardline out of this host", value)
-		}
-	}
-
+// hardline reaches this host over an SSH key, so a policy that turns key authentication off ends
+// this run's own access before it can report anything. Which account or group may log in is the
+// operator's policy to write, and a wrong guess about who is connecting is not hardline's to make.
+func assertKeyAuthSurvives(effective map[string][]string) error {
 	if value := firstValue(effective, "pubkeyauthentication"); value != "" && !strings.EqualFold(value, "yes") {
 		return fmt.Errorf("refusing to activate: the resulting policy sets PubkeyAuthentication %s, and this run authenticates by key", value)
 	}
-
-	if err := assertListed(effective, "denyusers", []string{user}, false); err != nil {
-		return err
-	}
-	if err := assertListed(effective, "allowusers", []string{user}, true); err != nil {
-		return err
-	}
-	if err := assertListed(effective, "denygroups", groups, false); err != nil {
-		return err
-	}
-	return assertListed(effective, "allowgroups", groups, true)
-}
-
-func assertListed(effective map[string][]string, key string, names []string, mustMatch bool) error {
-	patterns := strings.Fields(firstValue(effective, key))
-	if len(patterns) == 0 {
-		return nil
-	}
-
-	// An OpenSSH pattern is a literal plus * and ?. Negation, host@user, and anything path.Match
-	// would read as a character class or an escape is refused here rather than evaluated with a
-	// grammar sshd does not use - and the refusal has to happen whether or not names is empty,
-	// since an empty list would otherwise never reach the pattern at all.
-	matched := false
-	for _, pattern := range patterns {
-		if strings.HasPrefix(pattern, "!") || strings.ContainsAny(pattern, `@[]\`) {
-			return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, whose pattern %q this check cannot evaluate; hardline will not guess whether it keeps its own access",
-				key, strings.Join(patterns, " "), pattern)
-		}
-		for _, name := range names {
-			if ok, _ := path.Match(pattern, name); ok {
-				matched = true
-			}
-		}
-	}
-
-	if matched == mustMatch {
-		return nil
-	}
-	if mustMatch {
-		return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, which does not cover this run's identity (%s), so hardline would lose access to this host",
-			key, strings.Join(patterns, " "), strings.Join(names, ", "))
-	}
-	return fmt.Errorf("refusing to activate: the resulting policy sets %s %s, which covers this run's identity (%s), so hardline would lose access to this host",
-		key, strings.Join(patterns, " "), strings.Join(names, ", "))
+	return nil
 }
 
 func firstValue(effective map[string][]string, key string) string {
@@ -233,15 +164,6 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 	if err != nil {
 		return err
 	}
-	user, err := connectingUser(ctx.Host)
-	if err != nil {
-		return err
-	}
-	groups, err := userGroups(ctx.Host, user)
-	if err != nil {
-		return err
-	}
-
 	before, err := pluginapi.SnapshotRemoteFile(ctx.Host, spec.Path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", spec.Path, err)
@@ -266,7 +188,7 @@ func Apply(ctx pluginapi.Context, spec *Spec) error {
 		if err != nil {
 			return err
 		}
-		if err := assertManagementAccess(prospective, user, groups); err != nil {
+		if err := assertKeyAuthSurvives(prospective); err != nil {
 			return err
 		}
 		reloaded = true
@@ -357,15 +279,7 @@ func Plan(ctx pluginapi.Context, spec *Spec) (pluginapi.PlanResult, error) {
 		diffs = append(diffs, fmt.Sprintf("sshd policy: reload %s to take %d keyword(s)", spec.Service, len(drift)))
 	}
 
-	user, err := connectingUser(ctx.Host)
-	if err != nil {
-		return pluginapi.PlanResult{}, err
-	}
-	groups, err := userGroups(ctx.Host, user)
-	if err != nil {
-		return pluginapi.PlanResult{}, err
-	}
-	if err := assertManagementAccess(effective, user, groups); err != nil {
+	if err := assertKeyAuthSurvives(effective); err != nil {
 		highlights = append(highlights, err.Error())
 		details = append(details, logger.ColorRed+err.Error()+logger.ColorReset)
 	}

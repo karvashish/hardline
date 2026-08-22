@@ -16,9 +16,6 @@ const testBin = "/usr/sbin/sshd"
 
 type sshHostStub struct {
 	noSSHD       bool
-	user         string
-	groups       string
-	userErr      error
 	candidateErr string
 	mainErr      string
 	effective    string
@@ -39,8 +36,6 @@ type sshHostStub struct {
 
 func newHostStub() *sshHostStub {
 	return &sshHostStub{
-		user:   "admin",
-		groups: "admin sudo",
 		writes: map[string]string{},
 		modes:  map[string]os.FileMode{},
 	}
@@ -69,12 +64,6 @@ func (s *sshHostStub) RunRootWithOutput(cmd string) (string, error) {
 			return "", nil
 		}
 		return testBin + "\n", nil
-
-	case strings.Contains(cmd, `printf '%s' "${SUDO_USER`):
-		return s.user, s.userErr
-
-	case strings.HasPrefix(cmd, "id -nG "):
-		return s.groups, nil
 
 	case strings.Contains(cmd, " -t -f "):
 		if s.candidateErr != "" {
@@ -267,12 +256,10 @@ func TestApplyRestoresWhenMainConfigDoesNotParse(t *testing.T) {
 
 func TestApplyRefusesLockout(t *testing.T) {
 	host := newHostStub()
-	host.user = "root"
-	host.groups = "root"
-	host.effective = effectiveFor()
+	host.effective = "passwordauthentication no\npermitrootlogin no\npubkeyauthentication no\n"
 
 	err := Apply(pluginapi.Context{Host: host}, testSpec())
-	if err == nil || !strings.Contains(err.Error(), "connected as root") {
+	if err == nil || !strings.Contains(err.Error(), "PubkeyAuthentication no") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(host.reloads) != 0 {
@@ -307,8 +294,6 @@ func TestApplyErrors(t *testing.T) {
 		contains string
 	}{
 		{"no sshd", func(h *sshHostStub) { h.noSSHD = true }, nil, "sshd is not installed"},
-		{"no connecting user", func(h *sshHostStub) { h.user = "  " }, nil, "could not determine the connecting user"},
-		{"user probe fails", func(h *sshHostStub) { h.userErr = errors.New("boom") }, nil, "determine the connecting user"},
 		{"effective probe fails", func(h *sshHostStub) { h.effectiveErr = true }, nil, "read the effective sshd configuration"},
 		{"reload fails", func(h *sshHostStub) { h.reloadErr = errors.New("job failed") }, nil, "reload sshd"},
 		{"unmanaged path", nil, func(s *Spec) { s.Path = "/tmp/ssh.conf" }, "outside /etc managed scope"},
@@ -344,115 +329,34 @@ func TestApplyRequiresHost(t *testing.T) {
 	}
 }
 
-func TestAssertManagementAccess(t *testing.T) {
+func TestAssertKeyAuthSurvives(t *testing.T) {
 	cases := []struct {
 		name      string
 		effective map[string][]string
-		user      string
-		groups    []string
 		contains  string
 	}{
 		{
-			name:      "root denied by policy",
-			effective: map[string][]string{"permitrootlogin": {"no"}},
-			user:      "root",
-			contains:  "connected as root",
-		},
-		{
-			name:      "root with forced commands only",
-			effective: map[string][]string{"permitrootlogin": {"forced-commands-only"}},
-			user:      "root",
-			contains:  "forced-commands-only",
-		},
-		{
-			name:      "root with prohibit-password is fine",
-			effective: map[string][]string{"permitrootlogin": {"prohibit-password"}, "pubkeyauthentication": {"yes"}},
-			user:      "root",
-		},
-		{
 			name:      "pubkey disabled",
 			effective: map[string][]string{"pubkeyauthentication": {"no"}},
-			user:      "admin",
 			contains:  "PubkeyAuthentication no",
 		},
 		{
-			name:      "user denied",
-			effective: map[string][]string{"denyusers": {"admin backup"}},
-			user:      "admin",
-			contains:  "denyusers admin backup",
-		},
-		{
-			name:      "user not allowed",
-			effective: map[string][]string{"allowusers": {"deploy"}},
-			user:      "admin",
-			contains:  "does not cover this run's identity",
-		},
-		{
-			name:      "user allowed by glob",
-			effective: map[string][]string{"allowusers": {"adm*"}},
-			user:      "admin",
-		},
-		{
-			name:      "group denied",
-			effective: map[string][]string{"denygroups": {"sudo"}},
-			user:      "admin",
-			groups:    []string{"admin", "sudo"},
-			contains:  "denygroups sudo",
-		},
-		{
-			name:      "group not allowed",
-			effective: map[string][]string{"allowgroups": {"wheel"}},
-			user:      "admin",
-			groups:    []string{"admin", "sudo"},
-			contains:  "allowgroups wheel",
-		},
-		{
-			name:      "group allowed",
-			effective: map[string][]string{"allowgroups": {"sudo wheel"}},
-			user:      "admin",
-			groups:    []string{"admin", "sudo"},
-		},
-		{
-			name:      "negated pattern is refused rather than guessed",
-			effective: map[string][]string{"allowusers": {"!backup admin"}},
-			user:      "admin",
-			contains:  "cannot evaluate",
-		},
-		{
-			name:      "character-class deny pattern is refused rather than skipped",
-			effective: map[string][]string{"denyusers": {"bad[ deploy"}},
-			user:      "admin",
-			contains:  "cannot evaluate",
-		},
-		{
-			name:      "character-class allow pattern is refused rather than skipped",
-			effective: map[string][]string{"allowusers": {"adm[in"}},
-			user:      "admin",
-			contains:  "cannot evaluate",
-		},
-		{
-			name:      "deny pattern is checked even with an empty name list",
-			effective: map[string][]string{"denygroups": {"adm[in"}},
-			user:      "admin",
-			groups:    nil,
-			contains:  "cannot evaluate",
-		},
-		{
-			name:      "user@host pattern is refused rather than guessed",
-			effective: map[string][]string{"allowusers": {"admin@10.0.0.0/8"}},
-			user:      "admin",
-			contains:  "cannot evaluate",
-		},
-		{
-			name:      "no restrictions",
+			name:      "pubkey enabled",
 			effective: map[string][]string{"pubkeyauthentication": {"yes"}},
-			user:      "admin",
+		},
+		{
+			name:      "sshd does not report the keyword",
+			effective: map[string][]string{"permitrootlogin": {"no"}},
+		},
+		{
+			name:      "who may log in is the operator's policy, not a refusal",
+			effective: map[string][]string{"allowusers": {"deploy"}, "denygroups": {"sudo"}, "permitrootlogin": {"no"}},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := assertManagementAccess(tc.effective, tc.user, tc.groups)
+			err := assertKeyAuthSurvives(tc.effective)
 			if tc.contains == "" {
 				if err != nil {
 					t.Fatalf("expected no error, got %v", err)
@@ -512,16 +416,28 @@ func TestPlanAlignedHostWillNotChange(t *testing.T) {
 
 func TestPlanHighlightsLockout(t *testing.T) {
 	host := newHostStub()
-	host.user = "root"
-	host.groups = "root"
-	host.effective = effectiveFor()
+	host.effective = "passwordauthentication no\npermitrootlogin no\npubkeyauthentication no\n"
 
 	result, err := Plan(pluginapi.Context{Host: host}, testSpec())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if len(result.Highlights) == 0 || !strings.Contains(result.Highlights[0], "connected as root") {
+	if len(result.Highlights) == 0 || !strings.Contains(result.Highlights[0], "PubkeyAuthentication no") {
 		t.Fatalf("expected a lockout highlight, got %v", result.Highlights)
+	}
+}
+
+// Who may log in is the operator's policy: plan reports it and does not flag it.
+func TestPlanDoesNotFlagAccountPolicy(t *testing.T) {
+	host := newHostStub()
+	host.effective = effectiveFor("allowusers deploy", "denygroups sudo")
+
+	result, err := Plan(pluginapi.Context{Host: host}, testSpec())
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if len(result.Highlights) != 0 {
+		t.Fatalf("expected no highlight for an account policy, got %v", result.Highlights)
 	}
 }
 
@@ -558,13 +474,6 @@ func TestPlanErrors(t *testing.T) {
 	host.effectiveErr = true
 	if _, err := Plan(pluginapi.Context{Host: host}, testSpec()); err == nil {
 		t.Fatalf("expected an error when the effective probe fails")
-	}
-
-	host = newHostStub()
-	host.effective = effectiveFor()
-	host.userErr = errors.New("boom")
-	if _, err := Plan(pluginapi.Context{Host: host}, testSpec()); err == nil {
-		t.Fatalf("expected an error when the user probe fails")
 	}
 }
 

@@ -78,24 +78,20 @@ func Plugin() pluginapi.Plugin {
 				if obj.File == nil {
 					return fmt.Errorf("firewall rollback: missing file snapshot")
 				}
-				return RestoreManagedRuleset(host, *obj.File, strings.TrimSpace(obj.Message))
+				return RestoreFirewallFile(host, *obj.File, strings.TrimSpace(obj.Message))
 			case pluginapi.ObjectConfigLine:
-				if obj.ConfigLine == nil {
-					return fmt.Errorf("firewall rollback: missing include record")
-				}
-				return RestoreNftablesInclude(host, *obj.ConfigLine)
+				// A record of what this run did to the main config. The main config snapshot puts
+				// the file back, line and all, so there is nothing to undo here.
+				return nil
 			default:
 				return fmt.Errorf("firewall plugin cannot roll back kind %q", obj.Kind)
 			}
 		},
 		DetectConflict: func(host pluginapi.Host, after pluginapi.ObjectRecord) []string {
-			switch {
-			case after.Kind == pluginapi.ObjectFile && after.File != nil:
-				return pluginapi.FileSnapshotConflict(host, *after.File)
-			case after.Kind == pluginapi.ObjectConfigLine && after.ConfigLine != nil:
-				return includeLineConflict(host, *after.ConfigLine)
+			if after.Kind != pluginapi.ObjectFile || after.File == nil {
+				return nil
 			}
-			return nil
+			return pluginapi.FileSnapshotConflict(host, *after.File)
 		},
 	}
 }

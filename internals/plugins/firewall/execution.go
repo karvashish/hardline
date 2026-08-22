@@ -137,10 +137,6 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 		return fmt.Errorf("unsupported firewall main_config %q", mainConfig)
 	}
 
-	if err := assertManagementAccess(host, desired); err != nil {
-		return err
-	}
-
 	if out, err := host.RunRootWithOutput("nft -f " + pluginapi.ShellArg(mainConfig) + " 2>&1"); err != nil {
 		if detail := pluginapi.FirstLines(out, 5); detail != "" {
 			return fmt.Errorf("load %s: %s", mainConfig, detail)
@@ -156,257 +152,6 @@ func ActivateFirewall(host pluginapi.Host, mainConfig string, desired Normalized
 		return fmt.Errorf("the loaded ruleset is not what was applied:\n  %s", strings.Join(drift, "\n  "))
 	}
 	return nil
-}
-
-func assertManagementAccess(host pluginapi.Host, desired NormalizedSpec) error {
-	if reason := outputReplyRefusal(desired); reason != "" {
-		return fmt.Errorf(
-			"refusing to load: the output chain would not let this host answer an established connection, "+
-				"so hardline would lock itself out of this host:\n  %s", reason)
-	}
-
-	policy := desired.Policies["input"]
-	closedToUnnamedPorts := policy == "drop" || policy == "reject" || deniesUnportedNewTCP(desired)
-	if !closedToUnnamedPorts && !deniesNewTCP(desired) {
-		return nil
-	}
-
-	ports, err := sshdListeningPorts(host)
-	if err != nil {
-		if closedToUnnamedPorts {
-			return err
-		}
-		// The chain still accepts every port these rules do not name, so an sshd this probe cannot
-		// find is only locked out if it sits on one of the named ports. That is not enough to refuse
-		// a load the policy itself does not endanger.
-		logger.Warnf("firewall: %v; the input policy accepts what the deny rules do not name, so the load continues\n", err)
-		return nil
-	}
-
-	// Every listener has to survive: hardline cannot tell which one carries this run's session.
-	reasons := make([]string, 0, len(ports))
-	for _, port := range ports {
-		if reason := inputPortRefusal(desired, port); reason != "" {
-			reasons = append(reasons, fmt.Sprintf("port %d: %s", port, reason))
-		}
-	}
-	if len(reasons) == 0 {
-		return nil
-	}
-	return fmt.Errorf(
-		"refusing to load: the input chain would not accept a new tcp connection on every port sshd is listening on (%s), "+
-			"so hardline would lock itself out of this host:\n  %s",
-		joinPorts(ports), strings.Join(reasons, "\n  "))
-}
-
-// Linux hands out client source ports from 32768 up by default, so a tcp rule bound below that
-// cannot be carrying the reply to this run's own session.
-const firstEphemeralPort = 32768
-
-// An ssh reply leaves on the output chain as an established packet addressed to the client's source
-// port, which hardline cannot know. Any rule that could be that port settles the question if the
-// chain reaches it first; the spec has no source-port vocabulary, so only an unscoped accept for the
-// established state can be shown to carry the reply.
-func outputReplyRefusal(desired NormalizedSpec) string {
-	for _, rule := range desired.Rules {
-		if rule.Chain != "output" || !coversState(rule.CTStates, "established") {
-			continue
-		}
-		switch rule.Proto {
-		case "":
-		case "tcp":
-			if rule.Port < firstEphemeralPort {
-				continue
-			}
-		default:
-			continue
-		}
-		if rule.Action != "accept" {
-			return fmt.Sprintf("%q is evaluated before any rule that accepts an established reply, and hardline cannot tell whether it covers this run's connection; put an unscoped accept for the established state above it",
-				RenderNormalizedRule(desired.Family, rule))
-		}
-		if scopedRule(rule) || rule.Proto != "" {
-			continue
-		}
-		return ""
-	}
-	if policy := desired.Policies["output"]; policy == "drop" || policy == "reject" {
-		return fmt.Sprintf("no rule accepts an established connection and the chain policy is %q", policy)
-	}
-	return ""
-}
-
-func sshdListeningPorts(host pluginapi.Host) ([]int, error) {
-	out, err := host.RunRootWithOutput("ss -Hltnp 2>/dev/null")
-	if err != nil {
-		return nil, fmt.Errorf("probe the listening ssh ports: %w", err)
-	}
-
-	listening := make(map[int]struct{})
-	seen := make(map[int]struct{})
-	var ports []int
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
-			continue
-		}
-		port, ok := listenPort(fields[3])
-		if !ok {
-			continue
-		}
-		listening[port] = struct{}{}
-		if !strings.Contains(line, "sshd") {
-			continue
-		}
-		if _, dup := seen[port]; dup {
-			continue
-		}
-		seen[port] = struct{}{}
-		ports = append(ports, port)
-	}
-
-	activated, err := sshSocketPorts(host)
-	if err != nil {
-		return nil, err
-	}
-	for _, port := range activated {
-		if _, live := listening[port]; !live {
-			continue
-		}
-		if _, dup := seen[port]; dup {
-			continue
-		}
-		seen[port] = struct{}{}
-		ports = append(ports, port)
-	}
-
-	if len(ports) == 0 {
-		return nil, fmt.Errorf("could not determine which port sshd is listening on; refusing to load a ruleset that may lock this host out")
-	}
-	sort.Ints(ports)
-	return ports, nil
-}
-
-func sshSocketPorts(host pluginapi.Host) ([]int, error) {
-	const cmd = `for unit in ssh.socket sshd.socket; do ` +
-		`systemctl is-active --quiet "$unit" && systemctl show "$unit" -p Listen --value; ` +
-		`done 2>/dev/null || true`
-
-	out, err := host.RunRootWithOutput(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("probe the ssh socket units: %w", err)
-	}
-
-	var ports []int
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 || fields[1] != "(Stream)" {
-			continue
-		}
-		if port, ok := listenPort(fields[0]); ok {
-			ports = append(ports, port)
-		}
-	}
-	return ports, nil
-}
-
-func listenPort(local string) (int, bool) {
-	idx := strings.LastIndex(local, ":")
-	if idx < 0 {
-		return 0, false
-	}
-	port, err := strconv.Atoi(local[idx+1:])
-	if err != nil || port < 1 || port > 65535 {
-		return 0, false
-	}
-	return port, true
-}
-
-func inputPortRefusal(desired NormalizedSpec, port int) string {
-	for _, rule := range desired.Rules {
-		if rule.Chain != "input" || !matchesNewTCP(rule, port) {
-			continue
-		}
-		if scopedRule(rule) {
-			if rule.Action == "accept" {
-				continue
-			}
-			return fmt.Sprintf("%q is evaluated before any rule that accepts it, and hardline cannot tell whether it covers this run's connection; put an unscoped accept for this port above it",
-				RenderNormalizedRule(desired.Family, rule))
-		}
-		if rule.Action == "accept" {
-			return ""
-		}
-		return fmt.Sprintf("%q is evaluated before any rule that accepts it", RenderNormalizedRule(desired.Family, rule))
-	}
-	if policy := desired.Policies["input"]; policy == "drop" || policy == "reject" {
-		return fmt.Sprintf("no rule accepts it and the chain policy is %q", policy)
-	}
-	return ""
-}
-
-func deniesNewTCP(desired NormalizedSpec) bool {
-	for _, rule := range desired.Rules {
-		if rule.Chain != "input" || rule.Action == "accept" {
-			continue
-		}
-		if (rule.Proto == "" || rule.Proto == "tcp") && coversState(rule.CTStates, "new") {
-			return true
-		}
-	}
-	return false
-}
-
-// A deny rule that names no port closes whichever port sshd is on, so the listener list has to be
-// known before such a ruleset loads. A port-specific deny can only lock this host out if sshd is on
-// that port.
-func deniesUnportedNewTCP(desired NormalizedSpec) bool {
-	for _, rule := range desired.Rules {
-		if rule.Chain != "input" || rule.Action == "accept" || rule.Proto != "" {
-			continue
-		}
-		if coversState(rule.CTStates, "new") {
-			return true
-		}
-	}
-	return false
-}
-
-func matchesNewTCP(rule NormalizedRule, port int) bool {
-	switch rule.Proto {
-	case "":
-	case "tcp":
-		if rule.Port != port {
-			return false
-		}
-	default:
-		return false
-	}
-	return coversState(rule.CTStates, "new")
-}
-
-func coversState(states []string, want string) bool {
-	if len(states) == 0 {
-		return true
-	}
-	for _, state := range states {
-		if state == want {
-			return true
-		}
-	}
-	return false
-}
-
-func scopedRule(rule NormalizedRule) bool {
-	return rule.Source != "" || rule.Destination != "" || rule.InInterface != "" || rule.OutInterface != ""
-}
-
-func joinPorts(ports []int) string {
-	out := make([]string, 0, len(ports))
-	for _, port := range ports {
-		out = append(out, strconv.Itoa(port))
-	}
-	return strings.Join(out, ", ")
 }
 
 const candidateSuffix = ".hardline-candidate"
@@ -775,8 +520,13 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	}
 
 	record.RollbackMode = pluginapi.ModeDeterministic
+	// The managed ruleset comes first so rollback, which walks the objects back to front, puts the
+	// main config back before it restores the file that config includes and reloads the kernel. The
+	// two config lines are what this run did to the main config, recorded so the journal says it
+	// rather than leaving it to be read back out of the snapshots.
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &snap, Message: mainConfig},
+		{Kind: pluginapi.ObjectFile, File: &mainSnap, Message: mainConfig},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &flush},
 		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &include},
 		{
@@ -790,115 +540,10 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	return record, nil
 }
 
-// The record says the line was there exactly when this run did not have to add it, so one
-// comparison answers a before record and an after one. Abstaining on Added would make a caller
-// asking "is the host back at before?" read silence as yes.
-func includeLineConflict(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) []string {
-	if host == nil {
-		return nil
-	}
-	var present bool
-	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
-		present = flushPresent(host, rec.Path)
-	} else {
-		dest := normalizeIncludeLine(rec.Line)
-		if dest == "" {
-			return nil
-		}
-		present = firewallIncludePresent(host, rec.Path, dest)
-	}
-	switch {
-	case present == !rec.Added:
-		return nil
-	case present:
-		return []string{fmt.Sprintf("%s already contains %s", rec.Path, rec.Line)}
-	}
-	return []string{fmt.Sprintf("%s no longer contains %s", rec.Path, rec.Line)}
-}
-
-func RestoreNftablesInclude(host pluginapi.Host, rec pluginapi.ConfigLineSnapshot) error {
-	if host == nil {
-		return fmt.Errorf("firewall rollback: host is required")
-	}
-	if !ValidMainConfig(rec.Path) {
-		return fmt.Errorf("firewall rollback: unexpected main config path %q", rec.Path)
-	}
-	content, existed, err := readMainConfig(host, rec.Path)
-	if err != nil {
-		return err
-	}
-	if !existed {
-		return nil
-	}
-
-	if strings.Join(strings.Fields(rec.Line), " ") == FlushLine {
-		// Ownership is read from the file, not from rec.Added: the profile that rolls back last is
-		// the one that finds no managed include left, and it is the one that has to take the header
-		// with it - not whichever profile happened to write it first.
-		if managedIncludeRemains(content, "") || !hardlineWroteFlush(host, rec.Path) {
-			return nil
-		}
-		if rec.Added && !rec.FileExisted && onlyHardlineContent(content, "") {
-			return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
-		}
-		return RemoveNftablesFlush(host, rec.Path)
-	}
-	if !rec.Added {
-		return nil
-	}
-	if !rec.FileExisted && onlyHardlineContent(content, rec.Line) {
-		return host.RunRoot("rm -f " + pluginapi.ShellArg(rec.Path))
-	}
-	return RemoveNftablesInclude(host, rec.Path, rec.Line)
-}
-
-func readMainConfig(host pluginapi.Host, mainConfig string) (string, bool, error) {
-	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
-	if err != nil {
-		return "", false, fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
-	}
-	if !snap.Existed {
-		return "", false, nil
-	}
-	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-	if err != nil {
-		return "", false, fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
-	}
-	return string(current), true, nil
-}
-
-func managedIncludeRemains(content, except string) bool {
-	for _, line := range strings.Split(content, "\n") {
-		target := normalizeIncludeLine(line)
-		if target == "" || target == except {
-			continue
-		}
-		if pluginapi.EnforceManagedPath(target) == nil {
-			return true
-		}
-	}
-	return false
-}
-
-// Deleting a file this run created is only safe while nothing but hardline's own lines are left in
-// it. An include naming a file no profile manages, or a ruleset written inline by an administrator,
-// is content hardline never wrote and would take with it.
-func onlyHardlineContent(content, ownInclude string) bool {
-	own := normalizeIncludeLine(ownInclude)
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || trimmed == FlushMarker || trimmed == FlushLine {
-			continue
-		}
-		if own != "" && normalizeIncludeLine(line) == own {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mainConfig string) error {
+// Rollback walks a step's objects back to front, so the main config goes back first and the ruleset
+// it includes second: only the last restore reloads, and by then every include names a file that is
+// on disk in the state the journal recorded.
+func RestoreFirewallFile(host pluginapi.Host, snap pluginapi.FileSnapshot, mainConfig string) error {
 	if host == nil {
 		return fmt.Errorf("firewall rollback: host is required")
 	}
@@ -907,6 +552,9 @@ func RestoreManagedRuleset(host pluginapi.Host, snap pluginapi.FileSnapshot, mai
 	}
 	if err := pluginapi.RestoreFileSnapshot(host, snap); err != nil {
 		return err
+	}
+	if snap.Path == mainConfig {
+		return nil
 	}
 	return reloadFromMainConfig(host, mainConfig)
 }
@@ -972,22 +620,8 @@ func flushCheckCmd(mainConfig string) string {
 		pluginapi.ShellArg(mainConfig))
 }
 
-// The flush header is shared: every managed include in this file needs it, and the profile that
-// happened to write it is not the profile that gets to remove it. A per-run boolean cannot say
-// that, so hardline writes its own marker above the line and reads ownership back out of the file.
+// Labels the flush line hardline prepends, so the header is not an unexplained line in a file the operator also reads.
 const FlushMarker = "# hardline: flush required by the managed include(s) below"
-
-func flushMarkerCheckCmd(mainConfig string) string {
-	return fmt.Sprintf(`grep -F -x -q %s %s 2>/dev/null`,
-		pluginapi.ShellArg(FlushMarker), pluginapi.ShellArg(mainConfig))
-}
-
-func hardlineWroteFlush(host pluginapi.Host, mainConfig string) bool {
-	if host == nil {
-		return false
-	}
-	return host.RunRoot(flushMarkerCheckCmd(mainConfig)) == nil
-}
 
 func flushPresent(host pluginapi.Host, mainConfig string) bool {
 	if host == nil {
@@ -1035,57 +669,6 @@ func EnsureNftablesFlush(host pluginapi.Host, mainConfig string) error {
 	return nil
 }
 
-func RemoveNftablesFlush(host pluginapi.Host, mainConfig string) error {
-	if host == nil {
-		return fmt.Errorf("firewall rollback: host is required")
-	}
-	if !ValidMainConfig(mainConfig) {
-		return fmt.Errorf("firewall rollback: unexpected main config path %q", mainConfig)
-	}
-
-	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
-	}
-	if !snap.Existed {
-		return nil
-	}
-	mode, err := pluginapi.ParseFileMode(snap.Mode)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: %s: %w", mainConfig, err)
-	}
-	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
-	}
-
-	next, removed := withoutFlushLine(string(current))
-	if !removed {
-		return nil
-	}
-	if err := host.WriteRootFile(mainConfig, []byte(next), mode); err != nil {
-		return fmt.Errorf("firewall rollback: rewrite %s: %w", mainConfig, err)
-	}
-	return nil
-}
-
-func withoutFlushLine(content string) (string, bool) {
-	lines := strings.Split(content, "\n")
-	out := make([]string, 0, len(lines))
-	removed := false
-	for _, line := range lines {
-		if strings.Join(strings.Fields(line), " ") == FlushLine {
-			removed = true
-			continue
-		}
-		if strings.TrimSpace(line) == FlushMarker {
-			continue
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "\n"), removed
-}
-
 func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	if host == nil {
 		return fmt.Errorf("firewall step: host context is required")
@@ -1120,67 +703,6 @@ func EnsureNftablesInclude(host pluginapi.Host, mainConfig, dest string) error {
 	}
 
 	return nil
-}
-
-func RemoveNftablesInclude(host pluginapi.Host, mainConfig, line string) error {
-	if host == nil {
-		return fmt.Errorf("firewall rollback: host is required")
-	}
-	if !ValidMainConfig(mainConfig) {
-		return fmt.Errorf("firewall rollback: unexpected main config path %q", mainConfig)
-	}
-
-	snap, err := pluginapi.SnapshotRemoteFile(host, mainConfig)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: read %s: %w", mainConfig, err)
-	}
-	if !snap.Existed {
-		return nil
-	}
-	mode, err := pluginapi.ParseFileMode(snap.Mode)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: %s: %w", mainConfig, err)
-	}
-	current, err := base64.StdEncoding.DecodeString(snap.ContentB64)
-	if err != nil {
-		return fmt.Errorf("firewall rollback: decode %s: %w", mainConfig, err)
-	}
-
-	next, removed := withoutIncludeLine(string(current), line)
-	if !removed {
-		return nil
-	}
-	if err := host.WriteRootFile(mainConfig, []byte(next), mode); err != nil {
-		return fmt.Errorf("firewall rollback: rewrite %s: %w", mainConfig, err)
-	}
-	return nil
-}
-
-func withoutIncludeLine(content, line string) (string, bool) {
-	target := normalizeIncludeLine(line)
-	if target == "" {
-		return content, false
-	}
-
-	lines := strings.Split(content, "\n")
-	out := make([]string, 0, len(lines))
-	removed := false
-	for _, l := range lines {
-		if normalizeIncludeLine(l) == target {
-			removed = true
-			continue
-		}
-		out = append(out, l)
-	}
-	return strings.Join(out, "\n"), removed
-}
-
-func normalizeIncludeLine(line string) string {
-	fields := strings.Fields(strings.TrimSpace(line))
-	if len(fields) != 2 || fields[0] != "include" {
-		return ""
-	}
-	return strings.Trim(fields[1], `"`)
 }
 
 func firewallIncludePresent(host pluginapi.Host, mainConfig, dest string) bool {

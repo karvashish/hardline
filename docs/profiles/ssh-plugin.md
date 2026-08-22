@@ -80,24 +80,19 @@ every declared keyword gets no write and no reload. The file matching on its own
 is not enough: a drop-in on disk that the daemon has never read is the exact
 failure this plugin exists to prevent.
 
-## The lockout guard
+## The key-authentication guard
 
 The guard reads the prospective effective configuration, so it accounts for what
 the host already declares and not only what this profile asked for. It refuses
-when:
+one thing: a policy that sets `PubkeyAuthentication` to anything but `yes`.
+hardline reaches the host over an SSH key, so that policy ends the run's own
+connection before it can report what it did.
 
-- the run is connected as root and the policy sets `PermitRootLogin no` or
-  `forced-commands-only`
-- the policy sets `PubkeyAuthentication` to anything but `yes`, since the run
-  authenticates by key
-- `DenyUsers` or `DenyGroups` covers the connecting identity
-- `AllowUsers` or `AllowGroups` is set and does not cover it
-
-Patterns are matched with shell globbing. A negated (`!user`), per-host
-(`user@host`) or malformed (`bad[`) pattern is refused rather than interpreted:
-guessing at it would either invent access the host does not grant or reject a
-policy that is fine, and neither is safe. If the connecting user cannot be
-determined at all, the step refuses.
+Which accounts and groups may log in is policy, not a lockout hardline rules on.
+`PermitRootLogin`, `AllowUsers`, `AllowGroups`, `DenyUsers` and `DenyGroups` are
+applied as written. Answering them would mean inferring which identity this run
+is connected as, and a wrong inference either invents access the host does not
+grant or refuses a policy that is fine.
 
 ## Accepted keywords
 

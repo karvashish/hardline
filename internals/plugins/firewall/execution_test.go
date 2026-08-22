@@ -760,25 +760,32 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 4 {
+		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 5 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
-		if rec.Objects[3].Kind != pluginapi.ObjectRuntimePolicy || rec.Objects[3].RuntimePolicy == nil {
-			t.Fatalf("the loaded ruleset was not journalled: %+v", rec.Objects[3])
+		if rec.Objects[4].Kind != pluginapi.ObjectRuntimePolicy || rec.Objects[4].RuntimePolicy == nil {
+			t.Fatalf("the loaded ruleset was not journalled: %+v", rec.Objects[4])
 		}
-		include := rec.Objects[2].ConfigLine
-		if rec.Objects[2].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
-			t.Fatalf("expected the %s include captured last, got %+v", MainConfigDebian, rec.Objects[2])
-		}
-		flush := rec.Objects[1].ConfigLine
-		if rec.Objects[1].Kind != pluginapi.ObjectConfigLine || flush == nil || flush.Line != FlushLine {
-			t.Fatalf("expected the flush header captured with the include, got %+v", rec.Objects[1])
+		include := rec.Objects[3].ConfigLine
+		if rec.Objects[3].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
+			t.Fatalf("expected the include recorded, got %+v", rec.Objects[3])
 		}
 		if include.Line != `include "/etc/nftables.d/99-hardline-firewall.nft"` {
 			t.Fatalf("expected the exact managed file to be included, got %q", include.Line)
 		}
+		flush := rec.Objects[2].ConfigLine
+		if rec.Objects[2].Kind != pluginapi.ObjectConfigLine || flush == nil || flush.Line != FlushLine {
+			t.Fatalf("expected the flush header recorded, got %+v", rec.Objects[2])
+		}
+		main := rec.Objects[1].File
+		if rec.Objects[1].Kind != pluginapi.ObjectFile || main == nil || main.Path != MainConfigDebian {
+			t.Fatalf("expected the %s snapshot captured second, got %+v", MainConfigDebian, rec.Objects[1])
+		}
 		if rec.Objects[0].File == nil || rec.Objects[0].File.Path != ManagedDestination(validDeterministicFirewallSpec()) {
 			t.Fatalf("expected managed destination captured first, got %+v", rec.Objects[0].File)
+		}
+		if rec.Objects[0].Message != MainConfigDebian || rec.Objects[1].Message != MainConfigDebian {
+			t.Fatalf("both files have to name the main config they reload through, got %+v", rec.Objects)
 		}
 	})
 
@@ -1244,136 +1251,62 @@ func (s firewallExecHostStub) RunRootWithTimeout(cmd string, _ time.Duration) (s
 	return s.RunRootWithOutput(cmd)
 }
 
-func TestRollbackRemovesOnlyItsOwnInclude(t *testing.T) {
-	const other = `include "/etc/nftables.d/50-other.nft"`
-	current := "flush ruleset\n\n" + IncludeLine(testDest) + "\n" + other + "\n"
+// Whether this run added the include or the flush header is a fact about the run, so the journal
+// records it outright instead of leaving it to be read back out of the file snapshots.
+func TestCaptureRecordsWhetherThisRunAddedTheLines(t *testing.T) {
+	spec := validDeterministicFirewallSpec()
+	dest := ManagedDestination(spec)
 
-	var wrote string
-	var wroteMode os.FileMode
-	host := firewallExecHostStub{
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile: func(string) (string, error) { return current, nil },
-		writeRootFile: func(_ string, data []byte, mode os.FileMode) error {
-			wrote = string(data)
-			wroteMode = mode
-			return nil
-		},
-	}
-
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        testMainConfig,
-		Line:        IncludeLine(testDest),
-		FileExisted: true,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if strings.Contains(wrote, testDest) {
-		t.Fatalf("expected our include to be gone, got %q", wrote)
-	}
-	if !strings.Contains(wrote, other) {
-		t.Fatalf("expected the other profile's include to survive, got %q", wrote)
-	}
-	if !strings.Contains(wrote, "flush ruleset") {
-		t.Fatalf("expected the rest of the file to survive, got %q", wrote)
-	}
-	if wroteMode.Perm() != 0o644 {
-		t.Fatalf("expected the file's own mode to be preserved, got %v", wroteMode)
-	}
-}
-
-func TestRollbackLeavesAnIncludeItDidNotAdd(t *testing.T) {
-	host := firewallExecHostStub{writeRootFile: func(string, []byte, os.FileMode) error {
-		t.Fatal("a line this run did not add must not be rewritten")
-		return nil
-	}}
-
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        testMainConfig,
-		Line:        IncludeLine(testDest),
-		FileExisted: true,
-		Added:       false,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-}
-
-func TestRollbackRemovesAMainConfigItCreated(t *testing.T) {
-	current := FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(testDest) + "\n"
-	var cmds []string
-	host := firewallExecHostStub{
-		runRoot: func(cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		},
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile: func(string) (string, error) { return current, nil },
+	newHost := func(present bool) firewallExecHostStub {
+		return firewallExecHostStub{
+			runRoot: func(cmd string) error {
+				if cmd == includeCheckCmd(testMainConfig, dest) || cmd == flushCheckCmd(testMainConfig) {
+					if present {
+						return nil
+					}
+					return errors.New("absent")
+				}
+				return nil
+			},
+			runRootWithOutput: func(cmd string) (string, error) {
+				if strings.Contains(cmd, "nft -j list ruleset") {
+					return "", nil
+				}
+				return "regular file|644|root|root|5", nil
+			},
+			readRootFile: func(string) (string, error) { return "abc", nil },
+		}
 	}
 
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        testMainConfig,
-		Line:        IncludeLine(testDest),
-		FileExisted: false,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if !strings.Contains(strings.Join(cmds, "\n"), "rm -f '"+testMainConfig+"'") {
-		t.Fatalf("expected the created main config to be removed, got %v", cmds)
-	}
-}
-
-func TestRollbackKeepsAMainConfigCarryingContentHardlineNeverWrote(t *testing.T) {
-	for name, extra := range map[string]string{
-		"an unmanaged include": `include "/etc/nftables.d/50-other.nft"`,
-		"an inline ruleset":    "table inet ops { chain input { type filter hook input priority 0; } }",
+	for _, tc := range []struct {
+		name    string
+		present bool
+	}{
+		{"lines absent, so this run adds them", false},
+		{"lines already there, so this run adds nothing", true},
 	} {
-		t.Run(name, func(t *testing.T) {
-			current := FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(testDest) + "\n" + extra + "\n"
-			var cmds []string
-			host := firewallExecHostStub{
-				runRoot: func(cmd string) error {
-					cmds = append(cmds, cmd)
-					return nil
-				},
-				runRootWithOutput: func(string) (string, error) {
-					return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-				},
-				readRootFile:  func(string) (string, error) { return current, nil },
-				writeRootFile: func(string, []byte, os.FileMode) error { return nil },
-			}
-
-			err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-				Path:        testMainConfig,
-				Line:        IncludeLine(testDest),
-				FileExisted: false,
-				Added:       true,
-			})
+		t.Run(tc.name, func(t *testing.T) {
+			rec, err := Capture(pluginapi.Context{Host: newHost(tc.present)}, "f", spec)
 			if err != nil {
-				t.Fatalf("RestoreNftablesInclude failed: %v", err)
+				t.Fatalf("Capture failed: %v", err)
 			}
-			if strings.Contains(strings.Join(cmds, "\n"), "rm -f '"+testMainConfig+"'") {
-				t.Fatalf("a main config carrying %s must survive, got %v", name, cmds)
+			flush, include := rec.Objects[2].ConfigLine, rec.Objects[3].ConfigLine
+			if flush == nil || include == nil {
+				t.Fatalf("both config lines have to be recorded, got %+v", rec.Objects)
+			}
+			if include.Added == tc.present || flush.Added == tc.present {
+				t.Fatalf("added flags do not match the probe: include=%v flush=%v", include.Added, flush.Added)
 			}
 		})
 	}
 }
 
-func TestRestoreNftablesIncludeRejectsAForeignPath(t *testing.T) {
-	err := RestoreNftablesInclude(firewallExecHostStub{}, pluginapi.ConfigLineSnapshot{
-		Path:        "/etc/passwd",
-		Line:        IncludeLine(testDest),
-		FileExisted: true,
-		Added:       true,
-	})
-	if err == nil || !strings.Contains(err.Error(), "unexpected main config path") {
+func TestRestoreFirewallFileRejectsAForeignPath(t *testing.T) {
+	err := RestoreFirewallFile(firewallExecHostStub{}, pluginapi.FileSnapshot{
+		Path:    testDest,
+		Existed: true,
+	}, "/etc/passwd")
+	if err == nil || !strings.Contains(err.Error(), "unsupported main config path") {
 		t.Fatalf("expected a rejected path, got %v", err)
 	}
 }
@@ -1423,80 +1356,6 @@ func TestDiffReportsReorderedChain(t *testing.T) {
 
 	if aligned := DiffNormalized(desired, desired); len(aligned.Reordered) != 0 {
 		t.Fatalf("expected no reorder against itself, got %v", aligned.Reordered)
-	}
-}
-
-func TestIncludeLineConflictReportsARemovedInclude(t *testing.T) {
-	rec := pluginapi.ConfigLineSnapshot{
-		Path:        testMainConfig,
-		Line:        IncludeLine(testDest),
-		FileExisted: true,
-		Added:       false,
-	}
-
-	present := firewallExecHostStub{runRoot: func(cmd string) error {
-		if cmd == testIncludeCheck {
-			return nil
-		}
-		return nil
-	}}
-	if got := includeLineConflict(present, rec); got != nil {
-		t.Fatalf("expected no conflict while the include is present, got %v", got)
-	}
-
-	gone := firewallExecHostStub{runRoot: func(cmd string) error {
-		if cmd == testIncludeCheck {
-			return errors.New("missing")
-		}
-		return nil
-	}}
-	conflicts := includeLineConflict(gone, rec)
-	if len(conflicts) != 1 || !strings.Contains(conflicts[0], "no longer contains") {
-		t.Fatalf("expected a removed-include conflict, got %v", conflicts)
-	}
-
-	rec.Added = true
-	if got := includeLineConflict(gone, rec); got != nil {
-		t.Fatalf("an after snapshot taken while the line was still absent claims nothing, got %v", got)
-	}
-	rec.Added = false
-	if got := includeLineConflict(nil, rec); got != nil {
-		t.Fatalf("expected no conflict without a host, got %v", got)
-	}
-}
-
-func TestRemoveNftablesIncludeEdgeCases(t *testing.T) {
-	if err := RemoveNftablesInclude(nil, testMainConfig, IncludeLine(testDest)); err == nil {
-		t.Fatal("expected a host to be required")
-	}
-	if err := RemoveNftablesInclude(firewallExecHostStub{}, "/etc/evil.conf", IncludeLine(testDest)); err == nil {
-		t.Fatal("expected a foreign main config to be refused")
-	}
-
-	absent := firewallExecHostStub{runRootWithOutput: func(string) (string, error) {
-		return "", nil
-	}}
-	if err := RemoveNftablesInclude(absent, testMainConfig, IncludeLine(testDest)); err != nil {
-		t.Fatalf("expected an absent main config to be a no-op, got %v", err)
-	}
-
-	const content = "flush ruleset\n"
-	untouched := firewallExecHostStub{
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(content)), nil
-		},
-		readRootFile: func(string) (string, error) { return content, nil },
-		writeRootFile: func(string, []byte, os.FileMode) error {
-			t.Fatal("a file without our include must not be rewritten")
-			return nil
-		},
-	}
-	if err := RemoveNftablesInclude(untouched, testMainConfig, IncludeLine(testDest)); err != nil {
-		t.Fatalf("expected a no-op, got %v", err)
-	}
-
-	if _, removed := withoutIncludeLine("flush ruleset\n", "not an include line"); removed {
-		t.Fatal("a malformed line must not match anything")
 	}
 }
 
@@ -1761,8 +1620,8 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 			cmds = append(cmds, cmd)
 			return "", nil
 		}}
-		if err := RestoreManagedRuleset(host, snap, MainConfigDebian); err != nil {
-			t.Fatalf("RestoreManagedRuleset failed: %v", err)
+		if err := RestoreFirewallFile(host, snap, MainConfigDebian); err != nil {
+			t.Fatalf("RestoreFirewallFile failed: %v", err)
 		}
 		if !containsCmd(cmds, "nft -f "+pluginapi.ShellArg(MainConfigDebian)) {
 			t.Fatalf("expected a reload from %s, got %v", MainConfigDebian, cmds)
@@ -1783,8 +1642,8 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 				return "", nil
 			},
 		}
-		if err := RestoreManagedRuleset(host, snap, MainConfigDebian); err != nil {
-			t.Fatalf("RestoreManagedRuleset failed: %v", err)
+		if err := RestoreFirewallFile(host, snap, MainConfigDebian); err != nil {
+			t.Fatalf("RestoreFirewallFile failed: %v", err)
 		}
 		if !containsCmd(cmds, FlushLine) || !containsCmd(cmds, "nft -f -") {
 			t.Fatalf("expected a flushed reload, got %v", cmds)
@@ -1802,8 +1661,8 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 				return "", nil
 			},
 		}
-		if err := RestoreManagedRuleset(host, snap, MainConfigDebian); err != nil {
-			t.Fatalf("RestoreManagedRuleset failed: %v", err)
+		if err := RestoreFirewallFile(host, snap, MainConfigDebian); err != nil {
+			t.Fatalf("RestoreFirewallFile failed: %v", err)
 		}
 		if !containsCmd(cmds, "nft flush ruleset") {
 			t.Fatalf("expected the loaded ruleset to be flushed, got %v", cmds)
@@ -1811,7 +1670,7 @@ func TestRollbackReloadsTheKernelRuleset(t *testing.T) {
 	})
 
 	t.Run("requires a host", func(t *testing.T) {
-		if err := RestoreManagedRuleset(nil, snap, MainConfigDebian); err == nil {
+		if err := RestoreFirewallFile(nil, snap, MainConfigDebian); err == nil {
 			t.Fatal("expected a host to be required")
 		}
 	})
@@ -1838,7 +1697,7 @@ func TestRollbackRefusesToFlushOnAnUnreadableProbe(t *testing.T) {
 				}
 				return "", nil
 			}}
-			err := RestoreManagedRuleset(host, snap, MainConfigDebian)
+			err := RestoreFirewallFile(host, snap, MainConfigDebian)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected %q, got %v", tc.want, err)
 			}
@@ -1896,7 +1755,7 @@ func TestRollbackReportsAFailedReload(t *testing.T) {
 					return "", nil
 				},
 			}
-			err := RestoreManagedRuleset(host, snap, MainConfigDebian)
+			err := RestoreFirewallFile(host, snap, MainConfigDebian)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected %q, got %v", tc.want, err)
 			}
@@ -1915,32 +1774,9 @@ func TestRollbackStopsWhenTheFileCannotBeRestored(t *testing.T) {
 	}
 	snap := pluginapi.FileSnapshot{Path: testDest, Existed: true, Mode: "644", Owner: "root", Group: "root", ContentB64: "dGVzdA=="}
 
-	err := RestoreManagedRuleset(host, snap, MainConfigDebian)
+	err := RestoreFirewallFile(host, snap, MainConfigDebian)
 	if err == nil || !strings.Contains(err.Error(), "read-only filesystem") {
 		t.Fatalf("expected the restore failure, got %v", err)
-	}
-}
-
-func TestListenPortReadsTheAddressForms(t *testing.T) {
-	cases := []struct {
-		in   string
-		want int
-		ok   bool
-	}{
-		{in: "0.0.0.0:22", want: 22, ok: true},
-		{in: "[::]:2222", want: 2222, ok: true},
-		{in: "*:22", want: 22, ok: true},
-		{in: "/run/sshd.sock"},
-		{in: "0.0.0.0:ssh"},
-		{in: "0.0.0.0:0"},
-		{in: "0.0.0.0:70000"},
-	}
-
-	for _, tc := range cases {
-		got, ok := listenPort(tc.in)
-		if ok != tc.ok || got != tc.want {
-			t.Fatalf("listenPort(%q) = %d, %v; want %d, %v", tc.in, got, ok, tc.want, tc.ok)
-		}
 	}
 }
 
@@ -1951,309 +1787,6 @@ func containsCmd(cmds []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func TestSSHDListeningPortsCoversSocketActivation(t *testing.T) {
-	t.Run("a socket unit's live port counts", func(t *testing.T) {
-		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-			switch {
-			case strings.HasPrefix(cmd, "ss -Hltnp"):
-				return `LISTEN 0 4096 *:22 *:* users:(("systemd",pid=1,fd=52))`, nil
-			case strings.Contains(cmd, "ssh.socket"):
-				return "[::]:22 (Stream)\n", nil
-			}
-			return "", nil
-		}}
-
-		ports, err := sshdListeningPorts(host)
-		if err != nil {
-			t.Fatalf("sshdListeningPorts failed: %v", err)
-		}
-		if len(ports) != 1 || ports[0] != 22 {
-			t.Fatalf("expected the socket-activated port, got %v", ports)
-		}
-	})
-
-	t.Run("a declared port nothing listens on does not count", func(t *testing.T) {
-		host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-			switch {
-			case strings.HasPrefix(cmd, "ss -Hltnp"):
-				return `LISTEN 0 4096 *:22 *:* users:(("systemd",pid=1,fd=52))`, nil
-			case strings.Contains(cmd, "ssh.socket"):
-				return "[::]:2222 (Stream)\n", nil
-			}
-			return "", nil
-		}}
-
-		if ports, err := sshdListeningPorts(host); err == nil {
-			t.Fatalf("expected a refusal rather than %v", ports)
-		}
-	})
-}
-
-func TestRollbackRemovesOnlyTheFlushLineItAdded(t *testing.T) {
-	const other = `include "/etc/nftables.d/50-other.nft"`
-	current := FlushLine + "\n\n" + other + "\n"
-
-	var wrote string
-	host := firewallExecHostStub{
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile: func(string) (string, error) { return current, nil },
-		writeRootFile: func(_ string, data []byte, _ os.FileMode) error {
-			wrote = string(data)
-			return nil
-		},
-	}
-
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        MainConfigDebian,
-		Line:        FlushLine,
-		FileExisted: true,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if strings.Contains(wrote, FlushLine) {
-		t.Fatalf("expected the flush header to be gone, got %q", wrote)
-	}
-	if !strings.Contains(wrote, other) {
-		t.Fatalf("expected the other profile's include to survive, got %q", wrote)
-	}
-}
-
-func TestRollbackKeepsTheFlushWhileAnotherManagedIncludeRemains(t *testing.T) {
-	const other = `include "/etc/nftables.d/99-hardline-other.nft"`
-	current := FlushLine + "\n" + other + "\n"
-
-	host := firewallExecHostStub{
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile: func(string) (string, error) { return current, nil },
-		writeRootFile: func(string, []byte, os.FileMode) error {
-			t.Fatal("the flush header must stay while another profile's ruleset is still included")
-			return nil
-		},
-	}
-
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        MainConfigDebian,
-		Line:        FlushLine,
-		FileExisted: true,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-}
-
-func TestRollbackKeepsAMainConfigAnotherProfileStillUses(t *testing.T) {
-	const mine = "/etc/nftables.d/99-hardline-firewall.nft"
-	const other = `include "/etc/nftables.d/99-hardline-other.nft"`
-	current := FlushLine + "\n" + IncludeLine(mine) + "\n" + other + "\n"
-
-	var wrote string
-	var cmds []string
-	host := firewallExecHostStub{
-		runRoot: func(cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		},
-		runRootWithOutput: func(cmd string) (string, error) {
-			cmds = append(cmds, cmd)
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile:  func(string) (string, error) { return current, nil },
-		writeRootFile: func(_ string, data []byte, _ os.FileMode) error { wrote = string(data); return nil },
-	}
-
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        MainConfigDebian,
-		Line:        IncludeLine(mine),
-		FileExisted: false,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	for _, cmd := range cmds {
-		if strings.HasPrefix(cmd, "rm -f ") {
-			t.Fatalf("a main config another profile includes from must survive, got %v", cmds)
-		}
-	}
-	if strings.Contains(wrote, mine) {
-		t.Fatalf("expected this profile's include to be gone, got %q", wrote)
-	}
-	if !strings.Contains(wrote, other) {
-		t.Fatalf("expected the other profile's include to survive, got %q", wrote)
-	}
-}
-
-func TestRollbackRemovesAMainConfigNoOtherProfileUses(t *testing.T) {
-	const mine = "/etc/nftables.d/99-hardline-firewall.nft"
-	current := FlushLine + "\n" + IncludeLine(mine) + "\n"
-
-	var cmds []string
-	host := firewallExecHostStub{
-		runRoot: func(cmd string) error {
-			cmds = append(cmds, cmd)
-			return nil
-		},
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile: func(string) (string, error) { return current, nil },
-	}
-
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        MainConfigDebian,
-		Line:        IncludeLine(mine),
-		FileExisted: false,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if !containsCmd(cmds, "rm -f "+pluginapi.ShellArg(MainConfigDebian)) {
-		t.Fatalf("expected the main config this run created to be removed, got %v", cmds)
-	}
-}
-
-func TestRollbackKeepsAFlushLineHardlineDidNotWrite(t *testing.T) {
-	current := FlushLine + "\n"
-	host := firewallExecHostStub{
-		runRoot: func(cmd string) error {
-			if cmd == flushMarkerCheckCmd(MainConfigDebian) {
-				return errors.New("no marker")
-			}
-			return nil
-		},
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(current)), nil
-		},
-		readRootFile: func(string) (string, error) { return current, nil },
-		writeRootFile: func(string, []byte, os.FileMode) error {
-			t.Fatal("a flush line hardline never wrote is the operator's, not hardline's to remove")
-			return nil
-		},
-	}
-	err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path:        MainConfigDebian,
-		Line:        FlushLine,
-		FileExisted: true,
-		Added:       true,
-	})
-	if err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-}
-
-// The profile that writes the flush header is rarely the profile that rolls back last, so removal
-// has to follow the file's state rather than which run recorded Added.
-func TestRollbackRemovesTheFlushWhicheverProfileGoesLast(t *testing.T) {
-	const mine = "/etc/nftables.d/99-hardline-firewall.nft"
-	const other = "/etc/nftables.d/99-hardline-other.nft"
-
-	newHost := func(t *testing.T, content *string) firewallExecHostStub {
-		t.Helper()
-		return firewallExecHostStub{
-			runRootWithOutput: func(string) (string, error) {
-				return fmt.Sprintf("regular file|644|root|root|%d", len(*content)), nil
-			},
-			readRootFile: func(string) (string, error) { return *content, nil },
-			writeRootFile: func(_ string, data []byte, _ os.FileMode) error {
-				*content = string(data)
-				return nil
-			},
-		}
-	}
-
-	// This profile wrote the header, but the other profile's ruleset still loads through it.
-	content := FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(other) + "\n"
-	kept := content
-	if err := RestoreNftablesInclude(newHost(t, &content), pluginapi.ConfigLineSnapshot{
-		Path: MainConfigDebian, Line: FlushLine, FileExisted: true, Added: true,
-	}); err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if content != kept {
-		t.Fatalf("the header must stay while another managed include needs it, got %q", content)
-	}
-
-	// The other profile goes last. Its own record says it found the header already there, and
-	// rollback walks its include out before its flush, the way the capture order gives them back.
-	content = FlushMarker + "\n" + FlushLine + "\n" + IncludeLine(mine) + "\n"
-	host := newHost(t, &content)
-	if err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path: MainConfigDebian, Line: IncludeLine(mine), FileExisted: true, Added: true,
-	}); err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if err := RestoreNftablesInclude(host, pluginapi.ConfigLineSnapshot{
-		Path: MainConfigDebian, Line: FlushLine, FileExisted: true, Added: false,
-	}); err != nil {
-		t.Fatalf("RestoreNftablesInclude failed: %v", err)
-	}
-	if strings.Contains(content, FlushLine) || strings.Contains(content, FlushMarker) {
-		t.Fatalf("the last profile out has to take the header with it, got %q", content)
-	}
-}
-
-func TestFlushLineConflictIsReported(t *testing.T) {
-	rec := pluginapi.ConfigLineSnapshot{
-		Path:        MainConfigDebian,
-		Line:        FlushLine,
-		FileExisted: true,
-		Added:       false,
-	}
-	gone := firewallExecHostStub{runRoot: func(cmd string) error {
-		if cmd == flushCheckCmd(MainConfigDebian) {
-			return errors.New("absent")
-		}
-		return nil
-	}}
-	conflicts := includeLineConflict(gone, rec)
-	if len(conflicts) != 1 || !strings.Contains(conflicts[0], FlushLine) {
-		t.Fatalf("expected a removed-flush conflict, got %v", conflicts)
-	}
-	if got := includeLineConflict(firewallExecHostStub{}, rec); got != nil {
-		t.Fatalf("expected no conflict while the flush header is present, got %v", got)
-	}
-}
-
-func TestRemoveNftablesFlushEdgeCases(t *testing.T) {
-	if err := RemoveNftablesFlush(nil, MainConfigDebian); err == nil {
-		t.Fatal("expected a host to be required")
-	}
-	if err := RemoveNftablesFlush(firewallExecHostStub{}, "/etc/evil.conf"); err == nil {
-		t.Fatal("expected a foreign main config to be refused")
-	}
-	if flushPresent(nil, MainConfigDebian) {
-		t.Fatal("no host means nothing can be confirmed present")
-	}
-
-	absent := firewallExecHostStub{runRootWithOutput: func(string) (string, error) { return "", nil }}
-	if err := RemoveNftablesFlush(absent, MainConfigDebian); err != nil {
-		t.Fatalf("expected an absent main config to be a no-op, got %v", err)
-	}
-
-	const content = "include \"/etc/nftables.d/50-other.nft\"\n"
-	untouched := firewallExecHostStub{
-		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|644|root|root|%d", len(content)), nil
-		},
-		readRootFile: func(string) (string, error) { return content, nil },
-		writeRootFile: func(string, []byte, os.FileMode) error {
-			t.Fatal("a config with no flush header must not be rewritten")
-			return nil
-		},
-	}
-	if err := RemoveNftablesFlush(untouched, MainConfigDebian); err != nil {
-		t.Fatalf("expected a no-op, got %v", err)
-	}
 }
 
 func normalizedTestSpec(t *testing.T, spec *Spec) NormalizedSpec {
@@ -2316,56 +1849,6 @@ func TestActivateFirewallReportsWhatNftSaid(t *testing.T) {
 	}
 }
 
-func TestActivateFirewallRefusesToLockItselfOut(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 8080, Action: "accept"}}
-	desired := normalizedTestSpec(t, spec)
-
-	var cmds []string
-	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-		cmds = append(cmds, cmd)
-		return "", nil
-	}}
-	err := ActivateFirewall(host, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
-		t.Fatalf("expected a lockout refusal, got %v", err)
-	}
-	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
-		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
-	}
-}
-
-func TestActivateFirewallRefusesAnOutputPolicyThatDropsReplies(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "drop"})
-	desired := normalizedTestSpec(t, spec)
-
-	var cmds []string
-	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-		cmds = append(cmds, cmd)
-		return "", nil
-	}}
-	err := ActivateFirewall(host, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "answer an established connection") {
-		t.Fatalf("expected an output-chain lockout refusal, got %v", err)
-	}
-	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
-		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
-	}
-}
-
-func TestActivateFirewallAcceptsAnOutputPolicyThatKeepsReplies(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "drop"})
-	spec.Rules = append(spec.Rules, Rule{Chain: "output", CTStates: []string{"established", "related"}, Action: "accept"})
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
-	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
-		t.Fatalf("expected the ruleset to be loaded, got %v", err)
-	}
-}
-
 func TestSingleHostPrefixesReadBackAsTheKernelSpellsThem(t *testing.T) {
 	for raw, want := range map[string]string{
 		"10.0.0.1/32":     "10.0.0.1",
@@ -2380,220 +1863,6 @@ func TestSingleHostPrefixesReadBackAsTheKernelSpellsThem(t *testing.T) {
 		if got != want {
 			t.Fatalf("normalizeAddress(%q) = %q, want %q; nft reads a single-host prefix back bare", raw, got, want)
 		}
-	}
-}
-
-func TestActivateFirewallRefusesAnEphemeralOutputDropAheadOfTheAccept(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "accept"})
-	spec.Rules = append(spec.Rules,
-		Rule{Chain: "output", Proto: "tcp", Port: 40000, Action: "drop"},
-		Rule{Chain: "output", CTStates: []string{"established"}, Action: "accept"},
-	)
-	desired := normalizedTestSpec(t, spec)
-
-	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "established reply") {
-		t.Fatalf("a drop on a port a client could be answering from must be refused, got %v", err)
-	}
-}
-
-func TestActivateFirewallAllowsAnOutputDropOnAServicePort(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = append(spec.Policies, Policy{Chain: "output", Policy: "accept"})
-	spec.Rules = append(spec.Rules, Rule{Chain: "output", Proto: "tcp", Port: 25, Action: "drop"})
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
-	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
-		t.Fatalf("blocking outbound smtp cannot sever an ssh reply, got %v", err)
-	}
-}
-
-func TestActivateFirewallRefusesWhenOnlyOneSSHListenerSurvives(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-		if strings.HasPrefix(cmd, "ss -Hltnp") {
-			return `LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=800,fd=3))` + "\n" +
-				`LISTEN 0 128 0.0.0.0:2222 0.0.0.0:* users:(("sshd",pid=800,fd=4))`, nil
-		}
-		return "", nil
-	}}
-	err := ActivateFirewall(host, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
-		t.Fatalf("expected an accepted port 22 not to excuse a blocked port 2222, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "port 2222") {
-		t.Fatalf("expected the blocked listener to be named, got %v", err)
-	}
-}
-
-func TestActivateFirewallAcceptsANonStandardSSHPort(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 2222, Action: "accept"}}
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{
-		runRootWithOutput: func(cmd string) (string, error) {
-			if strings.HasPrefix(cmd, "ss -Hltnp") {
-				return `LISTEN 0 128 0.0.0.0:2222 0.0.0.0:* users:(("sshd",pid=800,fd=3))`, nil
-			}
-			return "", nil
-		},
-		liveRulesetJSON: liveRulesetJSON(desired),
-	}
-	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
-		t.Fatalf("expected the ruleset to be loaded, got %v", err)
-	}
-}
-
-func TestActivateFirewallIgnoresANarrowedAccept(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "accept"}}
-	desired := normalizedTestSpec(t, spec)
-
-	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
-		t.Fatalf("expected a narrowed accept to be refused as management access, got %v", err)
-	}
-}
-
-func TestActivateFirewallRefusesAnAcceptTheChainNeverReaches(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{
-		{Chain: "input", Proto: "tcp", Port: 22, Action: "drop"},
-		{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
-	}
-	desired := normalizedTestSpec(t, spec)
-
-	var cmds []string
-	host := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-		cmds = append(cmds, cmd)
-		return "", nil
-	}}
-	err := ActivateFirewall(host, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
-		t.Fatalf("expected the earlier drop to be honoured, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "tcp dport 22 drop") {
-		t.Fatalf("expected the blocking rule to be named, got %v", err)
-	}
-	if strings.Contains(strings.Join(cmds, "\n"), "nft -f ") {
-		t.Fatalf("nothing may be loaded once a lockout is detected, got %v", cmds)
-	}
-}
-
-func TestActivateFirewallRefusesAnEstablishedOnlyAccept(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{
-		{Chain: "input", Proto: "tcp", Port: 22, CTStates: []string{"established"}, Action: "accept"},
-	}
-	desired := normalizedTestSpec(t, spec)
-
-	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
-		t.Fatalf("expected an accept that no new connection reaches to be refused, got %v", err)
-	}
-}
-
-func TestActivateFirewallRefusesADropRuleUnderAnAcceptPolicy(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
-	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 22, Action: "drop"}}
-	desired := normalizedTestSpec(t, spec)
-
-	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "lock itself out") {
-		t.Fatalf("expected a drop rule to be caught under an accept policy, got %v", err)
-	}
-}
-
-func TestActivateFirewallRefusesAScopedDropItCannotEvaluate(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{
-		{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "drop"},
-		{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
-	}
-	desired := normalizedTestSpec(t, spec)
-
-	err := ActivateFirewall(firewallExecHostStub{}, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "cannot tell whether it covers this run's connection") {
-		t.Fatalf("expected an unevaluable drop to be refused, got %v", err)
-	}
-}
-
-func TestActivateFirewallAcceptsAnAcceptAheadOfANarrowerDrop(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Rules = []Rule{
-		{Chain: "input", InInterface: "lo", Action: "accept"},
-		{Chain: "input", CTStates: []string{"invalid"}, Action: "drop"},
-		{Chain: "input", CTStates: []string{"established", "related"}, Action: "accept"},
-		{Chain: "input", Proto: "tcp", Port: 22, Action: "accept"},
-		{Chain: "input", Proto: "tcp", Port: 22, Source: "10.0.0.0/8", Action: "drop"},
-	}
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{liveRulesetJSON: liveRulesetJSON(desired)}
-	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
-		t.Fatalf("expected the accept that comes first to settle the verdict, got %v", err)
-	}
-}
-
-func TestActivateFirewallFailsClosedWithoutAnSSHProbe(t *testing.T) {
-	desired := normalizedTestSpec(t, validDeterministicFirewallSpec())
-
-	host := firewallExecHostStub{noSSHD: true}
-	err := ActivateFirewall(host, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "could not determine which port sshd") {
-		t.Fatalf("expected the probe to fail closed, got %v", err)
-	}
-
-	failing := firewallExecHostStub{runRootWithOutput: func(cmd string) (string, error) {
-		if strings.HasPrefix(cmd, "ss -Hltnp") {
-			return "", errors.New("ss: command not found")
-		}
-		return "", nil
-	}}
-	if err := ActivateFirewall(failing, MainConfigDebian, desired); err == nil {
-		t.Fatal("expected a failing probe to refuse the load")
-	}
-}
-
-func TestActivateFirewallSkipsTheGuardForAnAcceptPolicy(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{noSSHD: true, liveRulesetJSON: liveRulesetJSON(desired)}
-	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
-		t.Fatalf("expected an accept policy to need no lockout probe, got %v", err)
-	}
-}
-
-func TestActivateFirewallLoadsAPortSpecificDropWithoutAnSSHProbe(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
-	spec.Rules = []Rule{{Chain: "input", Proto: "tcp", Port: 445, Action: "drop"}}
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{noSSHD: true, liveRulesetJSON: liveRulesetJSON(desired)}
-	if err := ActivateFirewall(host, MainConfigDebian, desired); err != nil {
-		t.Fatalf("dropping an unrelated port under an accept policy cannot lock this host out, got %v", err)
-	}
-}
-
-func TestActivateFirewallFailsClosedForAPortlessDropWithoutAnSSHProbe(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	spec.Policies = []Policy{{Chain: "input", Policy: "accept"}}
-	spec.Rules = []Rule{{Chain: "input", CTStates: []string{"new"}, Action: "drop"}}
-	desired := normalizedTestSpec(t, spec)
-
-	host := firewallExecHostStub{noSSHD: true, liveRulesetJSON: liveRulesetJSON(desired)}
-	err := ActivateFirewall(host, MainConfigDebian, desired)
-	if err == nil || !strings.Contains(err.Error(), "could not determine which port sshd") {
-		t.Fatalf("a deny that names no port closes whatever port sshd is on, got %v", err)
 	}
 }
 

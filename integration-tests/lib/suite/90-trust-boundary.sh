@@ -169,11 +169,11 @@ EOF
   scenario_end
 }
 
-# ── firewall-include-layering: one profile's rollback keeps another's include ─
+# ── firewall-include-layering: the profile applied last is the one that rolls back first ─
 scenario_firewall_include_layering() {
   local dir="${ARTIFACT_ROOT}/firewall-include-layering"
   reset_dir "${dir}"
-  scenario_start "firewall-include-layering: rolling back one profile leaves the other profile's include in ${NFT_MAIN_CONFIG}"
+  scenario_start "firewall-include-layering: rolling back out of order is refused; the newer profile out first restores the older one's include in ${NFT_MAIN_CONFIG}"
   guard_can_sign || return
 
   local first_table="hardline_fw_layer_a"
@@ -201,21 +201,39 @@ nft list table inet ${first_table} >/dev/null 2>&1
 nft list table inet ${second_table} >/dev/null 2>&1
 EOF
 
-  must_hl "${dir}/rollback-a.log" "rollback the first profile" -- rollback "${first}" "${remote_args[@]}"
+  # The second apply wrote the main config the first profile's journal describes, so the first
+  # profile can no longer prove what it would be overwriting. Rollback has to say so and stop.
+  expect_hl_fail "${dir}/rollback-a-refused.log" "rolling the first profile back out of order is refused" -- rollback "${first}" "${remote_args[@]}"
 
-  must_remote "only the first profile's include and file are gone; the second survives" <<EOF
-if $(nft_include_test "${first_dest}"); then exit 1; fi
-test ! -e ${first_dest}
+  grep -q "modified since apply" "${dir}/rollback-a-refused.log" \
+    || note_fail "the first rollback failed for some other reason than the conflict check"
+
+  must_remote "the refused rollback changed nothing" <<EOF
+$(nft_include_test "${first_dest}")
 $(nft_include_test "${second_dest}")
+test -e ${first_dest}
 test -e ${second_dest}
-nft -c -f ${NFT_MAIN_CONFIG}
+nft list table inet ${first_table} >/dev/null 2>&1
+nft list table inet ${second_table} >/dev/null 2>&1
 EOF
 
   must_hl "${dir}/rollback-b.log" "rollback the second profile" -- rollback "${second}" "${remote_args[@]}"
 
-  must_remote "the second rollback leaves no hardline include behind" <<EOF
+  must_remote "the second profile is gone and the first profile's include is back as it was" <<EOF
 if $(nft_include_test "${second_dest}"); then exit 1; fi
 test ! -e ${second_dest}
+$(nft_include_test "${first_dest}")
+test -e ${first_dest}
+nft list table inet ${first_table} >/dev/null 2>&1
+if nft list table inet ${second_table} >/dev/null 2>&1; then exit 1; fi
+nft -c -f ${NFT_MAIN_CONFIG}
+EOF
+
+  must_hl "${dir}/rollback-a.log" "rollback the first profile once nothing is layered on it" -- rollback "${first}" "${remote_args[@]}"
+
+  must_remote "the first rollback leaves no hardline include behind" <<EOF
+if $(nft_include_test "${first_dest}"); then exit 1; fi
+test ! -e ${first_dest}
 nft -c -f ${NFT_MAIN_CONFIG}
 EOF
 

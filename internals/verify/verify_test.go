@@ -253,7 +253,7 @@ func TestVerifyProfile_ManifestCoverage(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			verifyIntegrity = func(string, bool) (*VerifiedManifest, error) {
-				return &VerifiedManifest{Digest: "d", Files: tc.signed}, nil
+				return &VerifiedManifest{Files: tc.signed}, nil
 			}
 			loadVerifyProfile = func(string, map[string][]byte) (*profile.Profile, error) { return tc.p, nil }
 

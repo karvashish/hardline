@@ -77,13 +77,9 @@ type NormalizedDiff struct {
 	Reordered     []string
 }
 
-type firewallStatRuntime interface {
+type firewallCompareRuntime interface {
 	RunRoot(cmd string) error
 	RunRootWithOutput(cmd string) (string, error)
-}
-
-type firewallCompareRuntime interface {
-	firewallStatRuntime
 	ReadRootFile(path string) (string, error)
 }
 
@@ -458,7 +454,7 @@ func firewallDestinationMatches(rt firewallCompareRuntime, dest string, rendered
 	return current == rendered, nil
 }
 
-func statFirewallDestination(rt firewallStatRuntime, dest string) (int64, os.FileMode, error) {
+func statFirewallDestination(rt firewallCompareRuntime, dest string) (int64, os.FileMode, error) {
 	if rt == nil {
 		return 0, 0, fmt.Errorf("runtime is required")
 	}
@@ -1828,17 +1824,14 @@ func DecodeNftPortValues(raw json.RawMessage) []int {
 				for _, v := range arr {
 					appendIfPort(v)
 				}
-				return values
 			}
 		}
 	case []any:
 		for _, v := range t {
 			appendIfPort(v)
 		}
-		return values
 	default:
 		appendIfPort(anyVal)
-		return values
 	}
 
 	return values
@@ -2208,10 +2201,6 @@ func splitFirewallDiffLines(text string) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
-}
-
-func (r NormalizedRule) Key() string {
-	return r.key()
 }
 
 func (r NormalizedRule) key() string {

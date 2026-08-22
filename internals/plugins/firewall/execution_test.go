@@ -138,8 +138,8 @@ func TestDiffRenderAndKeyHelpers(t *testing.T) {
 	}
 
 	rule := NormalizedRule{Chain: "input", Action: "accept", Proto: "tcp", Port: 22}
-	if rule.Key() == "" || rule.key() == "" {
-		t.Fatalf("expected non-empty rule keys")
+	if rule.key() == "" {
+		t.Fatalf("expected non-empty rule key")
 	}
 }
 
@@ -323,11 +323,11 @@ func TestNormalizeCurrentStateAcceptsRuntimeNftAliases(t *testing.T) {
 	}
 
 	want := map[string]struct{}{
-		NormalizedRule{Chain: "input", Proto: "icmpv6", Action: "accept"}.Key():   {},
-		NormalizedRule{Chain: "input", InInterface: "lo", Action: "accept"}.Key(): {},
+		NormalizedRule{Chain: "input", Proto: "icmpv6", Action: "accept"}.key():   {},
+		NormalizedRule{Chain: "input", InInterface: "lo", Action: "accept"}.key(): {},
 	}
 	for _, rule := range state.Rules {
-		if _, ok := want[rule.Key()]; !ok {
+		if _, ok := want[rule.key()]; !ok {
 			t.Fatalf("unexpected normalized rule: %#v", rule)
 		}
 	}

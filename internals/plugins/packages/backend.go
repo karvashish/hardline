@@ -191,15 +191,10 @@ func (b Backend) validate(spec *Spec) error {
 	return ValidateLists(b.NamePattern, spec.Install, spec.Purge)
 }
 
-func (b Backend) installed(host pluginapi.Host, name string) (bool, error) {
-	was, _, _, err := b.Query(host, name)
-	return was, err
-}
-
 func (b Backend) infos(host pluginapi.Host, names []string) ([]PkgInfo, error) {
 	out := make([]PkgInfo, len(names))
 	for i, name := range names {
-		was, err := b.installed(host, name)
+		was, _, _, err := b.Query(host, name)
 		if err != nil {
 			return nil, err
 		}

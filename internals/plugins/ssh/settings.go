@@ -158,10 +158,6 @@ func Render(settings []Setting) []byte {
 	return []byte(b.String())
 }
 
-func EffectiveKey(keyword string) string {
-	return strings.ToLower(keyword)
-}
-
 func ParseEffective(out string) map[string][]string {
 	effective := make(map[string][]string, 64)
 	for _, line := range strings.Split(out, "\n") {
@@ -183,7 +179,7 @@ func ParseEffective(out string) map[string][]string {
 func DivergentSettings(effective map[string][]string, want []Setting) []string {
 	var drift []string
 	for _, s := range want {
-		key := EffectiveKey(s.Keyword)
+		key := strings.ToLower(s.Keyword)
 		values, ok := effective[key]
 		if !ok {
 			drift = append(drift, fmt.Sprintf("%s: sshd does not report this keyword, so it is not a directive this sshd honours", s.Keyword))

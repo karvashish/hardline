@@ -48,8 +48,7 @@ type manifestEntry struct {
 var embeddedProfileSigningPubPEM []byte
 
 type VerifiedManifest struct {
-	Digest string
-	Files  map[string][]byte
+	Files map[string][]byte
 }
 
 func VerifyProfileIntegrity(profileDir string, useLocalKey bool) (*VerifiedManifest, error) {
@@ -124,7 +123,7 @@ func VerifyProfileIntegrity(profileDir string, useLocalKey bool) (*VerifiedManif
 		files[rel] = content
 	}
 
-	return &VerifiedManifest{Digest: digestBytes(manifestBytes), Files: files}, nil
+	return &VerifiedManifest{Files: files}, nil
 }
 
 func digestBytes(b []byte) string {

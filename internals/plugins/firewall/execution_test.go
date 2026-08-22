@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1298,6 +1299,47 @@ func TestCaptureRecordsWhetherThisRunAddedTheLines(t *testing.T) {
 				t.Fatalf("added flags do not match the probe: include=%v flush=%v", include.Added, flush.Added)
 			}
 		})
+	}
+}
+
+// The main config carries the distribution's own name, so restoring it must not go through the
+// managed-path rule that governs the file hardline renders itself.
+func TestRestoreFirewallFileRestoresTheMainConfig(t *testing.T) {
+	var wrote string
+	var cmds []string
+	host := firewallExecHostStub{
+		runRoot: func(string) error { return nil },
+		runRootWithOutput: func(cmd string) (string, error) {
+			cmds = append(cmds, cmd)
+			return "", nil
+		},
+		writeRootFile: func(path string, data []byte, _ os.FileMode) error {
+			if path != MainConfigDebian {
+				t.Fatalf("unexpected write to %q", path)
+			}
+			wrote = string(data)
+			return nil
+		},
+	}
+
+	const content = "flush ruleset\n"
+	err := RestoreFirewallFile(host, pluginapi.FileSnapshot{
+		Path:       MainConfigDebian,
+		Existed:    true,
+		Mode:       "644",
+		Owner:      "root",
+		Group:      "root",
+		ContentB64: base64.StdEncoding.EncodeToString([]byte(content)),
+	}, MainConfigDebian)
+	if err != nil {
+		t.Fatalf("RestoreFirewallFile failed: %v", err)
+	}
+	if wrote != content {
+		t.Fatalf("expected the journalled bytes written back, got %q", wrote)
+	}
+	// The managed ruleset is restored after this one and reloads for both.
+	if containsCmd(cmds, "nft -f "+pluginapi.ShellArg(MainConfigDebian)) {
+		t.Fatalf("restoring the main config must not reload on its own, got %v", cmds)
 	}
 }
 

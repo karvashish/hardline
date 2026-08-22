@@ -550,13 +550,34 @@ func RestoreFirewallFile(host pluginapi.Host, snap pluginapi.FileSnapshot, mainC
 	if !ValidMainConfig(mainConfig) {
 		return fmt.Errorf("firewall rollback: the journal records an unsupported main config path %q", mainConfig)
 	}
+	if snap.Path == mainConfig {
+		return restoreMainConfig(host, snap)
+	}
 	if err := pluginapi.RestoreFileSnapshot(host, snap); err != nil {
 		return err
 	}
-	if snap.Path == mainConfig {
-		return nil
-	}
 	return reloadFromMainConfig(host, mainConfig)
+}
+
+// The main config is named by the profile and by the distribution, so it cannot satisfy the
+// 99-hardline naming rule EnforceManagedPath applies to a file hardline itself renders. The
+// two-entry whitelist its caller already checked is what a tampered journal has to get past.
+func restoreMainConfig(host pluginapi.Host, snap pluginapi.FileSnapshot) error {
+	if !snap.Existed {
+		return host.RunRoot("rm -f " + pluginapi.ShellArg(snap.Path))
+	}
+	mode, err := pluginapi.ParseFileMode(snap.Mode)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: restore %s: %w", snap.Path, err)
+	}
+	content, err := base64.StdEncoding.DecodeString(snap.ContentB64)
+	if err != nil {
+		return fmt.Errorf("firewall rollback: decode %s: %w", snap.Path, err)
+	}
+	if err := host.WriteRootFile(snap.Path, content, mode); err != nil {
+		return fmt.Errorf("firewall rollback: restore %s: %w", snap.Path, err)
+	}
+	return nil
 }
 
 func reloadFromMainConfig(host pluginapi.Host, mainConfig string) error {

@@ -77,7 +77,7 @@ The lifecycle is intentionally conservative:
 Status transitions are meaningful:
 
 - `in_progress` while apply is running
-- `interrupted` if the apply context is cancelled
+- `interrupted` while a cancelled apply reverts inline; that run then ends at `failed`
 - `failed` if apply exits unsuccessfully
 - `success` only after the full apply completes and the journal is ready to be used for later rollback
 - `rolling_back` once a manual rollback has claimed the journal and before it finishes
@@ -104,7 +104,7 @@ Failed applies do not create remote success journals. A later manual rollback ca
 
 Two conditions gate it. The runner-side journal has to still exist, which after a successful apply means `--keep-local-rollback` was passed, or that apply failed to persist the target journal and fell back to the local one. And the journal has to carry status `success` or `rolling_back`, because the status gate in `rollbackCommand` is the same one the remote path goes through.
 
-That second condition is the one worth being precise about. A failed or interrupted apply does leave its local journal in place, but it stamps it `failed` or `interrupted` first, and a runner killed outright leaves it at `in_progress` - all three are refused by the status gate. `--local-journal` is therefore **not** a recovery path for a broken apply. It exists for the run that applied every step and then could not commit the journal to the target: status is already `success`, and apply prints the exact `--local-journal` command to run. On the failed and interrupted paths the reverse walk has already happened inline, from this same journal, before apply returned.
+That second condition is the one worth being precise about. A failed or interrupted apply does leave its local journal in place, but it stamps it `failed` first. A cancelled run is marked `interrupted` while the inline rollback runs and then `failed` when apply returns, so `interrupted` survives only a runner killed inside that window, and a runner killed before it leaves `in_progress` - all three are refused by the status gate. `--local-journal` is therefore **not** a recovery path for a broken apply. It exists for the run that applied every step and then could not commit the journal to the target: status is already `success`, and apply prints the exact `--local-journal` command to run. On the failed and interrupted paths the reverse walk has already happened inline, from this same journal, before apply returned.
 
 ## Remote Journal Stack
 

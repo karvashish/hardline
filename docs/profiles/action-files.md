@@ -41,7 +41,7 @@ Each action file is a JSON object with a `steps` array:
 | `firewall_template` | `backend`, `main_config`, `policy` | `allow`, `template_src`, `template_dest` |
 | `file_meta` | `path` | `mode`, `owner`, `group`, `immutable`, `append_only` |
 
-Every branch also requires `config` itself, including the three package branches, which require no field inside it. A step naming one of them still has to carry a `config` object, empty if it declares nothing.
+Every branch also requires `config` itself, including the three package branches, which require no field inside it. A step naming one of them still has to carry a `config` object. The schema accepts an empty one, but the plugin's own validator does not: a package step that configures no operation has nothing to do, so it is rejected a moment later at `verify-profile`.
 
 Plugins re-check their config through the `Validate` func every plugin must implement. Both checks run during `verify-profile`, offline, and in that order: the schema branch first, then the plugin's own validator. They are deliberately redundant.
 

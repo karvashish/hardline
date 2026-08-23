@@ -32,8 +32,8 @@ If you accidentally hit Ctrl-C and want Hardline to finish cleanly, **do not pre
 After a graceful cancel-and-rollback:
 
 1. Confirm the host's current state with `hardline plan ...` against the same profile.
-2. If the plan output shows no drift from the pre-apply state, the rollback succeeded.
-3. If the plan output shows partial changes, the rollback hit a conflict — read the error message to see which object couldn't be reverted, then decide whether to fix manually, re-apply, or use `--force-rollback`.
+2. A clean rollback puts the host back where it was before the run, so the plan should read like the one you started from: the same steps planned, the same changes pending. Plan compares the profile against live host state, so that repeat is the success signal, not evidence the rollback did nothing.
+3. If some steps now report as aligned while others still plan changes, the rollback did not revert everything - read the error message to see which object couldn't be reverted, then decide whether to fix manually, re-apply, or use `--force-rollback`.
 
 ## SSH Drops Mid-Apply
 
@@ -141,7 +141,7 @@ The default root is Go's `os.TempDir()` — `$TMPDIR` if set, otherwise `/tmp` �
 
 ## Partial Apply Left No Remote Journal
 
-A remote journal is only written after a full, successful apply. An interrupted or failed apply leaves **no** remote journal, so a plain `rollback` has nothing in `/var/lib/hardline/runs/<profileID>/` to walk.
+A remote journal is only written after a full, successful apply, so the interrupted or failed run itself leaves none. That does not always mean `rollback` finds nothing: it loads the newest file already under `/var/lib/hardline/runs/<profileID>/`, which is the last *earlier* successful apply, and only fails with `no journal found for profile` when the directory holds none. Walking that older run is rarely what a partial apply needs, and the conflict preflight normally refuses it anyway, because the host no longer matches the state that apply left behind.
 
 `--local-journal` walks the runner-side journal instead:
 
@@ -158,7 +158,7 @@ That reads `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json`, 
 | Every step applied, but the target journal could not be persisted | `success` | **Yes** - this is the case the flag exists for, and apply prints the exact command |
 | Every step applied, target journal persisted, `--keep-local-rollback` passed | `success` | Yes - equivalent to the remote journal |
 | A step failed | `failed` | No |
-| `SIGINT`/`SIGTERM` cancelled the run | `interrupted` | No |
+| `SIGINT`/`SIGTERM` cancelled the run | `failed`, or `interrupted` if the runner was killed during the inline rollback | No |
 | The runner was killed outright | `in_progress` | No |
 
 The three refused rows are not a gap in coverage: on the `failed` and `interrupted` paths apply has **already** walked the journal and rolled back the steps that had completed, before it exited. A second reverse walk is not what those runs need. What they need is the journal read as a record:

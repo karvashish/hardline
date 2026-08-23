@@ -6,13 +6,13 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/invopop/jsonschema v0.14.0
 	github.com/pkg/sftp v1.13.11
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.55.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/buger/jsonparser v1.2.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 )
 
 require (

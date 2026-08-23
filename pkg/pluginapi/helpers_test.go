@@ -428,28 +428,6 @@ func TestCapturesDiffer_ExactServiceState(t *testing.T) {
 	}
 }
 
-func TestCapturesDiffer_ConfigLine(t *testing.T) {
-	absent := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine,
-		ConfigLine: &ConfigLineSnapshot{Path: "/etc/nftables.conf", Line: `include "/etc/nftables.d/99-hardline.nft"`, FileExisted: true, Added: true}}}}
-	present := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine,
-		ConfigLine: &ConfigLineSnapshot{Path: "/etc/nftables.conf", Line: `include "/etc/nftables.d/99-hardline.nft"`, FileExisted: true, Added: false}}}}
-
-	if !CapturesDiffer(absent, present) {
-		t.Fatal("appending the include line is a change")
-	}
-	if CapturesDiffer(present, present) {
-		t.Fatal("identical config-line state must not report a change")
-	}
-
-	missing := CaptureResult{Objects: []ObjectRecord{{Kind: ObjectConfigLine}}}
-	if !CapturesDiffer(missing, present) {
-		t.Fatal("a record that lost its payload is not the same as one that kept it")
-	}
-	if CapturesDiffer(missing, missing) {
-		t.Fatal("two empty config-line records are the same")
-	}
-}
-
 func TestRestoreFileSnapshot_RestoresOwnership(t *testing.T) {
 	var cmds []string
 	host := pluginAPIHostStub{

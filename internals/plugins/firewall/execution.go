@@ -497,19 +497,6 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 	if err != nil {
 		return record, fmt.Errorf("capture firewall snapshot for %q: %w", mainConfig, err)
 	}
-	include := pluginapi.ConfigLineSnapshot{
-		Path:        mainConfig,
-		Line:        IncludeLine(dest),
-		FileExisted: mainSnap.Existed,
-		Added:       !firewallIncludePresent(ctx.Host, mainConfig, dest),
-	}
-	flush := pluginapi.ConfigLineSnapshot{
-		Path:        mainConfig,
-		Line:        FlushLine,
-		FileExisted: mainSnap.Existed,
-		Added:       !flushPresent(ctx.Host, mainConfig),
-	}
-
 	desired, err := NormalizeDesiredSpec(spec)
 	if err != nil {
 		return record, fmt.Errorf("step %q (type=firewall): %w", stepID, err)
@@ -521,14 +508,10 @@ func Capture(ctx pluginapi.Context, stepID string, spec *Spec) (pluginapi.Captur
 
 	record.RollbackMode = pluginapi.ModeDeterministic
 	// The managed ruleset comes first so rollback, which walks the objects back to front, puts the
-	// main config back before it restores the file that config includes and reloads the kernel. The
-	// two config lines are what this run did to the main config, recorded so the journal says it
-	// rather than leaving it to be read back out of the snapshots.
+	// main config back before it restores the file that config includes and reloads the kernel.
 	record.Objects = []pluginapi.ObjectRecord{
 		{Kind: pluginapi.ObjectFile, File: &snap, Message: mainConfig},
 		{Kind: pluginapi.ObjectFile, File: &mainSnap, Message: mainConfig},
-		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &flush},
-		{Kind: pluginapi.ObjectConfigLine, ConfigLine: &include},
 		{
 			Kind: pluginapi.ObjectRuntimePolicy,
 			RuntimePolicy: &pluginapi.RuntimePolicy{

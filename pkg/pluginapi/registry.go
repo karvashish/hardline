@@ -20,7 +20,6 @@ const (
 	ObjectFileMeta      = "file_meta"
 	ObjectService       = "service"
 	ObjectPackage       = "package"
-	ObjectConfigLine    = "config_line"
 	ObjectRuntimePolicy = "runtime_policy"
 )
 
@@ -66,27 +65,19 @@ type PackageState struct {
 	RequestedPurge   bool   `json:"requested_purge,omitempty"`
 }
 
-type ConfigLineSnapshot struct {
-	Path        string `json:"path"`
-	Line        string `json:"line"`
-	FileExisted bool   `json:"file_existed"`
-	Added       bool   `json:"added"`
-}
-
 type RuntimePolicy struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
 }
 
 type ObjectRecord struct {
-	Kind          string              `json:"kind"`
-	File          *FileSnapshot       `json:"file,omitempty"`
-	FileMeta      *FileMetaSnapshot   `json:"file_meta,omitempty"`
-	Service       *ServiceState       `json:"service,omitempty"`
-	Package       *PackageState       `json:"package,omitempty"`
-	ConfigLine    *ConfigLineSnapshot `json:"config_line,omitempty"`
-	RuntimePolicy *RuntimePolicy      `json:"runtime_policy,omitempty"`
-	Message       string              `json:"message,omitempty"`
+	Kind          string            `json:"kind"`
+	File          *FileSnapshot     `json:"file,omitempty"`
+	FileMeta      *FileMetaSnapshot `json:"file_meta,omitempty"`
+	Service       *ServiceState     `json:"service,omitempty"`
+	Package       *PackageState     `json:"package,omitempty"`
+	RuntimePolicy *RuntimePolicy    `json:"runtime_policy,omitempty"`
+	Message       string            `json:"message,omitempty"`
 }
 
 type CaptureResult struct {

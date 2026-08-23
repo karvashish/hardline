@@ -761,22 +761,11 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Capture failed: %v", err)
 		}
-		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 5 {
+		if rec.RollbackMode != "deterministic" || len(rec.Objects) != 3 {
 			t.Fatalf("unexpected rollback record: %+v", rec)
 		}
-		if rec.Objects[4].Kind != pluginapi.ObjectRuntimePolicy || rec.Objects[4].RuntimePolicy == nil {
-			t.Fatalf("the loaded ruleset was not journalled: %+v", rec.Objects[4])
-		}
-		include := rec.Objects[3].ConfigLine
-		if rec.Objects[3].Kind != pluginapi.ObjectConfigLine || include == nil || include.Path != MainConfigDebian {
-			t.Fatalf("expected the include recorded, got %+v", rec.Objects[3])
-		}
-		if include.Line != `include "/etc/nftables.d/99-hardline-firewall.nft"` {
-			t.Fatalf("expected the exact managed file to be included, got %q", include.Line)
-		}
-		flush := rec.Objects[2].ConfigLine
-		if rec.Objects[2].Kind != pluginapi.ObjectConfigLine || flush == nil || flush.Line != FlushLine {
-			t.Fatalf("expected the flush header recorded, got %+v", rec.Objects[2])
+		if rec.Objects[2].Kind != pluginapi.ObjectRuntimePolicy || rec.Objects[2].RuntimePolicy == nil {
+			t.Fatalf("the loaded ruleset was not journalled: %+v", rec.Objects[2])
 		}
 		main := rec.Objects[1].File
 		if rec.Objects[1].Kind != pluginapi.ObjectFile || main == nil || main.Path != MainConfigDebian {
@@ -1250,56 +1239,6 @@ func (s firewallExecHostStub) WriteRootFile(path string, data []byte, mode os.Fi
 
 func (s firewallExecHostStub) RunRootWithTimeout(cmd string, _ time.Duration) (string, error) {
 	return s.RunRootWithOutput(cmd)
-}
-
-// Whether this run added the include or the flush header is a fact about the run, so the journal
-// records it outright instead of leaving it to be read back out of the file snapshots.
-func TestCaptureRecordsWhetherThisRunAddedTheLines(t *testing.T) {
-	spec := validDeterministicFirewallSpec()
-	dest := ManagedDestination(spec)
-
-	newHost := func(present bool) firewallExecHostStub {
-		return firewallExecHostStub{
-			runRoot: func(cmd string) error {
-				if cmd == includeCheckCmd(testMainConfig, dest) || cmd == flushCheckCmd(testMainConfig) {
-					if present {
-						return nil
-					}
-					return errors.New("absent")
-				}
-				return nil
-			},
-			runRootWithOutput: func(cmd string) (string, error) {
-				if strings.Contains(cmd, "nft -j list ruleset") {
-					return "", nil
-				}
-				return "regular file|644|root|root|5", nil
-			},
-			readRootFile: func(string) (string, error) { return "abc", nil },
-		}
-	}
-
-	for _, tc := range []struct {
-		name    string
-		present bool
-	}{
-		{"lines absent, so this run adds them", false},
-		{"lines already there, so this run adds nothing", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rec, err := Capture(pluginapi.Context{Host: newHost(tc.present)}, "f", spec)
-			if err != nil {
-				t.Fatalf("Capture failed: %v", err)
-			}
-			flush, include := rec.Objects[2].ConfigLine, rec.Objects[3].ConfigLine
-			if flush == nil || include == nil {
-				t.Fatalf("both config lines have to be recorded, got %+v", rec.Objects)
-			}
-			if include.Added == tc.present || flush.Added == tc.present {
-				t.Fatalf("added flags do not match the probe: include=%v flush=%v", include.Added, flush.Added)
-			}
-		})
-	}
 }
 
 // The main config carries the distribution's own name, so restoring it must not go through the

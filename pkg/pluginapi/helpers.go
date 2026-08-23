@@ -70,13 +70,6 @@ func CapturesDiffer(before, after CaptureResult) bool {
 				b.Package.PinSpec != a.Package.PinSpec {
 				return true
 			}
-		case ObjectConfigLine:
-			if b.ConfigLine.Path != a.ConfigLine.Path ||
-				b.ConfigLine.Line != a.ConfigLine.Line ||
-				b.ConfigLine.FileExisted != a.ConfigLine.FileExisted ||
-				b.ConfigLine.Added != a.ConfigLine.Added {
-				return true
-			}
 		case ObjectRuntimePolicy:
 			if b.RuntimePolicy.Name != a.RuntimePolicy.Name ||
 				b.RuntimePolicy.State != a.RuntimePolicy.State {
@@ -108,10 +101,6 @@ func ObjectKey(o ObjectRecord) string {
 		if o.Package != nil {
 			return string(o.Kind) + "\x00" + o.Package.Name
 		}
-	case ObjectConfigLine:
-		if o.ConfigLine != nil {
-			return string(o.Kind) + "\x00" + o.ConfigLine.Path + "\x00" + o.ConfigLine.Line
-		}
 	case ObjectRuntimePolicy:
 		if o.RuntimePolicy != nil {
 			return string(o.Kind) + "\x00" + o.RuntimePolicy.Name
@@ -130,8 +119,6 @@ func objectPayloadPresent(o ObjectRecord) bool {
 		return o.Service != nil
 	case ObjectPackage:
 		return o.Package != nil
-	case ObjectConfigLine:
-		return o.ConfigLine != nil
 	case ObjectRuntimePolicy:
 		return o.RuntimePolicy != nil
 	}

@@ -79,10 +79,6 @@ func Plugin() pluginapi.Plugin {
 					return fmt.Errorf("firewall rollback: missing file snapshot")
 				}
 				return RestoreFirewallFile(host, *obj.File, strings.TrimSpace(obj.Message))
-			case pluginapi.ObjectConfigLine:
-				// A record of what this run did to the main config. The main config snapshot puts
-				// the file back, line and all, so there is nothing to undo here.
-				return nil
 			default:
 				return fmt.Errorf("firewall plugin cannot roll back kind %q", obj.Kind)
 			}

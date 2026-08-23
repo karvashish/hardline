@@ -264,7 +264,9 @@
                   }
                 },
                 "required": [
-                  "main_config"
+                  "backend",
+                  "main_config",
+                  "managed_dest"
                 ]
               }
             },
@@ -346,7 +348,9 @@
                   }
                 },
                 "required": [
-                  "main_config"
+                  "backend",
+                  "main_config",
+                  "policy"
                 ]
               }
             },

@@ -155,7 +155,7 @@ func Plan(ctx pluginapi.Context, s *Spec) (pluginapi.PlanResult, error) {
 		} else {
 			diff = append(diff, fmt.Sprintf("service: restart %s (currently %s)", unit, activeState))
 		}
-	case "reloaded", "reload":
+	case "reloaded", "reload", "reload-or-restart":
 		desiredState = "reloaded or restarted (active)"
 		if restartPolicySuppressed(s, ctx.StepChanges, unit, ctx.Host) {
 			desiredState = "active (reload skipped: restart_policy=on_change, no upstream change)"
@@ -183,7 +183,7 @@ func Plan(ctx pluginapi.Context, s *Spec) (pluginapi.PlanResult, error) {
 		willChange = willChange || activeState != "active"
 	case "stopped", "stop":
 		willChange = willChange || activeState != "inactive or not-found"
-	case "restarted", "restart", "reloaded", "reload":
+	case "restarted", "restart", "reloaded", "reload", "reload-or-restart":
 		if restartPolicySuppressed(s, ctx.StepChanges, unit, ctx.Host) {
 
 		} else {
@@ -210,7 +210,7 @@ func Plan(ctx pluginapi.Context, s *Spec) (pluginapi.PlanResult, error) {
 		summaryParts = append(summaryParts, fmt.Sprintf("ensure %s is stopped", unit))
 	case "restarted", "restart":
 		summaryParts = append(summaryParts, fmt.Sprintf("restart %s", unit))
-	case "reloaded", "reload":
+	case "reloaded", "reload", "reload-or-restart":
 		summaryParts = append(summaryParts, fmt.Sprintf("reload or restart %s", unit))
 	default:
 		summaryParts = append(summaryParts, fmt.Sprintf("unsupported state %q requested for %s", s.State, unit))

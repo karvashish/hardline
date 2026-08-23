@@ -256,6 +256,7 @@ func TestPlan(t *testing.T) {
 		{name: "started", spec: Spec{Name: "cron", State: "started"}, wantSubstr: "started"},
 		{name: "stopped", spec: Spec{Name: "cron", State: "stopped"}, wantSubstr: "stopped"},
 		{name: "reloaded", spec: Spec{Name: "cron", State: "reloaded"}, wantSubstr: "reload or restart"},
+		{name: "reload-or-restart", spec: Spec{Name: "cron", State: "reload-or-restart"}, wantSubstr: "reload or restart"},
 		{name: "unsupported", spec: Spec{Name: "cron", State: "broken"}, wantSubstr: "unsupported state"},
 	}
 	for _, tc := range cases {

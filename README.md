@@ -13,7 +13,7 @@ A real run of [`demo-profile/`](profiles/demo-profile/) against a throwaway Ubun
 
 ## What's In The Trusted Execution Surface
 
-A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. The vocabulary is a fixed set of typed plugin configs:
+A signed Hardline profile can only ask the runtime to do things the runtime knows how to do. On a stock install the vocabulary is a fixed set of typed built-in plugin configs:
 
 - `packages_apt` / `packages_dnf4` / `packages_dnf5` - install / purge named packages, one plugin per package manager
 - `template` - render a file to a managed destination path with a fixed mode
@@ -21,8 +21,11 @@ A signed Hardline profile can only ask the runtime to do things the runtime know
 - `firewall` - declarative nftables rules
 - `file_meta` - re-stamp mode / owner / group / immutable / append-only flags on existing paths
 - `audit` - write the audit rule policy and load it into the running kernel
+- `ssh` - write the sshd policy drop-in, prove it parses, activate it, and read the effective policy back out of sshd
 
-That is the entire surface a reviewer needs to read to know what a profile will do when applied. There is no `exec`, no `command`, no `script`, no templating language with side effects - signing the manifest is signing the full set of instructions, not a wrapper around them.
+Those built-ins are the whole surface a reviewer needs to read on a stock install. There is no `exec`, no `command`, no `script`, no templating language with side effects - signing the manifest is signing the full set of instructions, not a wrapper around them.
+
+The one thing that widens this surface is an [external plugin](docs/internals/plugin-system.md). Any `.so` in the `plugins/` directory next to the binary is dlopened at startup and registers its own action names, and it does so *before* the profile is verified. External plugins are not signature-verified and run as root, so hardline checks the directory's ownership and permissions, refuses to load through a symlink, and warns on every run that loads one. If you install external plugins, reviewing a profile means reviewing that directory too - the trusted surface is the built-ins plus whatever those plugins register.
 
 Hardline runs the hardening step, and only the hardening step. Provisioning stays where it is - Terraform, cloud-init, or Ansible brings the host up and creates the admin user. Hardline takes over once the host is ready.
 
@@ -38,7 +41,7 @@ The repo ships with:
 - the `profiletool` helper in [`cmd/profiletool/main.go`](cmd/profiletool/main.go)
 - repo-wide Go unit tests plus GitHub Actions badges for `main`
 - a Terraform-backed integration test harness in [`integration-tests/`](integration-tests/) that provisions a real Ubuntu 24.04, Rocky 9, or Fedora host (`ITEST_OS`) and validates plan/apply/rollback, plugins, overrides, and failure paths against it
-- built-in plugins for packages, templates, services, nftables, file metadata, and audit rules
+- built-in plugins for packages, templates, services, nftables, file metadata, audit rules, and sshd policy
 - example hardening profiles in [`profiles/starter-secure-ubuntu-24.04-lts/profile.json`](profiles/starter-secure-ubuntu-24.04-lts/profile.json) and [`profiles/starter-secure-rocky-9/profile.json`](profiles/starter-secure-rocky-9/profile.json)
 - an example external plugin project in [`pluginprojects/firewalltemplate/handlers.go`](pluginprojects/firewalltemplate/handlers.go)
 

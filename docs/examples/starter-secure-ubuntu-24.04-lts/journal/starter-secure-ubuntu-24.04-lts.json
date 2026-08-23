@@ -1,7 +1,7 @@
 {
-  "version": 2,
-  "run_id": "20260810T065200.643232848Z",
-  "created_at": "2026-08-10T06:52:00.643232848Z",
+  "version": 3,
+  "run_id": "20260823T025901.458286205Z",
+  "created_at": "2026-08-23T02:59:01.458286205Z",
   "host": "203.0.113.10",
   "profile_id": "starter-secure-ubuntu-24.04-lts",
   "profile_path": "starter-secure-ubuntu-24.04-lts",
@@ -10,7 +10,7 @@
     {
       "id": "packages-starter-secure",
       "type": "packages_apt",
-      "rollback_mode": "best_effort",
+      "rollback_mode": "irreversible",
       "before": [
         {
           "kind": "package",
@@ -291,16 +291,19 @@
       ]
     },
     {
-      "id": "ssh-template-apply",
-      "type": "template",
+      "id": "ssh-policy",
+      "type": "ssh",
       "rollback_mode": "deterministic",
       "before": [
         {
           "kind": "file",
           "file": {
             "path": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
-            "existed": false
-          }
+            "existed": false,
+            "owner": "",
+            "group": ""
+          },
+          "message": "ssh"
         }
       ],
       "after": [
@@ -310,13 +313,16 @@
             "path": "/etc/ssh/sshd_config.d/00-hardline-ssh.conf",
             "existed": true,
             "mode": "600",
-            "content_b64": "UHJvdG9jb2wgMgpQYXNzd29yZEF1dGhlbnRpY2F0aW9uIG5vClBlcm1pdFJvb3RMb2dpbiBubwpDaGFsbGVuZ2VSZXNwb25zZUF1dGhlbnRpY2F0aW9uIG5vClVzZVBBTSB5ZXMKWDExRm9yd2FyZGluZyBubwpBbGxvd1RjcEZvcndhcmRpbmcgbm8KQWxsb3dBZ2VudEZvcndhcmRpbmcgbm8KTG9nTGV2ZWwgVkVSQk9TRQpNYXhBdXRoVHJpZXMgNApQdWJrZXlBdXRoZW50aWNhdGlvbiB5ZXMK"
-          }
+            "owner": "root",
+            "group": "root",
+            "content_b64": "IyBNYW5hZ2VkIGJ5IGhhcmRsaW5lLiBDaGFuZ2VzIGhlcmUgYXJlIG92ZXJ3cml0dGVuLgpBbGxvd0FnZW50Rm9yd2FyZGluZyBubwpBbGxvd1RjcEZvcndhcmRpbmcgbm8KSWdub3JlUmhvc3RzIHllcwpLYmRJbnRlcmFjdGl2ZUF1dGhlbnRpY2F0aW9uIG5vCkxvZ0xldmVsIFZFUkJPU0UKTWF4QXV0aFRyaWVzIDQKUGFzc3dvcmRBdXRoZW50aWNhdGlvbiBubwpQZXJtaXRFbXB0eVBhc3N3b3JkcyBubwpQZXJtaXRSb290TG9naW4gbm8KUHVia2V5QXV0aGVudGljYXRpb24geWVzClN0cmljdE1vZGVzIHllcwpVc2VQQU0geWVzClgxMUZvcndhcmRpbmcgbm8K"
+          },
+          "message": "ssh"
         }
       ]
     },
     {
-      "id": "ssh-service-reload",
+      "id": "ssh-service-enabled",
       "type": "service",
       "rollback_mode": "deterministic",
       "before": [
@@ -326,6 +332,8 @@
             "unit": "ssh",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -337,17 +345,12 @@
             "unit": "ssh",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
-      ],
-      "reload": {
-        "action": "reloaded",
-        "restart_policy": "on_change",
-        "restart_deps": [
-          "ssh-template-apply"
-        ]
-      }
+      ]
     },
     {
       "id": "unattended-upgrades-auto",
@@ -358,7 +361,9 @@
           "kind": "file",
           "file": {
             "path": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
-            "existed": false
+            "existed": false,
+            "owner": "",
+            "group": ""
           }
         }
       ],
@@ -369,6 +374,8 @@
             "path": "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf",
             "existed": true,
             "mode": "644",
+            "owner": "root",
+            "group": "root",
             "content_b64": "QVBUOjpQZXJpb2RpYzo6VXBkYXRlLVBhY2thZ2UtTGlzdHMgIjEiOwpBUFQ6OlBlcmlvZGljOjpEb3dubG9hZC1VcGdyYWRlYWJsZS1QYWNrYWdlcyAiMSI7CkFQVDo6UGVyaW9kaWM6OkF1dG9jbGVhbkludGVydmFsICI3IjsKQVBUOjpQZXJpb2RpYzo6VW5hdHRlbmRlZC1VcGdyYWRlICIxIjsK"
           }
         }
@@ -383,7 +390,9 @@
           "kind": "file",
           "file": {
             "path": "/etc/sysctl.d/99-hardline-hardening.conf",
-            "existed": false
+            "existed": false,
+            "owner": "",
+            "group": ""
           }
         }
       ],
@@ -394,6 +403,8 @@
             "path": "/etc/sysctl.d/99-hardline-hardening.conf",
             "existed": true,
             "mode": "644",
+            "owner": "root",
+            "group": "root",
             "content_b64": "bmV0LmlwdjQuaXBfZm9yd2FyZCA9IDAKbmV0LmlwdjQuY29uZi5hbGwucnBfZmlsdGVyID0gMQpuZXQuaXB2NC5jb25mLmRlZmF1bHQucnBfZmlsdGVyID0gMQpuZXQuaXB2NC5jb25mLmFsbC5hY2NlcHRfcmVkaXJlY3RzID0gMApuZXQuaXB2NC5jb25mLmRlZmF1bHQuYWNjZXB0X3JlZGlyZWN0cyA9IDAKbmV0LmlwdjQuY29uZi5hbGwuc2VjdXJlX3JlZGlyZWN0cyA9IDAKbmV0LmlwdjQuY29uZi5kZWZhdWx0LnNlY3VyZV9yZWRpcmVjdHMgPSAwCm5ldC5pcHY0LmljbXBfZWNob19pZ25vcmVfYnJvYWRjYXN0cyA9IDEKa2VybmVsLmtwdHJfcmVzdHJpY3QgPSAyCmtlcm5lbC5kbWVzZ19yZXN0cmljdCA9IDEKZnMucHJvdGVjdGVkX2hhcmRsaW5rcyA9IDEKZnMucHJvdGVjdGVkX3N5bWxpbmtzID0gMQo="
           }
         }
@@ -410,6 +421,8 @@
             "unit": "systemd-sysctl",
             "enabled": false,
             "active": true,
+            "enabled_state": "static",
+            "active_state": "active",
             "known": true
           }
         }
@@ -421,6 +434,8 @@
             "unit": "systemd-sysctl",
             "enabled": false,
             "active": true,
+            "enabled_state": "static",
+            "active_state": "active",
             "known": true
           }
         }
@@ -444,6 +459,8 @@
             "unit": "chrony",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -455,6 +472,8 @@
             "unit": "chrony",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -471,17 +490,30 @@
         {
           "kind": "file",
           "file": {
-            "path": "/etc/nftables.conf",
-            "existed": true,
-            "mode": "755",
-            "content_b64": "IyEvdXNyL3NiaW4vbmZ0IC1mCgpmbHVzaCBydWxlc2V0Cgp0YWJsZSBpbmV0IGZpbHRlciB7CgljaGFpbiBpbnB1dCB7CgkJdHlwZSBmaWx0ZXIgaG9vayBpbnB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9CgljaGFpbiBmb3J3YXJkIHsKCQl0eXBlIGZpbHRlciBob29rIGZvcndhcmQgcHJpb3JpdHkgZmlsdGVyOwoJfQoJY2hhaW4gb3V0cHV0IHsKCQl0eXBlIGZpbHRlciBob29rIG91dHB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9Cn0K"
-          }
+            "path": "/etc/nftables.d/99-hardline-firewall.nft",
+            "existed": false,
+            "owner": "",
+            "group": ""
+          },
+          "message": "/etc/nftables.conf"
         },
         {
           "kind": "file",
           "file": {
-            "path": "/etc/nftables.d/99-hardline-firewall.nft",
-            "existed": false
+            "path": "/etc/nftables.conf",
+            "existed": true,
+            "mode": "755",
+            "owner": "root",
+            "group": "root",
+            "content_b64": "IyEvdXNyL3NiaW4vbmZ0IC1mCgpmbHVzaCBydWxlc2V0Cgp0YWJsZSBpbmV0IGZpbHRlciB7CgljaGFpbiBpbnB1dCB7CgkJdHlwZSBmaWx0ZXIgaG9vayBpbnB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9CgljaGFpbiBmb3J3YXJkIHsKCQl0eXBlIGZpbHRlciBob29rIGZvcndhcmQgcHJpb3JpdHkgZmlsdGVyOwoJfQoJY2hhaW4gb3V0cHV0IHsKCQl0eXBlIGZpbHRlciBob29rIG91dHB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9Cn0K"
+          },
+          "message": "/etc/nftables.conf"
+        },
+        {
+          "kind": "runtime_policy",
+          "runtime_policy": {
+            "name": "nft list ruleset",
+            "state": "table inet filter {\n}\n"
           }
         }
       ],
@@ -489,25 +521,38 @@
         {
           "kind": "file",
           "file": {
-            "path": "/etc/nftables.conf",
+            "path": "/etc/nftables.d/99-hardline-firewall.nft",
             "existed": true,
-            "mode": "755",
-            "content_b64": "IyEvdXNyL3NiaW4vbmZ0IC1mCgpmbHVzaCBydWxlc2V0Cgp0YWJsZSBpbmV0IGZpbHRlciB7CgljaGFpbiBpbnB1dCB7CgkJdHlwZSBmaWx0ZXIgaG9vayBpbnB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9CgljaGFpbiBmb3J3YXJkIHsKCQl0eXBlIGZpbHRlciBob29rIGZvcndhcmQgcHJpb3JpdHkgZmlsdGVyOwoJfQoJY2hhaW4gb3V0cHV0IHsKCQl0eXBlIGZpbHRlciBob29rIG91dHB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9Cn0KCmluY2x1ZGUgIi9ldGMvbmZ0YWJsZXMuZC8qLm5mdCIK"
-          }
+            "mode": "644",
+            "owner": "root",
+            "group": "root",
+            "content_b64": "dGFibGUgaW5ldCBmaWx0ZXIgewogIGNoYWluIGlucHV0IHsKICAgIHR5cGUgZmlsdGVyIGhvb2sgaW5wdXQgcHJpb3JpdHkgMDsKICAgIHBvbGljeSBkcm9wOwoKICAgIGlpZiAibG8iIGFjY2VwdAogICAgY3Qgc3RhdGUgaW52YWxpZCBkcm9wCiAgICBjdCBzdGF0ZSBlc3RhYmxpc2hlZCxyZWxhdGVkIGFjY2VwdAogICAgdGNwIGRwb3J0IDIyIGFjY2VwdAogICAgaXAgcHJvdG9jb2wgaWNtcCBhY2NlcHQKICAgIGlwNiBuZXh0aGRyIGljbXB2NiBhY2NlcHQKICB9Cn0K"
+          },
+          "message": "/etc/nftables.conf"
         },
         {
           "kind": "file",
           "file": {
-            "path": "/etc/nftables.d/99-hardline-firewall.nft",
+            "path": "/etc/nftables.conf",
             "existed": true,
-            "mode": "644",
-            "content_b64": "dGFibGUgaW5ldCBmaWx0ZXIgewogIGNoYWluIGlucHV0IHsKICAgIHR5cGUgZmlsdGVyIGhvb2sgaW5wdXQgcHJpb3JpdHkgMDsKICAgIHBvbGljeSBkcm9wOwoKICAgIGlwNiBuZXh0aGRyIGljbXB2NiBhY2NlcHQKICAgIGlwIHByb3RvY29sIGljbXAgYWNjZXB0CiAgICB0Y3AgZHBvcnQgMjIgYWNjZXB0CiAgICBpaWYgImxvIiBhY2NlcHQKICAgIGN0IHN0YXRlIGVzdGFibGlzaGVkLHJlbGF0ZWQgYWNjZXB0CiAgICBjdCBzdGF0ZSBpbnZhbGlkIGRyb3AKICB9Cn0K"
+            "mode": "755",
+            "owner": "root",
+            "group": "root",
+            "content_b64": "IyEvdXNyL3NiaW4vbmZ0IC1mCgpmbHVzaCBydWxlc2V0Cgp0YWJsZSBpbmV0IGZpbHRlciB7CgljaGFpbiBpbnB1dCB7CgkJdHlwZSBmaWx0ZXIgaG9vayBpbnB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9CgljaGFpbiBmb3J3YXJkIHsKCQl0eXBlIGZpbHRlciBob29rIGZvcndhcmQgcHJpb3JpdHkgZmlsdGVyOwoJfQoJY2hhaW4gb3V0cHV0IHsKCQl0eXBlIGZpbHRlciBob29rIG91dHB1dCBwcmlvcml0eSBmaWx0ZXI7Cgl9Cn0KaW5jbHVkZSAiL2V0Yy9uZnRhYmxlcy5kLzk5LWhhcmRsaW5lLWZpcmV3YWxsLm5mdCIK"
+          },
+          "message": "/etc/nftables.conf"
+        },
+        {
+          "kind": "runtime_policy",
+          "runtime_policy": {
+            "name": "nft list ruleset",
+            "state": "table inet filter {\n  chain input {\n    type filter hook input priority 0;\n    policy drop;\n\n    iif \"lo\" accept\n    ct state invalid drop\n    ct state established,related accept\n    tcp dport 22 accept\n    ip protocol icmp accept\n    ip6 nexthdr icmpv6 accept\n  }\n  chain forward {\n    type filter hook forward priority 0;\n    policy accept;\n\n  }\n  chain output {\n    type filter hook output priority 0;\n    policy accept;\n\n  }\n}\n"
           }
         }
       ]
     },
     {
-      "id": "firewall-service-restart",
+      "id": "firewall-service-enabled",
       "type": "service",
       "rollback_mode": "deterministic",
       "before": [
@@ -517,6 +562,8 @@
             "unit": "nftables",
             "enabled": false,
             "active": false,
+            "enabled_state": "disabled",
+            "active_state": "inactive",
             "known": true
           }
         }
@@ -528,16 +575,14 @@
             "unit": "nftables",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
       ],
       "reload": {
-        "action": "restarted",
-        "restart_policy": "on_change",
-        "restart_deps": [
-          "firewall-default-deny"
-        ]
+        "action": "started"
       }
     },
     {
@@ -549,7 +594,9 @@
           "kind": "file",
           "file": {
             "path": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
-            "existed": false
+            "existed": false,
+            "owner": "",
+            "group": ""
           }
         }
       ],
@@ -560,6 +607,8 @@
             "path": "/etc/fail2ban/jail.d/99-hardline-ssh.conf",
             "existed": true,
             "mode": "644",
+            "owner": "root",
+            "group": "root",
             "content_b64": "W3NzaGRdCmVuYWJsZWQgPSB0cnVlCm1heHJldHJ5ID0gNQpmaW5kdGltZSA9IDYwMApiYW50aW1lID0gMzYwMAo="
           }
         }
@@ -576,6 +625,8 @@
             "unit": "fail2ban",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -587,6 +638,8 @@
             "unit": "fail2ban",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -606,6 +659,8 @@
             "unit": "auditd",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -617,6 +672,8 @@
             "unit": "auditd",
             "enabled": true,
             "active": true,
+            "enabled_state": "enabled",
+            "active_state": "active",
             "known": true
           }
         }
@@ -634,7 +691,16 @@
           "kind": "file",
           "file": {
             "path": "/etc/audit/rules.d/99-hardline.rules",
-            "existed": false
+            "existed": false,
+            "owner": "",
+            "group": ""
+          }
+        },
+        {
+          "kind": "runtime_policy",
+          "runtime_policy": {
+            "name": "auditctl -l",
+            "state": ""
           }
         }
       ],
@@ -645,7 +711,16 @@
             "path": "/etc/audit/rules.d/99-hardline.rules",
             "existed": true,
             "mode": "640",
-            "content_b64": "IyMgQ2xlYXIgYW55IGV4aXN0aW5nIHJ1bGVzCi1ECgojIyBCdWZmZXIgc2l6ZSAoa2VlcCBtb2Rlc3QpCi1iIDgxOTIKCiMjIE9uIGZhaWx1cmU6IGxvZyBidXQgZG8gbm90IGhhcmQtc3RvcCB0aGUgYm94Ci1mIDEKCiMjIEV2ZXJ5IC13IHBhdGggbXVzdCBleGlzdDogYXVkaXRjdGwgcmVqZWN0cyBhIHdhdGNoIG9uIGEgbWlzc2luZyBwYXRoIGFuZAojIyBhdWdlbnJ1bGVzIC0tbG9hZCB0aGVuIGZhaWxzIGZvciB0aGUgd2hvbGUgcnVsZSBzZXQuIC9ldGMvYXVkaXNwIGFuZAojIyAvdmFyL2xvZy90YWxseWxvZyBhcmUgZ29uZSBvbiBjdXJyZW50IHJlbGVhc2VzLCBhbmQgcGx1Z2lucy5kIGxpdmVzIHVuZGVyCiMjIC9ldGMvYXVkaXQsIHdoaWNoIHRoZSBmaXJzdCB3YXRjaCBhbHJlYWR5IGNvdmVycy4KIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgQXVkaXQgY29uZmlndXJhdGlvbgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLXcgL2V0Yy9hdWRpdC8gLXAgd2EgLWsgYXVkaXRfY29uZmlnCi13IC9ldGMvbGliYXVkaXQuY29uZiAtcCB3YSAtayBhdWRpdF9jb25maWcKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIElkZW50aXR5IGFuZCBhY2Nlc3MKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvcGFzc3dkIC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvZ3JvdXAgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9zaGFkb3cgLXAgd2EgLWsgaWRlbnRpdHkKLXcgL2V0Yy9nc2hhZG93IC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvc2VjdXJpdHkvIC1wIHdhIC1rIGlkZW50aXR5CgojIyBTdWRvZXJzIGNoYW5nZXMKLXcgL2V0Yy9zdWRvZXJzIC1wIHdhIC1rIHByaXZpbGVnZWQKLXcgL2V0Yy9zdWRvZXJzLmQvIC1wIHdhIC1rIHByaXZpbGVnZWQKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIFRpbWUgY2hhbmdlcwojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLWEgYWx3YXlzLGV4aXQgLUYgYXJjaD1iNjQgLVMgYWRqdGltZXggLVMgc2V0dGltZW9mZGF5IC1TIGNsb2NrX3NldHRpbWUgLUYgYXVpZD49MTAwMCAtRiBhdWlkIT00Mjk0OTY3Mjk1IC1rIHRpbWVfY2hhbmdlCi13IC9ldGMvbG9jYWx0aW1lIC1wIHdhIC1rIHRpbWVfY2hhbmdlCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBLZXJuZWwgbW9kdWxlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIGluaXRfbW9kdWxlIC1TIGZpbml0X21vZHVsZSAtUyBkZWxldGVfbW9kdWxlIC1GIGF1aWQ+PTEwMDAgLUYgYXVpZCE9NDI5NDk2NzI5NSAtayBrZXJuZWxfbW9kdWxlcwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgUHJpdmlsZWdlIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIHNldHVpZCAtUyBzZXRnaWQgLVMgc2V0cmV1aWQgLVMgc2V0cmVnaWQgLVMgc2V0cmVzdWlkIC1TIHNldHJlc2dpZCAtRiBhdWlkPj0xMDAwIC1GIGF1aWQhPTQyOTQ5NjcyOTUgLWsgcHJpdl9jaGFuZ2UKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIExvZ2luIHRyYWNraW5nCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotdyAvdmFyL2xvZy9mYWlsbG9nIC1wIHdhIC1rIGxvZ2lucwotdyAvdmFyL2xvZy9sYXN0bG9nIC1wIHdhIC1rIGxvZ2lucwoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgTWFrZSBydWxlcyBhY3RpdmUKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1lIDEK"
+            "owner": "root",
+            "group": "root",
+            "content_b64": "IyMgTm8gLUQgaGVyZTogdGhpcyBmaWxlIGlzIGxvYWRlZCBhZnRlciB0aGUgZGlzdHJpYnV0aW9uJ3Mgb3duIGJhc2UgY29uZmlnIGFuZAojIyBhbnl0aGluZyBlbHNlIHRoYXQgb3ducyBwYXJ0IG9mIHRoZSBwb2xpY3ksIHNvIGNsZWFyaW5nIHRoZSBydWxlc2V0IGZyb20gYQojIyA5OS0gZmlsZSB3b3VsZCBkZWxldGUgcnVsZXMgdGhpcyBwcm9maWxlIGRvZXMgbm90IG93bi4gVGhlc2UgcnVsZXMgYXJlCiMjIGFkZGl0aXZlLgoKIyMgQnVmZmVyIHNpemUgKGtlZXAgbW9kZXN0KQotYiA4MTkyCgojIyBPbiBmYWlsdXJlOiBsb2cgYnV0IGRvIG5vdCBoYXJkLXN0b3AgdGhlIGJveAotZiAxCgojIyBFdmVyeSAtdyBwYXRoIG11c3QgZXhpc3Q6IGF1ZGl0Y3RsIHJlamVjdHMgYSB3YXRjaCBvbiBhIG1pc3NpbmcgcGF0aCBhbmQKIyMgYXVnZW5ydWxlcyAtLWxvYWQgdGhlbiBmYWlscyBmb3IgdGhlIHdob2xlIHJ1bGUgc2V0LiAvZXRjL2F1ZGlzcCBhbmQKIyMgL3Zhci9sb2cvdGFsbHlsb2cgYXJlIGdvbmUgb24gY3VycmVudCByZWxlYXNlcywgYW5kIHBsdWdpbnMuZCBsaXZlcyB1bmRlcgojIyAvZXRjL2F1ZGl0LCB3aGljaCB0aGUgZmlyc3Qgd2F0Y2ggYWxyZWFkeSBjb3ZlcnMuCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIEF1ZGl0IGNvbmZpZ3VyYXRpb24KIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi13IC9ldGMvYXVkaXQvIC1wIHdhIC1rIGF1ZGl0X2NvbmZpZwotdyAvZXRjL2xpYmF1ZGl0LmNvbmYgLXAgd2EgLWsgYXVkaXRfY29uZmlnCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBJZGVudGl0eSBhbmQgYWNjZXNzCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotdyAvZXRjL3Bhc3N3ZCAtcCB3YSAtayBpZGVudGl0eQotdyAvZXRjL2dyb3VwIC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvc2hhZG93IC1wIHdhIC1rIGlkZW50aXR5Ci13IC9ldGMvZ3NoYWRvdyAtcCB3YSAtayBpZGVudGl0eQotdyAvZXRjL3NlY3VyaXR5LyAtcCB3YSAtayBpZGVudGl0eQoKIyMgU3Vkb2VycyBjaGFuZ2VzCi13IC9ldGMvc3Vkb2VycyAtcCB3YSAtayBwcml2aWxlZ2VkCi13IC9ldGMvc3Vkb2Vycy5kLyAtcCB3YSAtayBwcml2aWxlZ2VkCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBUaW1lIGNoYW5nZXMKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCi1hIGFsd2F5cyxleGl0IC1GIGFyY2g9YjY0IC1TIGFkanRpbWV4IC1TIHNldHRpbWVvZmRheSAtUyBjbG9ja19zZXR0aW1lIC1GIGF1aWQ+PTEwMDAgLUYgYXVpZCE9NDI5NDk2NzI5NSAtayB0aW1lX2NoYW5nZQotdyAvZXRjL2xvY2FsdGltZSAtcCB3YSAtayB0aW1lX2NoYW5nZQoKIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjCiMgS2VybmVsIG1vZHVsZSBjaGFuZ2VzCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotYSBhbHdheXMsZXhpdCAtRiBhcmNoPWI2NCAtUyBpbml0X21vZHVsZSAtUyBmaW5pdF9tb2R1bGUgLVMgZGVsZXRlX21vZHVsZSAtRiBhdWlkPj0xMDAwIC1GIGF1aWQhPTQyOTQ5NjcyOTUgLWsga2VybmVsX21vZHVsZXMKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIFByaXZpbGVnZSBjaGFuZ2VzCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotYSBhbHdheXMsZXhpdCAtRiBhcmNoPWI2NCAtUyBzZXR1aWQgLVMgc2V0Z2lkIC1TIHNldHJldWlkIC1TIHNldHJlZ2lkIC1TIHNldHJlc3VpZCAtUyBzZXRyZXNnaWQgLUYgYXVpZD49MTAwMCAtRiBhdWlkIT00Mjk0OTY3Mjk1IC1rIHByaXZfY2hhbmdlCgojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKIyBMb2dpbiB0cmFja2luZwojIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMKLXcgL3Zhci9sb2cvbGFzdGxvZyAtcCB3YSAtayBsb2dpbnMKCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwojIE1ha2UgcnVsZXMgYWN0aXZlCiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIwotZSAxCg=="
+          }
+        },
+        {
+          "kind": "runtime_policy",
+          "runtime_policy": {
+            "name": "auditctl -l",
+            "state": "\"-w /etc/audit -p aw -k audit_config\", \"-w /etc/libaudit.conf -p aw -k audit_config\", \"-w /etc/passwd -p aw -k identity\", \"-w /etc/group -p aw -k identity\", \"-w /etc/shadow -p aw -k identity\", \"-w /etc/gshadow -p aw -k identity\", \"-w /etc/security -p aw -k identity\", \"-w /etc/sudoers -p aw -k privileged\", \"-w /etc/sudoers.d -p aw -k privileged\", \"-a always,exit -F arch=b64 -F auid!=unset -F auid\u003e=1000 -S adjtimex -S clock_settime -S settimeofday -k time_change\", \"-w /etc/localtime -p aw -k time_change\", \"-a always,exit -F arch=b64 -F auid!=unset -F auid\u003e=1000 -S delete_module -S finit_module -S init_module -k kernel_modules\", \"-a always,exit -F arch=b64 -F auid!=unset -F auid\u003e=1000 -S setgid -S setregid -S setresgid -S setresuid -S setreuid -S setuid -k priv_change\", \"-w /var/log/lastlog -p aw -k logins\""
           }
         }
       ]
@@ -659,7 +734,9 @@
           "kind": "file",
           "file": {
             "path": "/etc/systemd/journald.conf.d/99-hardline.conf",
-            "existed": false
+            "existed": false,
+            "owner": "",
+            "group": ""
           }
         }
       ],
@@ -670,6 +747,8 @@
             "path": "/etc/systemd/journald.conf.d/99-hardline.conf",
             "existed": true,
             "mode": "644",
+            "owner": "root",
+            "group": "root",
             "content_b64": "W0pvdXJuYWxdClN0b3JhZ2U9cGVyc2lzdGVudApDb21wcmVzcz15ZXMKU3lzdGVtTWF4VXNlPTUxMk0KU3lzdGVtS2VlcEZyZWU9NTBNCk1heFJldGVudGlvblNlYz0xMGRheQpNYXhGaWxlU2VjPTFkYXkKUmF0ZUxpbWl0SW50ZXJ2YWxTZWM9MzBzClJhdGVMaW1pdEJ1cnN0PTIwMDAK"
           }
         }
@@ -686,6 +765,8 @@
             "unit": "systemd-journald",
             "enabled": false,
             "active": true,
+            "enabled_state": "static",
+            "active_state": "active",
             "known": true
           }
         }
@@ -697,6 +778,8 @@
             "unit": "systemd-journald",
             "enabled": false,
             "active": true,
+            "enabled_state": "static",
+            "active_state": "active",
             "known": true
           }
         }
@@ -913,5 +996,5 @@
       ]
     }
   ],
-  "checksum": "6a27af151670e259c995a3514c8b2a9fdf9a1a55c05d1ac516d88a371e130902"
+  "checksum": "2482cb3a86de14e81ec283670c572deedcef5f4393ac3db44362c9f2c8009358"
 }

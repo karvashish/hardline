@@ -18,7 +18,7 @@ Config fields:
 
 - `src`: **required**. Profile-relative rules file, declared in `profile.json` `templates[]` like any other signed content
 - `dest`: **required**. Must be a managed path under `/etc/audit/rules.d/`, which is the directory `augenrules` compiles
-- `mode`: octal, defaults to `0640`
+- `mode`: **required**. Octal, such as `0640`. There is no default - omitting it fails the schema at `verify-profile` and the plugin's own validator at run time
 
 ## Why this is not a template plus a service step
 

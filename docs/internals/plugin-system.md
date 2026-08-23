@@ -6,13 +6,13 @@ Each plugin registers as:
 
 ```go
 type Plugin struct {
-    Name               string
-    InternalValidation bool
-    Apply              func(Context, profile.Step) error
-    Plan               func(Context, profile.Step) (PlanResult, error)
-    Capture            func(Context, profile.Step) (CaptureResult, error)
-    Rollback           func(Host, ObjectRecord) error
-    DetectConflict     func(Host, ObjectRecord) []string
+    Name           string
+    Validate       func(profile.Step, map[string]json.RawMessage) error
+    Apply          func(Context, profile.Step) error
+    Plan           func(Context, profile.Step) (PlanResult, error)
+    Capture        func(Context, profile.Step) (CaptureResult, error)
+    Rollback       func(Host, ObjectRecord) error
+    DetectConflict func(Host, ObjectRecord) []string
 }
 ```
 
@@ -20,13 +20,14 @@ type Plugin struct {
 
 Every plugin must provide:
 
+- `Validate`
 - `Apply`
 - `Plan`
 - `Capture`
 - `Rollback`
 - `DetectConflict`
 
-Missing any of those is a registry error.
+Missing any of those is a registry error, and one rejected plugin aborts the whole load.
 
 `Rollback` restores one captured `ObjectRecord`, and `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. The rollback orchestrator in `internals/rollback` no longer switches on object kind itself - it looks up the step's plugin and delegates to these two funcs, so each plugin owns the restore and conflict logic for the object kinds it emits. The one exception is `runtime_policy`, which the orchestrator drops before dispatching because no plugin restores it (see below).
 
@@ -39,7 +40,11 @@ Plugin names are normalized to lowercase when registered and when looked up from
 - `Context.Overrides` carries runtime overrides
 - `Context.StepChanges` lets downstream steps react to upstream changes
 
-`allow_unvalidated=true` only matters when `InternalValidation` is `false`. `pluginapi.EnsureValidationPolicy` enforces that handshake before a step runs.
+## Validation
+
+Every plugin validates its own steps. `pluginapi.ValidateProfileSteps` walks the profile's action files, resolves each step's plugin, and calls `Validate(step, overrides)`; a failure is reported as `step "<id>" (<plugin>): <err>`. There is no opt-out — the older `InternalValidation` flag and the `allow_unvalidated` step field no longer exist, so a step cannot reach a root shell unvalidated.
+
+`Validate` takes the resolved overrides alongside the step, because a plugin that merges an override into its config has to validate the merged result rather than the declared one. Each plugin gets its own deep copy of that map: an external plugin is untrusted code holding the same values `Plan` and `Apply` read next.
 
 ## Plan And Capture Shapes
 
@@ -58,9 +63,7 @@ Rollback capture is object-based instead of plugin-specific string output. A `Ca
 - `file_meta` objects
 - `service` objects
 - `package` objects
-- `config_line` objects
 - `runtime_policy` objects
-- `validate` no-op records
 
 `runtime_policy` is the one kind a plugin records but never restores. It holds what a daemon reported it was holding — `auditctl -l`, `nft list ruleset` — so that a run which only reloads the daemon still shows a delta between the before and after captures and rollback does not skip it as unchanged. Putting the daemon back is the job of the file object the daemon reads, so the orchestrator skips this kind before dispatching and a plugin does not need a case for it.
 
@@ -89,13 +92,13 @@ The shared registry is built once at package init; a built-in that fails to regi
 
 Notable behavior:
 
-- `packages` uses `apt-get`, per-operation marker files under `/var/lib/hardline`, and a 30-minute per-command timeout
+- the `packages_*` plugins each drive one package manager (`apt-get`, `dnf`), with per-operation marker files under `/var/lib/hardline` and a 30-minute per-command timeout
 - `template` treats declared template files as static bytes
 - `service` uses `StepChanges` to suppress restarts and reloads when `restart_policy.type=on_change`
 - `firewall` normalizes nftables policy into a deterministic include file
 - `file_meta` re-stamps mode, owner, group, and the `i`/`a` chattr flags on paths that already exist
 - `audit` writes the rules file and runs `augenrules --load`, then reads the loaded policy back with `auditctl`
-- `ssh` renders the sshd drop-in, parses it with `sshd -t`, guards management access, reloads, and verifies the result with `sshd -T`
+- `ssh` renders the sshd drop-in, parses it with `sshd -t`, refuses a prospective policy that would end the run's own key authentication, reloads, and verifies the result with `sshd -T`
 
 ## External Plugin Loading
 
@@ -105,12 +108,13 @@ That loader:
 
 1. finds the directory adjacent to the `hardline` binary
 2. requires the directory to be a real directory, not a symlink, not writable by group or others, and owned by root or by the user running hardline
-3. scans for `.so` files
-4. applies the same checks to each `.so` before opening it, so a file planted before the directory was tightened is refused rather than loaded
-5. opens each plugin with Go's `plugin` package
-6. looks up the `HardlinePluginV1` symbol
-7. requires that symbol to be a `*pluginapi.Plugin`
-8. registers the plugin into the shared registry
+3. walks the directory's parent chain and applies the ownership and writability checks there too, both to the literal path and to what it resolves to after symlinks. A plugins directory can pass every check of its own and still hang under a parent someone else can rename. Sticky group- or world-writable parents are allowed, because `/var` is one on macOS
+4. scans for `.so` files
+5. applies the same artifact checks to each `.so` before opening it, so a file planted before the directory was tightened is refused rather than loaded
+6. opens each plugin with Go's `plugin` package
+7. looks up the `HardlinePluginV1` symbol
+8. requires that symbol to be a `*pluginapi.Plugin`
+9. registers the plugin into the shared registry
 
 If one or more external plugins are found, Hardline emits an explicit warning that they are not signature-verified and will run as root.
 

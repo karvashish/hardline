@@ -201,8 +201,8 @@ var pluginConfigClosed = map[string]bool{
 var nftablesMainConfigs = []string{"/etc/nftables.conf", "/etc/sysconfig/nftables.conf"}
 
 var pluginConfigRequired = map[string][]string{
-	"firewall":          {"main_config"},
-	"firewall_template": {"main_config"},
+	"firewall":          {"backend", "main_config", "managed_dest"},
+	"firewall_template": {"backend", "main_config", "policy"},
 	"audit":             {"src", "dest", "mode"},
 	"template":          {"src", "dest", "mode"},
 	"service":           {"name"},

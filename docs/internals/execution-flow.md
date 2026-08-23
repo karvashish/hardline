@@ -102,10 +102,14 @@ Then `rollback.Rollback`:
 1. takes the profile ID from the verified bundle
 2. connects to the remote host
 3. checks non-interactive sudo
-4. loads the newest remote journal for that profile
-5. refuses rollback unless that journal is marked `success`
-6. walks recorded steps in reverse order
+4. acquires the same `/var/lib/hardline/.apply-lock.d` mutation lock `apply` uses, and releases it on the way out
+5. loads the newest remote journal for that profile — or, under `--local-journal`, the runner-side journal, refusing it if it was written for a different host than the one passed
+6. accepts a journal marked `success`, or one marked `rolling_back`, which resumes a rollback that did not finish; anything else is refused
 7. checks for conflicts unless `--force-rollback` is set
-8. removes the consumed remote journal on success
+8. claims the journal by writing it back as `rolling_back` before touching the host
+9. walks recorded steps in reverse order
+10. removes the consumed journal on success, from whichever side it was loaded
 
 Rollback has one subtle rule: service objects are deferred until after non-service objects. That keeps file and package state restoration ahead of service toggles and restarts.
+
+A step run under `best_effort` or `irreversible` logs an object it could not restore and continues. Those objects are collected and reported as degraded restoration: the footer reads `ROLLBACK INCOMPLETE`, and the command exits non-zero even though every step was walked.

@@ -10,26 +10,24 @@
 ## Summary
 
 - Steps inspected: 23
-- Already aligned: 2
-- Changes planned: 21
-- Needs attention: 0
+- Already aligned: 3
+- Changes planned: 19
+- Needs attention: 1
 - Rollback available: true
 
 ## Changes Planned
 
-- packages-starter-secure: Update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+- packages-starter-secure: Update package index; upgrade 11 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
 - sshd-config-perms: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
-- ssh-template-apply: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
-- ssh-service-reload: Enable ssh at boot; reload or restart ssh
+- ssh-policy: Write the sshd policy to /etc/ssh/sshd_config.d/00-hardline-ssh.conf and reload ssh so it takes effect
 - unattended-upgrades-auto: Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
 - sysctl-hardening-template: Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
 - sysctl-apply: Restart systemd-sysctl
 - firewall-default-deny: Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)
-- firewall-service-restart: Enable nftables at boot; restart nftables
+- firewall-service-enabled: Enable nftables at boot; ensure nftables is started
 - fail2ban-ssh-config: Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
 - fail2ban-service-enable: Enable fail2ban at boot; ensure fail2ban is started
 - auditd-service-enable: Enable auditd at boot; ensure auditd is started
-- auditd-rules: Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
 - journald-configure-persistence: Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
 - journald-reload: Enable systemd-journald at boot; restart systemd-journald
 - crontab-perms: Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
@@ -39,16 +37,20 @@
 - cron-weekly-perms: Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")
 - cron-monthly-perms: Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")
 
+## Needs Attention
+
+- auditd-rules: audit rules watch 1 path(s) that do not exist on this host: /etc/audit; auditctl refuses those rules and the whole load fails with them
+
 ## Steps
 
 ### packages-starter-secure (`packages_apt`)
 
 - Status: Change planned
-- Operator summary: Update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
-- Summary: packages step: update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+- Operator summary: Update package index; upgrade 11 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+- Summary: packages step: update package index; upgrade 11 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
 - Details:
   - will run: package index update (always)
-  - upgrade: no packages would be upgraded (no-op) (once: packages need to change)
+  - upgrade: would upgrade 11 package(s) (once: packages need to change)
   - package "nftables": currently installed (no install change)
   - package "auditd": not installed (will be installed)
   - package "fail2ban": not installed (will be installed)
@@ -65,6 +67,17 @@
   - autoremove: no packages would be removed (current state; may change after upgrade) (once: packages need to change)
 - Final state diff:
   - package index metadata: current -> refreshed from configured repositories
+  - package "console-setup-linux": installed -> upgraded
+  - package "console-setup": installed -> upgraded
+  - package "keyboard-configuration": installed -> upgraded
+  - package "open-vm-tools": installed -> upgraded
+  - package "vim": installed -> upgraded
+  - package "vim-common": installed -> upgraded
+  - package "vim-tiny": installed -> upgraded
+  - package "vim-runtime": installed -> upgraded
+  - package "xxd": installed -> upgraded
+  - package "wget": installed -> upgraded
+  - package "snapd": installed -> upgraded
   - package "auditd": absent -> installed
   - package "fail2ban": absent -> installed
   - package "libauparse0t64": absent -> installed (dependency)
@@ -85,40 +98,32 @@
 - Final state diff:
   - mode "/etc/ssh/sshd_config": 644 -> 600
 
-### ssh-template-apply (`template`)
+### ssh-policy (`ssh`)
 
 - Status: Change planned
-- Operator summary: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
-- Summary: template step: render "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" (mode 0600)
+- Operator summary: Write the sshd policy to /etc/ssh/sshd_config.d/00-hardline-ssh.conf and reload ssh so it takes effect
+- Summary: ssh step: write /etc/ssh/sshd_config.d/00-hardline-ssh.conf and reload ssh
 - Details:
-  - destination "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": does not exist (file will be created)
-  - desired: template "templates/10-ssh-sshd-config.tmpl" rendered to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
+  - /etc/ssh/sshd_config.d/00-hardline-ssh.conf: will be created with 13 keyword(s)
+  - running sshd policy diverges on 6 keyword(s)
+  - AllowAgentForwarding: effective value is "yes" but the profile declares "no"
+  - AllowTcpForwarding: effective value is "yes" but the profile declares "no"
+  - LogLevel: effective value is "INFO" but the profile declares "VERBOSE"
+  - MaxAuthTries: effective value is "6" but the profile declares "4"
+  - PermitRootLogin: effective value is "without-password" but the profile declares "no"
+  - X11Forwarding: effective value is "yes" but the profile declares "no"
 - Final state diff:
-  - file "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": absent -> present (mode 0600)
-  - --- current /etc/ssh/sshd_config.d/00-hardline-ssh.conf (absent)
-  - +++ desired /etc/ssh/sshd_config.d/00-hardline-ssh.conf
-  - +Protocol 2
-  - +PasswordAuthentication no
-  - +PermitRootLogin no
-  - +ChallengeResponseAuthentication no
-  - +UsePAM yes
-  - +X11Forwarding no
-  - +AllowTcpForwarding no
-  - +AllowAgentForwarding no
-  - +LogLevel VERBOSE
-  - +MaxAuthTries 4
-  - +PubkeyAuthentication yes
+  - file "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": created -> rendered sshd policy
+  - sshd policy: reload ssh to take 6 keyword(s)
 
-### ssh-service-reload (`service`)
+### ssh-service-enabled (`service`)
 
-- Status: Change planned
-- Operator summary: Enable ssh at boot; reload or restart ssh
-- Summary: service step: enable ssh at boot; reload or restart ssh
+- Status: Already aligned
+- Operator summary: Enable ssh at boot
+- Summary: service step: enable ssh at boot
 - Details:
   - current: enabled=enabled, active=active
-  - desired: enabled=enabled, state=reloaded or restarted (active)
-- Final state diff:
-  - service: reload-or-restart ssh (currently active)
+  - desired: enabled=enabled, state=unchanged
 
 ### unattended-upgrades-auto (`template`)
 
@@ -129,7 +134,7 @@
   - destination "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": does not exist (file will be created)
   - desired: template "templates/15-unattended-upgrades.tmpl" rendered to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
 - Final state diff:
-  - file "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": absent -> present (mode 0644)
+  - file "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": absent -> present (mode 644)
   - --- current /etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf (absent)
   - +++ desired /etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf
   - +APT::Periodic::Update-Package-Lists "1";
@@ -146,7 +151,7 @@
   - destination "/etc/sysctl.d/99-hardline-hardening.conf": does not exist (file will be created)
   - desired: template "templates/20-sysctl-hardening.conf.tmpl" rendered to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
 - Final state diff:
-  - file "/etc/sysctl.d/99-hardline-hardening.conf": absent -> present (mode 0644)
+  - file "/etc/sysctl.d/99-hardline-hardening.conf": absent -> present (mode 644)
   - --- current /etc/sysctl.d/99-hardline-hardening.conf (absent)
   - +++ desired /etc/sysctl.d/99-hardline-hardening.conf
   - +net.ipv4.ip_forward = 0
@@ -193,9 +198,9 @@
   - desired chain policies: 1
   - desired rules: 6
   - current running table: 0 chain policies, 0 managed rules
-  - "/etc/nftables.conf": include "include \"/etc/nftables.d/*.nft\"" absent; apply will add it
+  - "/etc/nftables.conf": include "include \"/etc/nftables.d/99-hardline-firewall.nft\"" absent; apply will add it
 - Final state diff:
-  - file "/etc/nftables.d/99-hardline-firewall.nft": absent -> present (mode 0644)
+  - file "/etc/nftables.d/99-hardline-firewall.nft": absent -> present (mode 644)
   - --- current /etc/nftables.d/99-hardline-firewall.nft (absent)
   - +++ desired /etc/nftables.d/99-hardline-firewall.nft
   - +table inet filter {
@@ -203,28 +208,28 @@
   - + type filter hook input priority 0;
   - + policy drop;
   - +
-  - + ip6 nexthdr icmpv6 accept
-  - + ip protocol icmp accept
-  - + tcp dport 22 accept
   - + iif "lo" accept
-  - + ct state established,related accept
   - + ct state invalid drop
+  - + ct state established,related accept
+  - + tcp dport 22 accept
+  - + ip protocol icmp accept
+  - + ip6 nexthdr icmpv6 accept
   - + }
   - +}
   - chain input policy: accept -> drop
-  - file "/etc/nftables.conf": add include "include \"/etc/nftables.d/*.nft\"" (apply will patch)
+  - file "/etc/nftables.conf": add include "include \"/etc/nftables.d/99-hardline-firewall.nft\"" (apply will patch)
 
-### firewall-service-restart (`service`)
+### firewall-service-enabled (`service`)
 
 - Status: Change planned
-- Operator summary: Enable nftables at boot; restart nftables
-- Summary: service step: enable nftables at boot; restart nftables
+- Operator summary: Enable nftables at boot; ensure nftables is started
+- Summary: service step: enable nftables at boot; ensure nftables is started
 - Details:
   - current: enabled=disabled or not-found, active=inactive or not-found
-  - desired: enabled=enabled, state=restarted (active)
+  - desired: enabled=enabled, state=active
 - Final state diff:
   - service enablement: disabled or not-found -> enabled
-  - service: restart nftables (currently inactive or not-found)
+  - service activity: inactive or not-found -> active
 
 ### fail2ban-ssh-config (`template`)
 
@@ -235,7 +240,7 @@
   - destination "/etc/fail2ban/jail.d/99-hardline-ssh.conf": does not exist (file will be created)
   - desired: template "templates/35-fail2ban-ssh-protection.tmpl" rendered to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
 - Final state diff:
-  - file "/etc/fail2ban/jail.d/99-hardline-ssh.conf": absent -> present (mode 0644)
+  - file "/etc/fail2ban/jail.d/99-hardline-ssh.conf": absent -> present (mode 644)
   - --- current /etc/fail2ban/jail.d/99-hardline-ssh.conf (absent)
   - +++ desired /etc/fail2ban/jail.d/99-hardline-ssh.conf
   - +[sshd]
@@ -270,15 +275,18 @@
 
 ### auditd-rules (`audit`)
 
-- Status: Change planned
+- Status: Needs attention
 - Operator summary: Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
 - Summary: audit step: write /etc/audit/rules.d/99-hardline.rules and run augenrules --load
 - Details:
+  - audit rules watch 1 path(s) that do not exist on this host: /etc/audit; auditctl refuses those rules and the whole load fails with them
   - /etc/audit/rules.d/99-hardline.rules: will be created from "templates/40-audit-hardening-rules.tmpl"
-  - running policy is missing 7 rule key(s): audit_config, identity, kernel_modules, logins, priv_change, privileged, time_change
+  - running policy is missing 14 rule(s): "-w /etc/audit -p aw -k audit_config", "-w /etc/libaudit.conf -p aw -k audit_config", "-w /etc/passwd -p aw -k identity", "-w /etc/group -p aw -k identity", "-w /etc/shadow -p aw -k identity", "-w /etc/gshadow -p aw -k identity", "-w /etc/security -p aw -k identity", "-w /etc/sudoers -p aw -k privileged", "-w /etc/sudoers.d -p aw -k privileged", "-a always,exit -F arch=b64 -F auid!=unset -F auid>=1000 -S adjtimex -S clock_settime -S settimeofday -k time_change", "-w /etc/localtime -p aw -k time_change", "-a always,exit -F arch=b64 -F auid!=unset -F auid>=1000 -S delete_module -S finit_module -S init_module -k kernel_modules", "-a always,exit -F arch=b64 -F auid!=unset -F auid>=1000 -S setgid -S setregid -S setresgid -S setresuid -S setreuid -S setuid -k priv_change", "-w /var/log/lastlog -p aw -k logins"
 - Final state diff:
   - file "/etc/audit/rules.d/99-hardline.rules": created -> rendered audit rules
-  - audit policy: augenrules --load would load 7 missing rule key(s)
+  - audit policy: augenrules --load would load 14 missing rule(s)
+- Highlights:
+  - audit rules watch 1 path(s) that do not exist on this host: /etc/audit; auditctl refuses those rules and the whole load fails with them
 
 ### journald-configure-persistence (`template`)
 
@@ -289,7 +297,7 @@
   - destination "/etc/systemd/journald.conf.d/99-hardline.conf": does not exist (file will be created)
   - desired: template "templates/50-journald-hardening.conf.tmpl" rendered to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
 - Final state diff:
-  - file "/etc/systemd/journald.conf.d/99-hardline.conf": absent -> present (mode 0644)
+  - file "/etc/systemd/journald.conf.d/99-hardline.conf": absent -> present (mode 644)
   - --- current /etc/systemd/journald.conf.d/99-hardline.conf (absent)
   - +++ desired /etc/systemd/journald.conf.d/99-hardline.conf
   - +[Journal]

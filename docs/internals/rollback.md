@@ -16,7 +16,7 @@ Rollback fidelity comes from plugin `Capture` results. A capture records typed o
 - file metadata (mode/owner/group/attrs on an existing path)
 - services
 - packages
-- runtime policy: the state a daemon holds in memory, such as what `sshd -T` or `auditctl -l` reports. A step that only reloads a daemon writes no file, so without this object the before and after captures would be identical and rollback would skip a step that did change the host
+- runtime policy: the state a daemon holds in memory, such as what `nft list ruleset` or `auditctl -l` reports. A step that only reloads a daemon writes no file, so without this object the before and after captures would be identical and rollback would skip a step that did change the host
 
 Each step stores:
 
@@ -98,7 +98,13 @@ This is why a failed apply behaves differently from a later explicit `rollback` 
 - on step failure or interrupt, Hardline replays rollback from the local journal it just built
 - on a later `hardline rollback ...`, Hardline loads the newest successful remote journal for that profile
 
-Failed applies do not create remote success journals. A later manual rollback cannot "undo the failed apply" unless there was already an older successful journal on the target.
+Failed applies do not create remote success journals. A later manual rollback cannot "undo the failed apply" from the remote side unless there was already an older successful journal on the target.
+
+`--local-journal` is the way in from the other side. It makes `hardline rollback` load `${HARDLINE_STATE_DIR:-<os.TempDir()>/hardline/runs}/<host>/<profileID>.json` instead of the remote stack, and everything downstream is identical: the same conflict preflight, the same `rolling_back` claim, the same reverse walk, the same per-plugin restore. Only the endpoints differ — the claim is written back to the local file rather than the target, and a successful run deletes the local journal rather than a remote one. Before any of that, the journal's recorded `host` has to equal the `--host` passed on the command line, so a journal from one target cannot be replayed against another.
+
+Two conditions gate it. The runner-side journal has to still exist, which after a successful apply means `--keep-local-rollback` was passed, or that apply failed to persist the target journal and fell back to the local one. And the journal has to carry status `success` or `rolling_back`, because the status gate in `rollbackCommand` is the same one the remote path goes through.
+
+That second condition is the one worth being precise about. A failed or interrupted apply does leave its local journal in place, but it stamps it `failed` or `interrupted` first, and a runner killed outright leaves it at `in_progress` - all three are refused by the status gate. `--local-journal` is therefore **not** a recovery path for a broken apply. It exists for the run that applied every step and then could not commit the journal to the target: status is already `success`, and apply prints the exact `--local-journal` command to run. On the failed and interrupted paths the reverse walk has already happened inline, from this same journal, before apply returned.
 
 ## Remote Journal Stack
 
@@ -150,9 +156,9 @@ Plugins declare a `RollbackMode` in their capture result. Today the important mo
 - `audit`
 - `ssh`
 
-`best_effort` means the step can be meaningfully reversed, but not with strong transactional guarantees. The built-in `packages` plugin uses this mode because package-manager operations like `apt update`, `upgrade`, and `autoremove` are not losslessly reversible.
+`best_effort` means the step can be meaningfully reversed, but not with strong transactional guarantees. The built-in `packages_*` plugins use this mode because package-manager operations like `apt update`, `upgrade`, and `autoremove` are not losslessly reversible.
 
-`irreversible` means the step deletes state no journal can put back, so the revert is a gesture rather than a restoration. The `packages` plugin reports it for a run that purges a package that is currently installed: reinstalling brings back the binaries, not the configuration the purge removed. The capture decides this from the same question plan asks, so the plan verdict and the apply footer name the same steps rather than one warning and the other downgrading it. Only the declared `purge` list counts: `purge_also_removes` names collateral that goes with a declared target and cannot be removed on its own.
+`irreversible` means the step deletes state no journal can put back, so the revert is a gesture rather than a restoration. A `packages_*` plugin reports it for a run that purges a package that is currently installed: reinstalling brings back the binaries, not the configuration the purge removed. The capture decides this from the same question plan asks, so the plan verdict and the apply footer name the same steps rather than one warning and the other downgrading it. Only the declared `purge` list counts: `purge_also_removes` names collateral that goes with a declared target and cannot be removed on its own.
 
 `noop` means there is nothing to revert for rollback purposes.
 
@@ -161,6 +167,7 @@ In practice:
 - file rollback restores the previous file contents and mode, or removes the file if it did not exist before
 - file-metadata rollback restores the previous mode/owner/group and managed `i`/`a` attrs on the existing path; it clears managed attrs first so an immutable target does not reject the restoring `chmod`/`chown`, and it never re-creates a path that has since been deleted
 - service rollback restores enabled/active state
+- firewall rollback restores the nftables main config first and the managed ruleset it includes second, and only that last restore reloads the kernel — so `nft -f` never runs against a config whose `include` names a file rollback has not put back yet. See [Firewall Plugin → Rollback](../profiles/firewall-plugin.md#rollback)
 - sshd rollback restores the drop-in, parses the result with `sshd -t`, and reloads the journalled unit in one step, so the daemon is never left running a policy the rollback has already removed from disk
 - package rollback removes packages that this run installed when they were absent before, reinstalls packages that this run purged when they were present before, prefers the recorded pre-apply version when available, and skips no-op runs whose before/after package state is identical
 
@@ -174,10 +181,10 @@ The package plugin also records notes when rollback is inherently lossy, such as
 
 The object snapshots are typed, not raw shell output:
 
-- file snapshots record path, existence, mode, and base64-encoded contents
+- file snapshots record path, existence, mode, owner, group, and base64-encoded contents
 - file-metadata snapshots record path, existence, mode, owner, group, and the managed `i`/`a` chattr letters — and deliberately no file contents
-- service snapshots record unit name plus enabled/active/known state
-- package snapshots record package name, whether it was installed, the version when known, and whether the step requested install or purge
+- service snapshots record unit name plus enabled/active/known state, and the raw `systemctl` words behind the booleans
+- package snapshots record package name, whether it was installed, the version when known, the reinstall pin in the capturing plugin's own syntax, and whether the step requested install or purge
 - runtime-policy snapshots record the probe that read the daemon and what it reported, and are the one kind rollback never restores
 
 That is why rollback can reason differently about different object kinds instead of replaying opaque commands.
@@ -208,6 +215,8 @@ Within each step, it restores the recorded `Before` objects in reverse object or
 - under `deterministic`, the first failing object aborts the whole rollback
 
 The mode therefore answers two questions at once: how faithfully the step can be reverted, which is what plan and the apply footer report, and whether a failure to revert one object is fatal to the run.
+
+Objects skipped that way are not lost. Each one is collected as a degraded-restoration note. On `hardline rollback` the footer reads `ROLLBACK INCOMPLETE` with a `PARTIAL (N object(s) not restored)` row listing them, and the command exits non-zero even though every step was walked. Automatic rollback during `apply` collects the same notes but prints no footer: it has none of its own, and the list comes back as `automatic rollback completed with degraded restoration:` folded into the step-failure error apply exits with.
 
 A step whose plugin is no longer registered is a hard error, not a skip: `rollback step "<id>": plugin "<type>" is not registered`. Removing a plugin from the binary therefore strands any journal that used it.
 

@@ -16,11 +16,13 @@ By default, verification uses the public key embedded into the binary. With `--a
 /etc/hardline/profile_signing_pub.pem
 ```
 
-That local key must not be group-writable or world-writable (mode `0644` or stricter).
+On Unix, that local key is opened with `O_NOFOLLOW` and every check runs against the resulting descriptor rather than the path, so there is no window between what was checked and what is read. It must be a regular file, owned by root, and not group-writable or world-writable (mode `0644` or stricter). A non-root owner is refused outright: that uid could otherwise swap the key hardline verifies against.
+
+The Windows build cannot make either guarantee. `O_NOFOLLOW` has no equivalent there, so the key is opened with a plain `os.Open` that will follow a link, and there is no uid to compare, so the root-owner check is skipped rather than failed. The regular-file and permission-bit checks still run, but they mean much less against a Windows ACL. Treat `--allow-local-key` on Windows as a convenience for authoring, not as a trust anchor with the Unix guarantees; the embedded key is unaffected on every platform, because it is compiled into the binary and never read from disk.
 
 Verification is two-way: every manifest entry must match a file on disk, and every regular file on disk must appear in the manifest. Only `manifest.json`, `manifest.sig`, and `profile.overrides.json` are exempt, and a non-regular file anywhere in the tree aborts the walk. On top of that, every path listed in `profile.json`'s `actions` and `templates` must be covered by the manifest, so a signed profile cannot point at unsigned content.
 
-`apply` re-hashes `manifest.json` after connecting and before its first write, comparing it against the digest captured at verify time. An edit to the profile directory between verify and apply aborts the run rather than being applied unsigned.
+There is no second pass over the profile directory later in the run, and none is needed. Verification reads each file once, checks its bytes against the manifest digest, and keeps those verified bytes in memory as `VerifiedManifest.Files`. The `Profile` handed to plan and apply is built from that map, and every later read - action files at load time, template bodies at `LoadTemplate` time - resolves through it rather than through the filesystem. Editing the profile directory after `verify` has returned changes nothing about what gets applied: the run is working from the snapshot that was verified, not from the directory it came from.
 
 ## Input Whitelists On The Trusted Surface
 
@@ -28,7 +30,7 @@ A signed profile is trusted input, but its values still reach a root shell, so e
 
 | Value | Accepted set |
 | --- | --- |
-| Managed destination (`template`, `firewall`) | `[A-Za-z0-9._/-]`, under `/etc/`, normalized, `99-hardline*` basename, `.conf`/`.nft`/`.rules` |
+| Managed destination (`template`, `firewall`, `audit`, `ssh`) | `[A-Za-z0-9._/-]`, under `/etc/`, normalized, `99-hardline*` or `00-hardline*` basename, `.conf`/`.nft`/`.rules` |
 | `file_meta` path | `[A-Za-z0-9._/@-]`, absolute, normalized, not `/` |
 | `file_meta` owner and group | `^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$` |
 | Package name | `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$` |
@@ -59,10 +61,14 @@ Current controls are:
 For plugins that use `pluginapi.EnforceManagedPath`, managed destinations are restricted to:
 
 - normalized absolute paths under `/etc/`
-- basenames starting with `99-hardline`
+- basenames starting with `99-hardline` or `00-hardline`
 - extensions `.conf`, `.nft`, or `.rules`
 
 That reduces accidental writes outside Hardline's expected configuration scope.
+
+Both prefixes are accepted on every path. The check is a whitelist on the name, not a rule about ordering: `00-hardline` exists for a drop-in directory that keeps the first match rather than the last (`sshd_config.d`), but nothing requires it there or refuses it elsewhere. Which prefix sorts correctly for a given directory is the profile author's call, and [the ssh plugin](../profiles/ssh-plugin.md) is where that matters.
+
+The nftables main config is the one root-written path outside it. Its name is fixed by the profile and the distribution, so it can never satisfy the `hardline` prefix rule; the firewall plugin restores it from its own snapshot instead, and the two-entry whitelist (`/etc/nftables.conf`, `/etc/sysconfig/nftables.conf`) is what a tampered journal has to get past.
 
 ## Remote Execution Guardrails
 
@@ -72,13 +78,13 @@ Hardline requires:
 - non-interactive `sudo`
 - OS compatibility with the profile declaration
 
-Apply also uses a remote lock directory at:
+Apply and rollback both take a remote lock directory at:
 
 ```text
 /var/lib/hardline/.apply-lock.d
 ```
 
-That prevents overlapping apply runs on the same target.
+It is created with `mkdir`, which is atomic, so it prevents overlapping mutating runs on the same target in either direction.
 
 ## External Plugin Trust Boundary
 
@@ -90,5 +96,6 @@ Important facts:
 - they are not signature-verified
 - they execute with the same root-capable process context as Hardline
 - Hardline refuses to load them from a directory or file that is writable by group or others, owned by a third party, or reached through a symlink
+- the same ownership and writability checks run over the plugins directory's whole parent chain, and over what that chain resolves to after symlinks, so a tight directory under a parent someone else can rename is refused too
 
 In practice, that means external plugins should be treated like trusted release artifacts, not like user-provided extensions in a multi-tenant environment.

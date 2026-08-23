@@ -357,7 +357,7 @@ func TestAffirm_AcceptsOrdinaryPluginConfig(t *testing.T) {
   {"id":"svc","plugin":"service","config":{"name":"getty@tty1.service","state":"started"}},
   {"id":"fm","plugin":"file_meta","config":{"path":"/etc/shadow","owner":"root","group":"shadow","mode":"0640"}},
   {"id":"tpl","plugin":"template","config":{"src":"templates/c.tmpl","dest":"/etc/ssh/sshd_config.d/99-hardline.conf","mode":"0600"}},
-  {"id":"fw","plugin":"firewall","config":{"main_config":"/etc/nftables.conf","managed_dest":"/etc/nftables.d/99-hardline.nft"}},
+  {"id":"fw","plugin":"firewall","config":{"backend":"nftables","main_config":"/etc/nftables.conf","managed_dest":"/etc/nftables.d/99-hardline.nft"}},
   {"id":"pkg","plugin":"packages_dnf4","config":{"install":["curl","libssl3"],"purge":["telnet"]}}
 ]}`,
 	})

@@ -112,7 +112,7 @@ Reverses the last successful apply for the profile on this host, using the remot
 hardline rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT]
                             [--user USER| -u USER] [--keypath PATH| -k PATH]
                             [--allow-local-key] [--log-file PATH]
-                            [--force-rollback] [--debug| -d]
+                            [--force-rollback] [--local-journal] [--debug| -d]
 ```
 
 | Flag | Shorthand | Default | Description |
@@ -124,9 +124,12 @@ hardline rollback <profile> [--host HOST| -H HOST] [--port PORT| -p PORT]
 | `--allow-local-key` | — | `false` | Verify the profile using `/etc/hardline/profile_signing_pub.pem`. |
 | `--log-file` | — | — | Write plain-text logs to this file. |
 | `--force-rollback` | — | `false` | Proceed even when a managed file, package, or service was modified after the original apply. Use only when you understand the conflict. |
+| `--local-journal` | — | `false` | Roll back from the runner-side journal instead of the target journal, for an apply that never committed one. See [Failure And Recovery](failure-and-recovery.md#partial-apply-left-no-remote-journal). |
 | `--debug` | `-d` | `false` | Enable debug output. |
 
-`rollback` does not take `--overrides-file` or report flags — it replays the journal captured during the original apply, it does not re-plan.
+`rollback` does not take `--overrides-file` or report flags — it replays the journal captured during the original apply, it does not re-plan. Like `apply`, it takes the target's mutation lock for the duration of the run.
+
+A rollback that fails partway leaves the journal marked `rolling_back` rather than deleting it; running `hardline rollback` again resumes it instead of refusing a host that is half reverted.
 
 Example:
 

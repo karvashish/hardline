@@ -27,7 +27,7 @@ the effective configuration back out of sshd.
 
 Config fields:
 
-- `path`: **required**. Managed path under `/etc/ssh/sshd_config.d/`, which is what sshd includes. sshd keeps the **first** value it obtains for most keywords and reads its includes in lexical order, so the file must sort before any vendor or cloud-init drop-in: the managed-path rule requires a `00-hardline` prefix here
+- `path`: **required**. Managed path under `/etc/ssh/sshd_config.d/`, which is what sshd includes. sshd keeps the **first** value it obtains for most keywords and reads its includes in lexical order, so the file must sort before any vendor or cloud-init drop-in. Use the `00-hardline` prefix here. The managed-path rule accepts `00-hardline*` and `99-hardline*` on any path and cannot tell the two apart by directory, so a `99-` name under `sshd_config.d` passes validation and is then shadowed by whatever sorts ahead of it
 - `mode`: **required**. Octal
 - `service`: **required**. `ssh` on Debian and Ubuntu, `sshd` on the RHEL family. The profile states it; the engine carries no distribution knowledge
 - `settings`: **required**. Keyword to value, at least one. Values are strings or integers
@@ -110,6 +110,30 @@ cannot verify took effect is one whose hardening claim nothing checks.
 
 Two spellings of one keyword in the same step are rejected: both would render
 and sshd would keep whichever sorted first, while the profile claims both.
+
+Values are checked per keyword, not only by type:
+
+| Keyword | Accepted values |
+| --- | --- |
+| `AllowAgentForwarding`, `HostbasedAuthentication`, `IgnoreRhosts`, `KbdInteractiveAuthentication`, `PasswordAuthentication`, `PermitEmptyPasswords`, `PermitUserEnvironment`, `PrintLastLog`, `PubkeyAuthentication`, `StrictModes`, `TCPKeepAlive`, `UsePAM`, `X11Forwarding` | `yes`, `no` |
+| `AllowTcpForwarding` | `yes`, `no`, `local`, `remote`, `all` |
+| `Compression` | `yes`, `no`, `delayed` |
+| `GatewayPorts` | `yes`, `no`, `clientspecified` |
+| `PermitRootLogin` | `yes`, `no`, `prohibit-password`, `forced-commands-only` |
+| `PermitTunnel` | `yes`, `no`, `point-to-point`, `ethernet` |
+| `LogLevel` | `QUIET`, `FATAL`, `ERROR`, `INFO`, `VERBOSE`, `DEBUG`, `DEBUG1`, `DEBUG2`, `DEBUG3` |
+| `ClientAliveCountMax` | integer 0-100 |
+| `ClientAliveInterval` | integer 0-86400 |
+| `LoginGraceTime` | integer 0-3600 |
+| `MaxAuthTries` | integer 1-10 |
+| `MaxSessions` | integer 1-100 |
+
+A keyword value is matched case-insensitively and rendered in the spelling this
+table lists, so the file is byte-identical whichever case the profile used. An
+integer keyword also accepts its value as a string, provided the string is a
+whole number. The keyword *name* has less slack: the plugin lowercases it before
+looking it up, but the schema branch enumerates the canonical spellings above, so
+write them as they appear here.
 
 Rendering sorts keywords, so the file is byte-stable across runs. An unstable
 render would rewrite the drop-in and reload sshd every time.

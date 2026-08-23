@@ -134,7 +134,9 @@ func EnsureNonInteractiveSudo(client *remote.Client) error {
 		return nil
 	}
 	if err := runRoot(client, "true"); err != nil {
-		return fmt.Errorf("non-interactive sudo is required (configure passwordless sudo or use root): %w", err)
+		// Every privileged command goes out as sudo -n, including the ones a root login issues, so
+		// connecting as root is not a way around this.
+		return fmt.Errorf("non-interactive sudo is required (configure passwordless sudo; connecting as root does not bypass it, every privileged command runs through sudo -n): %w", err)
 	}
 	return nil
 }

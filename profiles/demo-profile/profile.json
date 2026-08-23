@@ -16,8 +16,6 @@
     "actions/10-ssh.json",
     "actions/20-firewall.json"
   ],
-  "templates": [
-    "templates/10-ssh-hardening.tmpl"
-  ],
+  "templates": [],
   "allowed_overrides": []
 }

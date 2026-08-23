@@ -20,7 +20,7 @@ Config fields:
 
 - `src`: required. Template path declared in `profile.json` and covered by the signed manifest
 - `dest`: required. Managed destination path on the target host
-- `mode`: optional octal file mode string such as `0644`. Defaults to `0600` when omitted
+- `mode`: **required**. Octal file mode string such as `0644`. There is no default - omitting it fails the schema at `verify-profile` and the plugin's own validator at run time. A file mode this plugin writes as root is not something to infer
 
 Do not use this plugin for `sshd_config.d`. Writing an sshd drop-in as opaque
 bytes leaves nothing to check that it parses, that the daemon took it, or that a

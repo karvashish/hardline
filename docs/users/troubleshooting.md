@@ -60,7 +60,7 @@ The target user cannot satisfy `sudo -n` — meaning `sudo` wants a password or 
 
 - Add the user to a group with `NOPASSWD` in `/etc/sudoers.d/` (for example, `deploy ALL=(ALL) NOPASSWD: ALL`)
 - Connect as a user who already has passwordless sudo
-- Connect as `root` directly if that's acceptable in your environment
+- Connect as `root` directly if that's acceptable in your environment. Note that this is not a way around the check: root's commands go out as `sudo -n sh -lc ...` like everyone else's, so a host with no `sudo` binary installed fails the preflight even for root
 
 Hardline never prompts for passwords interactively and never caches them. `sudo -n` or bust.
 
@@ -84,13 +84,16 @@ See [Signing And Verification](signing-and-verification.md) for the full key rot
 
 A file in the profile directory was added, removed, or modified after the manifest was written. Re-sign the profile. `manifest.json`, `manifest.sig`, and `profile.overrides.json` are the only files exempt from the hash walk.
 
-### `local signing key ... has insecure permissions`
+### `local signing key ... has insecure permissions` / `is owned by uid N` / `is not a regular file`
 
-Hardline refuses to use `/etc/hardline/profile_signing_pub.pem` unless its mode is `0644` or stricter with no group or world write bit. Fix:
+`/etc/hardline/profile_signing_pub.pem` is a trust anchor, so Hardline requires it to be a regular root-owned file with mode `0644` or stricter, and opens it with `O_NOFOLLOW` — a symlink at that path is refused rather than followed. Fix:
 
 ```bash
+sudo chown root:root /etc/hardline/profile_signing_pub.pem
 sudo chmod 0644 /etc/hardline/profile_signing_pub.pem
 ```
+
+If the path is a symlink, replace it with the key file itself.
 
 ### `OS family mismatch` or `OS version mismatch`
 

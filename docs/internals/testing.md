@@ -72,7 +72,7 @@ The source of truth for the current scenario set is the `SCENARIOS` list in `int
 
 ## Demo Profile
 
-`profiles/demo-profile/` is a five-step profile covering `file_meta`, `template`, `service`, and `firewall`. It deliberately omits `packages`, whose package manager work would dominate the runtime, so a full verify/plan/apply/rollback cycle against a host provisioned by `make itest-gcp-up` finishes in about a minute. It is signed with the same key as the starter profile and is included in `make sign-profiles`.
+`profiles/demo-profile/` is a five-step profile covering `file_meta`, `ssh`, `service`, and `firewall`. It deliberately omits `packages`, whose package manager work would dominate the runtime, so a full verify/plan/apply/rollback cycle against a host provisioned by `make itest-gcp-up` finishes in about a minute. It is signed with the same key as the starter profile and is included in `make sign-profiles`.
 
 It backs the demo recording in the README and on the docs home page. The recording tooling lives outside this repo; the GIF it produces is committed at `docs/assets/demo.gif`.
 

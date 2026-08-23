@@ -11,6 +11,7 @@ Before describing failures, it's worth being explicit about what Hardline actual
 - **If a step fails after earlier steps succeeded, `apply` auto-rolls back those earlier steps using the journal it just wrote.** You do not have to run `rollback` manually after a mid-run failure — Hardline attempts it automatically on the way out.
 - **A successful `apply` persists its journal remotely.** Subsequent `rollback` invocations read that remote journal.
 - **Rollback walks steps in reverse order, compares current remote state to the recorded post-apply state, and refuses to overwrite anything that has changed since.** `--force-rollback` bypasses that check; the default does not. Steps that touch service objects are held back and reverted last, after the reverse pass, so a service is not restarted before the config it depends on has been restored.
+- **A rollback that dies partway is resumable.** It claims the journal by marking it `rolling_back` before it starts, and leaves it in place if it does not finish. The next `hardline rollback` picks that journal up and continues rather than refusing a half-reverted host; steps the failed attempt already reverted are recognized as reverted, not reported as third-party drift.
 
 What Hardline does **not** guarantee:
 
@@ -44,8 +45,8 @@ If the SSH connection to the target dies mid-apply, the step that was running re
 
 **If the connection comes back:**
 
-- Run `hardline rollback <profile> --host ...` manually to attempt the rollback with the remote-persisted journal. This only works if a *previous* apply had succeeded and persisted a remote journal — a failed apply never writes one. If no remote journal exists, rollback has nothing to walk.
-- If no remote journal exists, the local journal on the runner is your only record. It lives at `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json`. Inspect it to understand what was captured, what was changed, and what needs manual cleanup.
+- Run `hardline rollback <profile> --host ...` manually to attempt the rollback with the remote-persisted journal. This only works if a *previous* apply had succeeded and persisted a remote journal — a failed apply never writes one. If no remote journal exists, rollback has nothing to walk on that path.
+- The runner-side journal at `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json` is still on disk, carrying status `failed` or `interrupted`. **`--local-journal` will not replay it** - rollback runs only journals marked `success` (see [Partial Apply Left No Remote Journal](#partial-apply-left-no-remote-journal)). Read it directly instead, to understand what was captured, what was changed, and what needs manual cleanup.
 
 **If the connection does not come back:** the target is in an intermediate state. The apply did not complete, there is no remote success journal, and the local journal is the only record of what was touched. Recovery is manual — typically via console access to the target — using the local journal as a map of affected objects.
 
@@ -62,11 +63,11 @@ The target is typically left in the pre-apply state if auto-rollback succeeds, o
 
 ## Stuck Apply Lock
 
-`apply` acquires `/var/lib/hardline/.apply-lock.d/` on the target before running any step. Only one `apply` can run per host at a time. If a previous apply crashed without releasing the lock, a new `apply` will refuse to start.
+`apply` and `rollback` both acquire `/var/lib/hardline/.apply-lock.d/` on the target before touching anything. Only one mutating run can be in flight per host at a time. If a previous run crashed without releasing the lock, the next `apply` or `rollback` will refuse to start.
 
 To clear a stale lock:
 
-1. **Confirm no other `apply` is actually running.** Check processes on the target (`pgrep hardline`, `ps aux | grep hardline`) and on any other runner that might be targeting the same host.
+1. **Confirm no other `apply` is actually running.** Hardline never runs on the target, so there is no `hardline` process there to look for - every remote command arrives as `sudo -n sh -lc ...` over its own SSH session. Check the *runners*: any machine that might be pointing at this host. On the target itself the only corroborating signal is an open SSH session for the admin user (`who`, `ss -tnp state established '( sport = :22 )'`), which tells you someone is connected but not that Hardline is mid-run.
 2. **Confirm no partially-applied state is in flight.** If an apply was actively mutating the host when it crashed, check for a local journal on the runner that crashed — it tells you what was captured before the crash.
 3. **Remove the empty lock directory** on the target:
 
@@ -140,15 +141,32 @@ The default root is Go's `os.TempDir()` — `$TMPDIR` if set, otherwise `/tmp` �
 
 ## Partial Apply Left No Remote Journal
 
-A remote journal is only written after a full, successful apply. An interrupted or failed apply leaves **no** remote journal, which means a subsequent `rollback` cannot undo the partial mutations — there is nothing in `/var/lib/hardline/runs/<profileID>/` for it to walk.
+A remote journal is only written after a full, successful apply. An interrupted or failed apply leaves **no** remote journal, so a plain `rollback` has nothing in `/var/lib/hardline/runs/<profileID>/` to walk.
 
-In that case:
+`--local-journal` walks the runner-side journal instead:
 
-- The runner-side local journal (if it exists) is your only structured record.
-- Use it to identify affected objects and reconcile manually, or
+```bash
+hardline rollback <profile> -H example.com -u deploy -k ~/.ssh/id_ed25519 --local-journal
+```
+
+That reads `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json`, refuses it if it was written for a different host than the one you passed, and otherwise runs the same conflict preflight, reverse walk, and per-plugin restore as a target-journal rollback. On success it deletes the runner-side journal instead of a remote one.
+
+**It only accepts a journal whose status is `success`.** Rollback runs `success` and `rolling_back` journals and refuses anything else with `last run is not marked successful (status=...)`. The status a local journal carries depends on how the run ended:
+
+| How the run ended | Local journal status | `--local-journal` |
+| --- | --- | --- |
+| Every step applied, but the target journal could not be persisted | `success` | **Yes** - this is the case the flag exists for, and apply prints the exact command |
+| Every step applied, target journal persisted, `--keep-local-rollback` passed | `success` | Yes - equivalent to the remote journal |
+| A step failed | `failed` | No |
+| `SIGINT`/`SIGTERM` cancelled the run | `interrupted` | No |
+| The runner was killed outright | `in_progress` | No |
+
+The three refused rows are not a gap in coverage: on the `failed` and `interrupted` paths apply has **already** walked the journal and rolled back the steps that had completed, before it exited. A second reverse walk is not what those runs need. What they need is the journal read as a record:
+
+- Read the local journal to identify affected objects and reconcile manually. This is the only path when apply's automatic rollback itself failed - the error line says so explicitly, and the host is partly reverted.
 - Re-run `apply` to force the host back into the desired state, if you're confident the partial state is safe to overwrite.
 
-This is the single most important reason to use `--keep-local-rollback` on critical targets: without it, the local journal disappears as soon as the apply succeeds, and the remote journal is the only surviving copy. If the remote host is subsequently unreachable, you have no record at all.
+Both `--local-journal` and post-hoc inspection depend on that file still being there, which is the single most important reason to use `--keep-local-rollback` on critical targets: without it, the local journal disappears as soon as an apply succeeds, and the remote journal is the only surviving copy. If the remote host is subsequently unreachable, you have no record at all.
 
 ## Version Drift Between Runner And Target
 

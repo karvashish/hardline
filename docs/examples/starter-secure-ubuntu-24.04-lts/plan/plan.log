@@ -1,189 +1,192 @@
-2026-08-10T06:48:56Z # hardline plan profile=starter-secure-ubuntu-24.04-lts host=203.0.113.10 version=0.1.2 time=2026-08-10T06:48:56Z
-2026-08-10T06:48:56Z plugins: loading 1 external plugin(s) from "/home/user/hardline/tmp/plugins" — these run as root and are not signature-verified; ensure this directory is not world-writable
-2026-08-10T06:48:56Z == PHASE: VERIFY ==
-2026-08-10T06:48:56Z profile verification passed
-2026-08-10T06:48:56Z == PHASE: PLAN ==
-2026-08-10T06:48:56Z Planning starter-secure-ubuntu-24.04-lts on 203.0.113.10
-2026-08-10T06:49:00Z 
-2026-08-10T06:49:00Z HARDLINE PLAN
-2026-08-10T06:49:00Z Profile : Starter Secure Ubuntu 24.04 LTS
-2026-08-10T06:49:00Z Version : 1.0.0
-2026-08-10T06:49:00Z Target  : 203.0.113.10 (ubuntu 24.04)
-2026-08-10T06:49:00Z ------------------------------------------------------------
-2026-08-10T06:49:00Z 
-2026-08-10T06:49:11Z Inspecting 01/23 packages-starter-secure [packages_apt] 
-2026-08-10T06:49:11Z   CHANGE PLANNED  Update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
-2026-08-10T06:49:11Z     change: package index metadata: current -> refreshed from configured repositories
-2026-08-10T06:49:11Z     change: package "auditd": absent -> installed
-2026-08-10T06:49:11Z     change: package "fail2ban": absent -> installed
-2026-08-10T06:49:11Z     change: package "libauparse0t64": absent -> installed (dependency)
-2026-08-10T06:49:11Z     change: package "python3-pyasyncore": absent -> installed (dependency)
-2026-08-10T06:49:11Z     change: package "python3-pyinotify": absent -> installed (dependency)
-2026-08-10T06:49:11Z     change: package "whois": absent -> installed (dependency)
-2026-08-10T06:49:11Z     change: package "telnet": installed -> purged
-2026-08-10T06:49:11Z     change: package "ftp": installed -> purged
-2026-08-10T06:49:13Z Inspecting 02/23 sshd-config-perms [file_meta] 
-2026-08-10T06:49:13Z   CHANGE PLANNED  Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
-2026-08-10T06:49:13Z     change: mode "/etc/ssh/sshd_config": 644 -> 600
-2026-08-10T06:49:14Z Inspecting 03/23 ssh-template-apply [template] 
-2026-08-10T06:49:14Z   CHANGE PLANNED  Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
-2026-08-10T06:49:14Z     change: file "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": absent -> present (mode 0600)
-2026-08-10T06:49:14Z     change: +Protocol 2
-2026-08-10T06:49:14Z     change: +PasswordAuthentication no
-2026-08-10T06:49:14Z     change: +PermitRootLogin no
-2026-08-10T06:49:14Z     change: +ChallengeResponseAuthentication no
-2026-08-10T06:49:14Z     change: +UsePAM yes
-2026-08-10T06:49:14Z     change: +X11Forwarding no
-2026-08-10T06:49:14Z     change: +AllowTcpForwarding no
-2026-08-10T06:49:14Z     change: +AllowAgentForwarding no
-2026-08-10T06:49:14Z     change: +LogLevel VERBOSE
-2026-08-10T06:49:14Z     change: +MaxAuthTries 4
-2026-08-10T06:49:14Z     change: +PubkeyAuthentication yes
-2026-08-10T06:49:15Z Inspecting 04/23 ssh-service-reload [service] 
-2026-08-10T06:49:15Z   CHANGE PLANNED  Enable ssh at boot; reload or restart ssh
-2026-08-10T06:49:15Z     change: service: reload-or-restart ssh (currently active)
-2026-08-10T06:49:16Z Inspecting 05/23 unattended-upgrades-auto [template] 
-2026-08-10T06:49:16Z   CHANGE PLANNED  Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
-2026-08-10T06:49:16Z     change: file "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": absent -> present (mode 0644)
-2026-08-10T06:49:16Z     change: +APT::Periodic::Update-Package-Lists "1";
-2026-08-10T06:49:16Z     change: +APT::Periodic::Download-Upgradeable-Packages "1";
-2026-08-10T06:49:16Z     change: +APT::Periodic::AutocleanInterval "7";
-2026-08-10T06:49:16Z     change: +APT::Periodic::Unattended-Upgrade "1";
-2026-08-10T06:49:16Z Inspecting 06/23 sysctl-hardening-template [template] 
-2026-08-10T06:49:16Z   CHANGE PLANNED  Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
-2026-08-10T06:49:16Z     change: file "/etc/sysctl.d/99-hardline-hardening.conf": absent -> present (mode 0644)
-2026-08-10T06:49:16Z     change: +net.ipv4.ip_forward = 0
-2026-08-10T06:49:16Z     change: +net.ipv4.conf.all.rp_filter = 1
-2026-08-10T06:49:16Z     change: +net.ipv4.conf.default.rp_filter = 1
-2026-08-10T06:49:16Z     change: +net.ipv4.conf.all.accept_redirects = 0
-2026-08-10T06:49:16Z     change: +net.ipv4.conf.default.accept_redirects = 0
-2026-08-10T06:49:16Z     change: +net.ipv4.conf.all.secure_redirects = 0
-2026-08-10T06:49:16Z     change: +net.ipv4.conf.default.secure_redirects = 0
-2026-08-10T06:49:16Z     change: +net.ipv4.icmp_echo_ignore_broadcasts = 1
-2026-08-10T06:49:16Z     change: +kernel.kptr_restrict = 2
-2026-08-10T06:49:16Z     change: +kernel.dmesg_restrict = 1
-2026-08-10T06:49:16Z     change: +fs.protected_hardlinks = 1
-2026-08-10T06:49:16Z     change: +fs.protected_symlinks = 1
-2026-08-10T06:49:17Z Inspecting 07/23 sysctl-apply [service] 
-2026-08-10T06:49:17Z   CHANGE PLANNED  Restart systemd-sysctl
-2026-08-10T06:49:17Z     change: service: restart systemd-sysctl (currently active)
-2026-08-10T06:49:19Z Inspecting 08/23 timesyncd-enable [service] 
-2026-08-10T06:49:19Z   ALREADY ALIGNED Enable chrony at boot; ensure chrony is started
-2026-08-10T06:49:22Z Inspecting 09/23 firewall-default-deny [firewall] 
-2026-08-10T06:49:22Z   CHANGE PLANNED  Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)
-2026-08-10T06:49:22Z     change: file "/etc/nftables.d/99-hardline-firewall.nft": absent -> present (mode 0644)
-2026-08-10T06:49:22Z     change: +table inet filter {
-2026-08-10T06:49:22Z     change: + chain input {
-2026-08-10T06:49:22Z     change: + type filter hook input priority 0;
-2026-08-10T06:49:22Z     change: + policy drop;
-2026-08-10T06:49:22Z     change: +
-2026-08-10T06:49:22Z     change: + ip6 nexthdr icmpv6 accept
-2026-08-10T06:49:22Z     change: + ip protocol icmp accept
-2026-08-10T06:49:22Z     change: + tcp dport 22 accept
-2026-08-10T06:49:22Z     change: + iif "lo" accept
-2026-08-10T06:49:22Z     change: + ct state established,related accept
-2026-08-10T06:49:22Z     change: + ct state invalid drop
-2026-08-10T06:49:22Z     change: + }
-2026-08-10T06:49:22Z     change: +}
-2026-08-10T06:49:22Z     change: chain input policy: accept -> drop
-2026-08-10T06:49:22Z     change: file "/etc/nftables.conf": add include "include \"/etc/nftables.d/*.nft\"" (apply will patch)
-2026-08-10T06:49:23Z Inspecting 10/23 firewall-service-restart [service] 
-2026-08-10T06:49:23Z   CHANGE PLANNED  Enable nftables at boot; restart nftables
-2026-08-10T06:49:23Z     change: service enablement: disabled or not-found -> enabled
-2026-08-10T06:49:23Z     change: service: restart nftables (currently inactive or not-found)
-2026-08-10T06:49:23Z Inspecting 11/23 fail2ban-ssh-config [template] 
-2026-08-10T06:49:23Z   CHANGE PLANNED  Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
-2026-08-10T06:49:23Z     change: file "/etc/fail2ban/jail.d/99-hardline-ssh.conf": absent -> present (mode 0644)
-2026-08-10T06:49:23Z     change: +[sshd]
-2026-08-10T06:49:23Z     change: +enabled = true
-2026-08-10T06:49:23Z     change: +maxretry = 5
-2026-08-10T06:49:23Z     change: +findtime = 600
-2026-08-10T06:49:23Z     change: +bantime = 3600
-2026-08-10T06:49:25Z Inspecting 12/23 fail2ban-service-enable [service] 
-2026-08-10T06:49:25Z   CHANGE PLANNED  Enable fail2ban at boot; ensure fail2ban is started
-2026-08-10T06:49:25Z     change: service enablement: disabled or not-found -> enabled
-2026-08-10T06:49:25Z     change: service activity: inactive or not-found -> active
-2026-08-10T06:49:26Z Inspecting 13/23 auditd-service-enable [service] 
-2026-08-10T06:49:26Z   CHANGE PLANNED  Enable auditd at boot; ensure auditd is started
-2026-08-10T06:49:26Z     change: service enablement: disabled or not-found -> enabled
-2026-08-10T06:49:26Z     change: service activity: inactive or not-found -> active
-2026-08-10T06:49:27Z Inspecting 14/23 auditd-rules [audit] 
-2026-08-10T06:49:27Z   CHANGE PLANNED  Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
-2026-08-10T06:49:27Z     change: file "/etc/audit/rules.d/99-hardline.rules": created -> rendered audit rules
-2026-08-10T06:49:27Z     change: audit policy: augenrules --load would load 7 missing rule key(s)
-2026-08-10T06:49:28Z Inspecting 15/23 journald-configure-persistence [template] 
-2026-08-10T06:49:28Z   CHANGE PLANNED  Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
-2026-08-10T06:49:28Z     change: file "/etc/systemd/journald.conf.d/99-hardline.conf": absent -> present (mode 0644)
-2026-08-10T06:49:28Z     change: +[Journal]
-2026-08-10T06:49:28Z     change: +Storage=persistent
-2026-08-10T06:49:28Z     change: +Compress=yes
-2026-08-10T06:49:28Z     change: +SystemMaxUse=512M
-2026-08-10T06:49:28Z     change: +SystemKeepFree=50M
-2026-08-10T06:49:28Z     change: +MaxRetentionSec=10day
-2026-08-10T06:49:28Z     change: +MaxFileSec=1day
-2026-08-10T06:49:28Z     change: +RateLimitIntervalSec=30s
-2026-08-10T06:49:28Z     change: +RateLimitBurst=2000
-2026-08-10T06:49:29Z Inspecting 16/23 journald-reload [service] 
-2026-08-10T06:49:29Z   CHANGE PLANNED  Enable systemd-journald at boot; restart systemd-journald
-2026-08-10T06:49:29Z     change: service: restart systemd-journald (currently active)
-2026-08-10T06:49:31Z Inspecting 17/23 crontab-perms [file_meta] 
-2026-08-10T06:49:31Z   CHANGE PLANNED  Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
-2026-08-10T06:49:31Z     change: mode "/etc/crontab": 644 -> 600
-2026-08-10T06:49:32Z Inspecting 18/23 cron-d-perms [file_meta] 
-2026-08-10T06:49:32Z   CHANGE PLANNED  Set metadata on "/etc/cron.d" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:32Z     change: mode "/etc/cron.d": 755 -> 700
-2026-08-10T06:49:34Z Inspecting 19/23 cron-hourly-perms [file_meta] 
-2026-08-10T06:49:34Z   CHANGE PLANNED  Set metadata on "/etc/cron.hourly" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:34Z     change: mode "/etc/cron.hourly": 755 -> 700
-2026-08-10T06:49:35Z Inspecting 20/23 cron-daily-perms [file_meta] 
-2026-08-10T06:49:35Z   CHANGE PLANNED  Set metadata on "/etc/cron.daily" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:35Z     change: mode "/etc/cron.daily": 755 -> 700
-2026-08-10T06:49:37Z Inspecting 21/23 cron-weekly-perms [file_meta] 
-2026-08-10T06:49:37Z   CHANGE PLANNED  Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:37Z     change: mode "/etc/cron.weekly": 755 -> 700
-2026-08-10T06:49:39Z Inspecting 22/23 cron-monthly-perms [file_meta] 
-2026-08-10T06:49:39Z   CHANGE PLANNED  Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:39Z     change: mode "/etc/cron.monthly": 755 -> 700
-2026-08-10T06:49:41Z Inspecting 23/23 grub-cfg-perms [file_meta] 
-2026-08-10T06:49:41Z   ALREADY ALIGNED "/boot/grub/grub.cfg" already has the desired metadata
-2026-08-10T06:49:41Z SUMMARY
-2026-08-10T06:49:41Z ------------------------------------------------------------
-2026-08-10T06:49:41Z Steps inspected : 23
-2026-08-10T06:49:41Z Already aligned : 2
-2026-08-10T06:49:41Z Changes planned : 21
-2026-08-10T06:49:41Z Needs attention : 0
-2026-08-10T06:49:41Z Rollback        : AVAILABLE
-2026-08-10T06:49:41Z 
-2026-08-10T06:49:41Z No changes will be made until 'hardline apply' is executed.
-2026-08-10T06:49:41Z 
-2026-08-10T06:49:41Z CHANGES PLANNED
-2026-08-10T06:49:41Z ------------------------------------------------------------
-2026-08-10T06:49:41Z - packages-starter-secure: Update package index; upgrade installed packages (none currently; may change after update); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
-2026-08-10T06:49:41Z - sshd-config-perms: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
-2026-08-10T06:49:41Z - ssh-template-apply: Write rendered configuration from "templates/10-ssh-sshd-config.tmpl" to "/etc/ssh/sshd_config.d/00-hardline-ssh.conf" with mode 0600
-2026-08-10T06:49:41Z - ssh-service-reload: Enable ssh at boot; reload or restart ssh
-2026-08-10T06:49:41Z - unattended-upgrades-auto: Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
-2026-08-10T06:49:41Z - sysctl-hardening-template: Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
-2026-08-10T06:49:41Z - sysctl-apply: Restart systemd-sysctl
-2026-08-10T06:49:41Z - firewall-default-deny: Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)
-2026-08-10T06:49:41Z - firewall-service-restart: Enable nftables at boot; restart nftables
-2026-08-10T06:49:41Z - fail2ban-ssh-config: Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
-2026-08-10T06:49:41Z - fail2ban-service-enable: Enable fail2ban at boot; ensure fail2ban is started
-2026-08-10T06:49:41Z - auditd-service-enable: Enable auditd at boot; ensure auditd is started
-2026-08-10T06:49:41Z - auditd-rules: Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
-2026-08-10T06:49:41Z - journald-configure-persistence: Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
-2026-08-10T06:49:41Z - journald-reload: Enable systemd-journald at boot; restart systemd-journald
-2026-08-10T06:49:41Z - crontab-perms: Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
-2026-08-10T06:49:41Z - cron-d-perms: Set metadata on "/etc/cron.d" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:41Z - cron-hourly-perms: Set metadata on "/etc/cron.hourly" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:41Z - cron-daily-perms: Set metadata on "/etc/cron.daily" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:41Z - cron-weekly-perms: Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:41Z - cron-monthly-perms: Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")
-2026-08-10T06:49:41Z 
-2026-08-10T06:49:41Z Report saved to /home/user/hardline/tmp/examples-stage.E3dIZP/plan/report.json (JSON)
-2026-08-10T06:49:41Z NEXT STEPS
-2026-08-10T06:49:41Z ------------------------------------------------------------
-2026-08-10T06:49:41Z Apply changes:
-2026-08-10T06:49:41Z   hardline apply starter-secure-ubuntu-24.04-lts --host 203.0.113.10
-2026-08-10T06:49:41Z 
-2026-08-10T06:49:41Z Plan complete. No changes have been made.
+2026-08-23T02:55:26Z # hardline plan profile=starter-secure-ubuntu-24.04-lts host=203.0.113.10 version=0.1.2 time=2026-08-23T02:55:26Z
+2026-08-23T02:55:26Z plugins: loading 1 external plugin(s) from "/home/user/hardline/tmp/plugins" — these run as root and are not signature-verified; ensure this directory is not world-writable
+2026-08-23T02:55:26Z == PHASE: VERIFY ==
+2026-08-23T02:55:26Z profile verification passed
+2026-08-23T02:55:26Z == PHASE: PLAN ==
+2026-08-23T02:55:26Z Planning starter-secure-ubuntu-24.04-lts on 203.0.113.10
+2026-08-23T02:55:29Z 
+2026-08-23T02:55:29Z HARDLINE PLAN
+2026-08-23T02:55:29Z Profile : Starter Secure Ubuntu 24.04 LTS
+2026-08-23T02:55:29Z Version : 1.0.0
+2026-08-23T02:55:29Z Target  : 203.0.113.10 (ubuntu 24.04)
+2026-08-23T02:55:29Z ------------------------------------------------------------
+2026-08-23T02:55:29Z 
+2026-08-23T02:55:45Z Inspecting 01/23 packages-starter-secure [packages_apt] 
+2026-08-23T02:55:45Z   CHANGE PLANNED  Update package index; upgrade 11 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+2026-08-23T02:55:45Z     change: package index metadata: current -> refreshed from configured repositories
+2026-08-23T02:55:45Z     change: package "console-setup-linux": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "console-setup": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "keyboard-configuration": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "open-vm-tools": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "vim": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "vim-common": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "vim-tiny": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "vim-runtime": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "xxd": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "wget": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "snapd": installed -> upgraded
+2026-08-23T02:55:45Z     change: package "auditd": absent -> installed
+2026-08-23T02:55:45Z     change: package "fail2ban": absent -> installed
+2026-08-23T02:55:45Z     change: package "libauparse0t64": absent -> installed (dependency)
+2026-08-23T02:55:45Z     change: package "python3-pyasyncore": absent -> installed (dependency)
+2026-08-23T02:55:45Z     change: package "python3-pyinotify": absent -> installed (dependency)
+2026-08-23T02:55:45Z     change: package "whois": absent -> installed (dependency)
+2026-08-23T02:55:45Z     change: package "telnet": installed -> purged
+2026-08-23T02:55:45Z     change: package "ftp": installed -> purged
+2026-08-23T02:55:46Z Inspecting 02/23 sshd-config-perms [file_meta] 
+2026-08-23T02:55:46Z   CHANGE PLANNED  Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
+2026-08-23T02:55:46Z     change: mode "/etc/ssh/sshd_config": 644 -> 600
+2026-08-23T02:55:48Z Inspecting 03/23 ssh-policy [ssh] 
+2026-08-23T02:55:48Z   CHANGE PLANNED  Write the sshd policy to /etc/ssh/sshd_config.d/00-hardline-ssh.conf and reload ssh so it takes effect
+2026-08-23T02:55:48Z     change: file "/etc/ssh/sshd_config.d/00-hardline-ssh.conf": created -> rendered sshd policy
+2026-08-23T02:55:48Z     change: sshd policy: reload ssh to take 6 keyword(s)
+2026-08-23T02:55:49Z Inspecting 04/23 ssh-service-enabled [service] 
+2026-08-23T02:55:49Z   ALREADY ALIGNED Enable ssh at boot
+2026-08-23T02:55:49Z Inspecting 05/23 unattended-upgrades-auto [template] 
+2026-08-23T02:55:49Z   CHANGE PLANNED  Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
+2026-08-23T02:55:49Z     change: file "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf": absent -> present (mode 644)
+2026-08-23T02:55:49Z     change: +APT::Periodic::Update-Package-Lists "1";
+2026-08-23T02:55:49Z     change: +APT::Periodic::Download-Upgradeable-Packages "1";
+2026-08-23T02:55:49Z     change: +APT::Periodic::AutocleanInterval "7";
+2026-08-23T02:55:49Z     change: +APT::Periodic::Unattended-Upgrade "1";
+2026-08-23T02:55:50Z Inspecting 06/23 sysctl-hardening-template [template] 
+2026-08-23T02:55:50Z   CHANGE PLANNED  Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
+2026-08-23T02:55:50Z     change: file "/etc/sysctl.d/99-hardline-hardening.conf": absent -> present (mode 644)
+2026-08-23T02:55:50Z     change: +net.ipv4.ip_forward = 0
+2026-08-23T02:55:50Z     change: +net.ipv4.conf.all.rp_filter = 1
+2026-08-23T02:55:50Z     change: +net.ipv4.conf.default.rp_filter = 1
+2026-08-23T02:55:50Z     change: +net.ipv4.conf.all.accept_redirects = 0
+2026-08-23T02:55:50Z     change: +net.ipv4.conf.default.accept_redirects = 0
+2026-08-23T02:55:50Z     change: +net.ipv4.conf.all.secure_redirects = 0
+2026-08-23T02:55:50Z     change: +net.ipv4.conf.default.secure_redirects = 0
+2026-08-23T02:55:50Z     change: +net.ipv4.icmp_echo_ignore_broadcasts = 1
+2026-08-23T02:55:50Z     change: +kernel.kptr_restrict = 2
+2026-08-23T02:55:50Z     change: +kernel.dmesg_restrict = 1
+2026-08-23T02:55:50Z     change: +fs.protected_hardlinks = 1
+2026-08-23T02:55:50Z     change: +fs.protected_symlinks = 1
+2026-08-23T02:55:51Z Inspecting 07/23 sysctl-apply [service] 
+2026-08-23T02:55:51Z   CHANGE PLANNED  Restart systemd-sysctl
+2026-08-23T02:55:51Z     change: service: restart systemd-sysctl (currently active)
+2026-08-23T02:55:52Z Inspecting 08/23 timesyncd-enable [service] 
+2026-08-23T02:55:52Z   ALREADY ALIGNED Enable chrony at boot; ensure chrony is started
+2026-08-23T02:55:54Z Inspecting 09/23 firewall-default-deny [firewall] 
+2026-08-23T02:55:54Z   CHANGE PLANNED  Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)
+2026-08-23T02:55:54Z     change: file "/etc/nftables.d/99-hardline-firewall.nft": absent -> present (mode 644)
+2026-08-23T02:55:54Z     change: +table inet filter {
+2026-08-23T02:55:54Z     change: + chain input {
+2026-08-23T02:55:54Z     change: + type filter hook input priority 0;
+2026-08-23T02:55:54Z     change: + policy drop;
+2026-08-23T02:55:54Z     change: +
+2026-08-23T02:55:54Z     change: + iif "lo" accept
+2026-08-23T02:55:54Z     change: + ct state invalid drop
+2026-08-23T02:55:54Z     change: + ct state established,related accept
+2026-08-23T02:55:54Z     change: + tcp dport 22 accept
+2026-08-23T02:55:54Z     change: + ip protocol icmp accept
+2026-08-23T02:55:54Z     change: + ip6 nexthdr icmpv6 accept
+2026-08-23T02:55:54Z     change: + }
+2026-08-23T02:55:54Z     change: +}
+2026-08-23T02:55:54Z     change: chain input policy: accept -> drop
+2026-08-23T02:55:54Z     change: file "/etc/nftables.conf": add include "include \"/etc/nftables.d/99-hardline-firewall.nft\"" (apply will patch)
+2026-08-23T02:55:55Z Inspecting 10/23 firewall-service-enabled [service] 
+2026-08-23T02:55:55Z   CHANGE PLANNED  Enable nftables at boot; ensure nftables is started
+2026-08-23T02:55:55Z     change: service enablement: disabled or not-found -> enabled
+2026-08-23T02:55:55Z     change: service activity: inactive or not-found -> active
+2026-08-23T02:55:56Z Inspecting 11/23 fail2ban-ssh-config [template] 
+2026-08-23T02:55:56Z   CHANGE PLANNED  Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
+2026-08-23T02:55:56Z     change: file "/etc/fail2ban/jail.d/99-hardline-ssh.conf": absent -> present (mode 644)
+2026-08-23T02:55:56Z     change: +[sshd]
+2026-08-23T02:55:56Z     change: +enabled = true
+2026-08-23T02:55:56Z     change: +maxretry = 5
+2026-08-23T02:55:56Z     change: +findtime = 600
+2026-08-23T02:55:56Z     change: +bantime = 3600
+2026-08-23T02:55:57Z Inspecting 12/23 fail2ban-service-enable [service] 
+2026-08-23T02:55:57Z   CHANGE PLANNED  Enable fail2ban at boot; ensure fail2ban is started
+2026-08-23T02:55:57Z     change: service enablement: disabled or not-found -> enabled
+2026-08-23T02:55:57Z     change: service activity: inactive or not-found -> active
+2026-08-23T02:55:58Z Inspecting 13/23 auditd-service-enable [service] 
+2026-08-23T02:55:58Z   CHANGE PLANNED  Enable auditd at boot; ensure auditd is started
+2026-08-23T02:55:58Z     change: service enablement: disabled or not-found -> enabled
+2026-08-23T02:55:58Z     change: service activity: inactive or not-found -> active
+2026-08-23T02:56:06Z Inspecting 14/23 auditd-rules [audit] 
+2026-08-23T02:56:06Z   NEEDS ATTENTION Write the audit rules to /etc/audit/rules.d/99-hardline.rules and load them into the running kernel policy
+2026-08-23T02:56:06Z     change: file "/etc/audit/rules.d/99-hardline.rules": created -> rendered audit rules
+2026-08-23T02:56:06Z     change: audit policy: augenrules --load would load 14 missing rule(s)
+2026-08-23T02:56:06Z     note: audit rules watch 1 path(s) that do not exist on this host: /etc/audit; auditctl refuses those rules and the whole load fails with them
+2026-08-23T02:56:06Z Inspecting 15/23 journald-configure-persistence [template] 
+2026-08-23T02:56:06Z   CHANGE PLANNED  Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
+2026-08-23T02:56:06Z     change: file "/etc/systemd/journald.conf.d/99-hardline.conf": absent -> present (mode 644)
+2026-08-23T02:56:06Z     change: +[Journal]
+2026-08-23T02:56:06Z     change: +Storage=persistent
+2026-08-23T02:56:06Z     change: +Compress=yes
+2026-08-23T02:56:06Z     change: +SystemMaxUse=512M
+2026-08-23T02:56:06Z     change: +SystemKeepFree=50M
+2026-08-23T02:56:06Z     change: +MaxRetentionSec=10day
+2026-08-23T02:56:06Z     change: +MaxFileSec=1day
+2026-08-23T02:56:06Z     change: +RateLimitIntervalSec=30s
+2026-08-23T02:56:06Z     change: +RateLimitBurst=2000
+2026-08-23T02:56:07Z Inspecting 16/23 journald-reload [service] 
+2026-08-23T02:56:07Z   CHANGE PLANNED  Enable systemd-journald at boot; restart systemd-journald
+2026-08-23T02:56:07Z     change: service: restart systemd-journald (currently active)
+2026-08-23T02:56:09Z Inspecting 17/23 crontab-perms [file_meta] 
+2026-08-23T02:56:09Z   CHANGE PLANNED  Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
+2026-08-23T02:56:09Z     change: mode "/etc/crontab": 644 -> 600
+2026-08-23T02:56:10Z Inspecting 18/23 cron-d-perms [file_meta] 
+2026-08-23T02:56:10Z   CHANGE PLANNED  Set metadata on "/etc/cron.d" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:10Z     change: mode "/etc/cron.d": 755 -> 700
+2026-08-23T02:56:12Z Inspecting 19/23 cron-hourly-perms [file_meta] 
+2026-08-23T02:56:12Z   CHANGE PLANNED  Set metadata on "/etc/cron.hourly" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:12Z     change: mode "/etc/cron.hourly": 755 -> 700
+2026-08-23T02:56:14Z Inspecting 20/23 cron-daily-perms [file_meta] 
+2026-08-23T02:56:14Z   CHANGE PLANNED  Set metadata on "/etc/cron.daily" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:14Z     change: mode "/etc/cron.daily": 755 -> 700
+2026-08-23T02:56:15Z Inspecting 21/23 cron-weekly-perms [file_meta] 
+2026-08-23T02:56:15Z   CHANGE PLANNED  Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:15Z     change: mode "/etc/cron.weekly": 755 -> 700
+2026-08-23T02:56:17Z Inspecting 22/23 cron-monthly-perms [file_meta] 
+2026-08-23T02:56:17Z   CHANGE PLANNED  Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:17Z     change: mode "/etc/cron.monthly": 755 -> 700
+2026-08-23T02:56:18Z Inspecting 23/23 grub-cfg-perms [file_meta] 
+2026-08-23T02:56:18Z   ALREADY ALIGNED "/boot/grub/grub.cfg" already has the desired metadata
+2026-08-23T02:56:18Z SUMMARY
+2026-08-23T02:56:18Z ------------------------------------------------------------
+2026-08-23T02:56:18Z Steps inspected : 23
+2026-08-23T02:56:18Z Already aligned : 3
+2026-08-23T02:56:18Z Changes planned : 19
+2026-08-23T02:56:18Z Needs attention : 1
+2026-08-23T02:56:18Z Rollback        : IRREVERSIBLE (some changes cannot be undone)
+2026-08-23T02:56:18Z 
+2026-08-23T02:56:18Z No changes will be made until 'hardline apply' is executed.
+2026-08-23T02:56:18Z 
+2026-08-23T02:56:18Z CHANGES PLANNED
+2026-08-23T02:56:18Z ------------------------------------------------------------
+2026-08-23T02:56:18Z - packages-starter-secure: Update package index; upgrade 11 package(s); install: auditd, fail2ban; install 4 dependency package(s); purge: telnet, ftp; autoremove (none currently; may change after upgrade)
+2026-08-23T02:56:18Z - sshd-config-perms: Set metadata on "/etc/ssh/sshd_config" (mode=600 owner=root group=root attrs="")
+2026-08-23T02:56:18Z - ssh-policy: Write the sshd policy to /etc/ssh/sshd_config.d/00-hardline-ssh.conf and reload ssh so it takes effect
+2026-08-23T02:56:18Z - unattended-upgrades-auto: Write rendered configuration from "templates/15-unattended-upgrades.tmpl" to "/etc/apt/apt.conf.d/99-hardline-auto-upgrades.conf" with mode 0644
+2026-08-23T02:56:18Z - sysctl-hardening-template: Write rendered configuration from "templates/20-sysctl-hardening.conf.tmpl" to "/etc/sysctl.d/99-hardline-hardening.conf" with mode 0644
+2026-08-23T02:56:18Z - sysctl-apply: Restart systemd-sysctl
+2026-08-23T02:56:18Z - firewall-default-deny: Manage nftables table inet filter in "/etc/nftables.d/99-hardline-firewall.nft" (1 policy entries, 6 rules)
+2026-08-23T02:56:18Z - firewall-service-enabled: Enable nftables at boot; ensure nftables is started
+2026-08-23T02:56:18Z - fail2ban-ssh-config: Write rendered configuration from "templates/35-fail2ban-ssh-protection.tmpl" to "/etc/fail2ban/jail.d/99-hardline-ssh.conf" with mode 0644
+2026-08-23T02:56:18Z - fail2ban-service-enable: Enable fail2ban at boot; ensure fail2ban is started
+2026-08-23T02:56:18Z - auditd-service-enable: Enable auditd at boot; ensure auditd is started
+2026-08-23T02:56:18Z - journald-configure-persistence: Write rendered configuration from "templates/50-journald-hardening.conf.tmpl" to "/etc/systemd/journald.conf.d/99-hardline.conf" with mode 0644
+2026-08-23T02:56:18Z - journald-reload: Enable systemd-journald at boot; restart systemd-journald
+2026-08-23T02:56:18Z - crontab-perms: Set metadata on "/etc/crontab" (mode=600 owner=root group=root attrs="")
+2026-08-23T02:56:18Z - cron-d-perms: Set metadata on "/etc/cron.d" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:18Z - cron-hourly-perms: Set metadata on "/etc/cron.hourly" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:18Z - cron-daily-perms: Set metadata on "/etc/cron.daily" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:18Z - cron-weekly-perms: Set metadata on "/etc/cron.weekly" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:18Z - cron-monthly-perms: Set metadata on "/etc/cron.monthly" (mode=700 owner=root group=root attrs="")
+2026-08-23T02:56:18Z 
+2026-08-23T02:56:18Z NEEDS ATTENTION
+2026-08-23T02:56:18Z ------------------------------------------------------------
+2026-08-23T02:56:18Z - auditd-rules: audit rules watch 1 path(s) that do not exist on this host: /etc/audit; auditctl refuses those rules and the whole load fails with them
+2026-08-23T02:56:18Z 
+2026-08-23T02:56:18Z Report saved to /home/user/hardline/tmp/examples-stage.2bDYBf/plan/report.json (JSON)
+2026-08-23T02:56:18Z NEXT STEPS
+2026-08-23T02:56:18Z ------------------------------------------------------------
+2026-08-23T02:56:18Z Apply changes:
+2026-08-23T02:56:18Z   hardline apply starter-secure-ubuntu-24.04-lts --host 203.0.113.10
+2026-08-23T02:56:18Z 
+2026-08-23T02:56:18Z Plan complete. No changes have been made.

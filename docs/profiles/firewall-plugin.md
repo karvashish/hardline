@@ -87,10 +87,32 @@ Behavior:
 - apply then loads the config with `nft -f <main_config>`: one file, one transaction, so the flush and every table in it commit together and the host is never briefly without rules. A `systemctl restart nftables` would do the same load as stop-then-start, and the stop flushes the ruleset on its own, so a profile needs only `enabled: true` with `state: "started"` for the ruleset to survive a reboot
 - after loading, the running table is read back with `nft -j list ruleset` and compared to what was applied, including rule order; a mismatch fails the step
 - plan compares both the managed file and, when possible, the running nftables table via `nft -j list ruleset`, and reports a chain whose rules match but evaluate in a different order
-- the capture records the loaded table from `nft -j list ruleset` alongside whole-file snapshots of both the managed ruleset and `main_config`, plus a flag per line saying whether this run added the include and the `flush ruleset` header or found them already there. Rollback restores the snapshot and does not read those flags; they are there so the journal states what the run did instead of leaving it to be decoded out of the snapshots. Apply loads the kernel on every run, so a run that finds both files correct but the kernel drifted still changes the host, and a file-only capture would show no delta for it and rollback would skip a step that did reload the ruleset
-- rollback restores `main_config` before the managed ruleset, so no intermediate state has an include naming a file that is not there yet
-- because `main_config` is restored whole, profiles sharing it roll back in reverse apply order. A second profile's apply rewrites the file the first profile's journal describes, so rolling the first one back while the second is still applied is refused by the conflict check rather than silently dropping the second profile's include. Roll the newer profile back first and the older one's include comes back with the file
-- restoring the managed file is the last thing rollback does, and it reloads the kernel from the restored `main_config` there. Apply loads the ruleset into the kernel rather than leaving it for a service restart, so putting the files back on their own would leave the host running the ruleset being rolled back until it next boots. The load carries `flush ruleset`, synthesized around it when the restored main config no longer has the header, so the rules coming out do not survive as what the new load adds to. If the journal recorded no `main_config` at all, restoring it removes the file, the ruleset is flushed and nothing is loaded. Whether the main config is still there is read from a probe that has to answer, so a lost connection or a refused `sudo` fails the rollback instead of being read as absence and flushing the host's ruleset
+- the capture records three objects, in this order: the managed ruleset file, the `main_config` file, and the loaded table from `nft -j list ruleset`
+
+## Rollback
+
+Rollback walks a step's objects back to front, so the capture order above runs in reverse:
+
+| Object | What rollback does with it |
+| --- | --- |
+| loaded table | nothing - the orchestrator drops every `runtime_policy` object before it reaches a plugin |
+| `main_config` file | writes the snapshot's bytes back, or deletes the file if it did not exist before apply. Does **not** reload |
+| managed ruleset file | writes the snapshot's bytes back, then reloads the kernel with `nft -f <main_config>` |
+
+Only the last object reloads, and that is the point of the ordering. By the time `nft -f` runs, both files are already back to their pre-apply contents, so every `include` in the main config names a file that is on disk in the state the journal recorded. Reloading earlier would load a config pointing at a file rollback had not restored yet.
+
+Two cases the reload handles specially:
+
+- If the main config was deleted because the journal recorded it as absent, there is nothing to load, so rollback runs `nft flush ruleset` and leaves the kernel empty rather than loading from a file that is gone. Whether the file is still there is read from a probe that has to answer, so a lost connection or a refused `sudo` fails the rollback instead of being mistaken for absence.
+- If the restored main config carries no `flush ruleset` header, rollback synthesizes one, piping `flush ruleset` and `include "<main_config>"` into `nft -f -` so the restored rules replace the live ruleset instead of being added on top of it.
+
+Rollback reloads at all because apply loads the ruleset into the kernel itself rather than leaving it to a service restart. Putting the files back without reloading would leave the host running the ruleset being rolled back until its next boot.
+
+The include and the `flush ruleset` header are not journalled separately. They live inside `main_config`, which is snapshotted and restored whole, so a line this run appended goes back with the rest of the file. Whether apply has to add them is reported at plan time, in the step's diff and details, which is where an operator can act on it.
+
+### Profiles that share a main config
+
+Because `main_config` is restored whole, profiles sharing it roll back in reverse apply order. A second profile's apply rewrites the file the first profile's journal describes, so rolling the first one back while the second is still applied is refused by the conflict check rather than silently dropping the second profile's include. Roll the newer profile back first and the older one's include comes back with the file.
 
 ## Runtime overrides
 

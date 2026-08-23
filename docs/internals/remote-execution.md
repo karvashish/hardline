@@ -28,7 +28,7 @@ The SSH dial timeout is 10 seconds.
 - root commands are wrapped as `sudo -n sh -lc '...'`
 - root file writes use SFTP to a temp file and then `install -m ...` on the remote host
 - the default per-command timeout is 5 minutes (`remote.DefaultCmdTimeout`). On expiry the SSH session is closed and the call returns `remote command timed out after <d>`
-- apt operations opt out of that default via `RunRootWithTimeout`: a 30-minute shell-level `timeout` on the target, wrapped in a 35-minute SSH deadline so the shell timeout is the one that fires and returns a real error rather than a dropped session
+- package-manager operations opt out of that default via `RunRootWithTimeout`: a 30-minute shell-level `timeout` on the target, wrapped in a 35-minute SSH deadline so the shell timeout is the one that fires and returns a real error rather than a dropped session
 
 The core methods are:
 
@@ -59,7 +59,10 @@ The temp file is only ever `0600` and the final mode is applied by `install`, so
 
 `connection.CheckRemoteOS` reads `/etc/os-release` and compares:
 
-- `ID` against the profile's `os.family`
+- `ID` against the profile's `os.family`, case-insensitively and exactly
 - `VERSION_ID` against the profile's `os.version`
+- `VARIANT_ID` against the profile's `os.variant`
 
-Signed profiles must provide a non-empty `os.family` and a numeric, dot-separated `os.version`; schema validation rejects a profile before connection otherwise. Version matching uses the components the profile declares: `9` accepts `9` and any `9.x` value, while `24.04` accepts `24.04` and any `24.04.x` value but rejects `24.10`. The empty-value guards in `CheckRemoteOS` remain only for callers that construct profile data directly in Go.
+Values are read with their surrounding quotes stripped, since `/etc/os-release` permits both `ID=ubuntu` and `ID='ubuntu'`.
+
+Signed profiles must provide a non-empty `os.family` and a numeric, dot-separated `os.version`; schema validation rejects a profile before connection otherwise. Version matching uses the components the profile declares: `9` accepts `9` and any `9.x` value, while `24.04` accepts `24.04` and any `24.04.x` value but rejects `24.10`. The variant check is case-insensitive and only refuses a host that publishes a *different* `VARIANT_ID`; a host that publishes none (the RHEL family, Ubuntu) cannot contradict the profile and is not refused on a guess. The empty-value guards in `CheckRemoteOS` remain only for callers that construct profile data directly in Go.

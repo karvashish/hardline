@@ -13,7 +13,7 @@ Local machine:
 Remote machine:
 
 - SSH access for the user you pass to `--user`
-- non-interactive `sudo` through `sudo -n`, unless you connect as root
+- non-interactive `sudo` through `sudo -n`. This is required even when you connect as root: every privileged command is issued as `sudo -n sh -lc ...` with no root-user shortcut, so a target that has no `sudo` binary installed fails the connection preflight regardless of which user you connect as
 - an OS that matches the profile declaration
 
 For `starter-secure-ubuntu-24.04-lts`:

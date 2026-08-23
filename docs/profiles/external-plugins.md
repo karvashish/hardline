@@ -15,20 +15,27 @@ The external plugin contract is:
 - build as a Go shared object with `-buildmode=plugin`
 - export a symbol named `HardlinePluginV1`
 - the symbol type must be `*pluginapi.Plugin`
-- the value must set a `Name` and all five handler funcs: `Apply`, `Plan`, `Capture`, `Rollback`, and `DetectConflict`
+- the value must set a `Name` and all six handler funcs: `Validate`, `Apply`, `Plan`, `Capture`, `Rollback`, and `DetectConflict`
 
 See [../internals/plugin-system.md](../internals/plugin-system.md) for the full `pluginapi.Plugin` shape and the runtime contract.
 
-## Migration: rollback and conflict detection are now plugin-owned
+## Migration: validation, rollback, and conflict detection are now plugin-owned
 
-`Rollback` and `DetectConflict` are required. The registry rejects any plugin that leaves either nil, and a single rejected plugin aborts loading for the whole directory:
+`Validate`, `Rollback`, and `DetectConflict` are required. The registry rejects any plugin that leaves one nil, and a single rejected plugin aborts loading for the whole directory:
 
 ```text
+plugin "<name>" is missing Validate func
 plugin "<name>" is missing Rollback func
 plugin "<name>" is missing DetectConflict func
 ```
 
-Plugins built against an older `pluginapi.Plugin` — before these fields existed — fail to load until both are implemented. `Rollback` restores one captured `ObjectRecord`; `DetectConflict` compares one post-apply `ObjectRecord` against live remote state. See `pluginprojects/firewalltemplate/handlers.go` for a worked example.
+Plugins built against an older `pluginapi.Plugin` — before these fields existed — fail to load until all three are implemented.
+
+- `Validate(step, overrides)` checks the step's config before anything runs, at `verify-profile`, offline. It receives its own deep copy of the resolved overrides, so a plugin that merges an override into its config validates the merged result and cannot mutate what `Plan` and `Apply` read next. It replaces the old `InternalValidation bool` field and the `allow_unvalidated` step key, both of which are gone: there is no longer an unvalidated path.
+- `Rollback` restores one captured `ObjectRecord`.
+- `DetectConflict` compares one post-apply `ObjectRecord` against live remote state.
+
+See `pluginprojects/firewalltemplate/handlers.go` for a worked example.
 
 The repo contains an example external plugin project in:
 
@@ -47,3 +54,4 @@ Trust model:
 - external plugins are not signature-verified
 - they execute with root privileges through Hardline
 - Hardline refuses to load them from a directory or file that is writable by group or others, owned by a third party, or reached through a symlink
+- the same checks run over the plugins directory's parent chain, so a correctly-permissioned directory under a parent someone else can rewrite is refused too

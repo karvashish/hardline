@@ -11,27 +11,28 @@
       }
     },
     {
-      "id": "ssh-hardening-drop-in",
-      "plugin": "template",
+      "id": "ssh-policy",
+      "plugin": "ssh",
       "config": {
-        "src": "templates/10-ssh-hardening.tmpl",
-        "dest": "/etc/ssh/sshd_config.d/99-hardline-demo.conf",
-        "mode": "0600"
+        "path": "/etc/ssh/sshd_config.d/00-hardline-demo.conf",
+        "mode": "0600",
+        "service": "ssh",
+        "settings": {
+          "AllowAgentForwarding": "no",
+          "LogLevel": "VERBOSE",
+          "MaxAuthTries": 4,
+          "PasswordAuthentication": "no",
+          "PermitRootLogin": "no",
+          "X11Forwarding": "no"
+        }
       }
     },
     {
-      "id": "ssh-service-reload",
+      "id": "ssh-service-enabled",
       "plugin": "service",
       "config": {
         "name": "ssh",
-        "enabled": true,
-        "state": "reloaded",
-        "restart_policy": {
-          "type": "on_change",
-          "steps": [
-            "ssh-hardening-drop-in"
-          ]
-        }
+        "enabled": true
       }
     }
   ]

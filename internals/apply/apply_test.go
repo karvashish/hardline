@@ -358,6 +358,32 @@ func TestApplyCommand_TargetJournalSaveFailed(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "persist target rollback journal failed") {
 		t.Fatalf("expected target rollback journal save error, got %v", err)
 	}
+	want := "hardline rollback profile --host host --user user --keypath /tmp/key --local-journal"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected the recovery hint to be runnable as printed (%q), got %v", want, err)
+	}
+}
+
+func TestLocalJournalCommand_CarriesConnectionFlags(t *testing.T) {
+	base := cli.Command{Profile: "profile", Host: "host", User: "user", KeyPath: "/tmp/key"}
+	const bare = "hardline rollback profile --host host --user user --keypath /tmp/key --local-journal"
+
+	if got := localJournalCommand(base); got != bare {
+		t.Fatalf("unset port: got %q, want %q", got, bare)
+	}
+
+	explicitDefault := base
+	explicitDefault.Port = defaultSSHPort
+	if got := localJournalCommand(explicitDefault); got != bare {
+		t.Fatalf("explicit default port: got %q, want %q", got, bare)
+	}
+
+	custom := base
+	custom.Port = 2222
+	want := "hardline rollback profile --host host --user user --keypath /tmp/key --port 2222 --local-journal"
+	if got := localJournalCommand(custom); got != want {
+		t.Fatalf("custom port: got %q, want %q", got, want)
+	}
 }
 
 func TestApplyCommand_ApplyFailureAndLocalJournalSaveFailure(t *testing.T) {

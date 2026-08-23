@@ -129,8 +129,8 @@ Flags:
   --allow-local-key      verify profile using a local signing key from /etc/hardline/profile_signing_pub.pem
   --log-file PATH        write plain-text logs to file
   --force-rollback       proceed even when a file was modified after this profile ran
-  --local-journal        roll back from the runner-side journal when apply could not commit the target journal
                          (use when another profile or manual edit changed an overlapping file)
+  --local-journal        roll back from the runner-side journal when apply could not commit the target journal
   --debug, -d            enable debug output
 
 Example:
@@ -269,6 +269,13 @@ func Parse(command string, args []string) Command {
 
 	if err := fs.Parse(rest); err != nil {
 		errorf("invalid flags for %s: %v\n", command, err)
+		exitFunc(2)
+		return Command{}
+	}
+	// Parsing stops at the first non-flag argument, so accepting one here would silently
+	// drop every flag behind it.
+	if fs.NArg() > 0 {
+		errorf("unexpected argument %q for %s: pass one profile followed by flags\n", fs.Arg(0), command)
 		exitFunc(2)
 		return Command{}
 	}

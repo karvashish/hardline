@@ -21,6 +21,9 @@ import (
 
 var applyNow = time.Now
 
+// Matches the port connection.NewSSHClient falls back to when the command carries none.
+const defaultSSHPort = 22
+
 var (
 	newSSHClient         = connection.NewSSHClient
 	versionCmd           = cli.VersionCmd
@@ -131,8 +134,7 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 				"; this run cannot be rolled back automatically")
 		}
 		return errors.New("persist target rollback journal failed: " + err.Error() +
-			"; the host was changed, so roll back from the runner-side journal with: hardline rollback " +
-			c.Profile + " --host " + c.Host + " --local-journal")
+			"; the host was changed, so roll back from the runner-side journal with: " + localJournalCommand(c))
 	}
 	if c.KeepLocalRollback {
 		if err := saveRunnerJournal(journal); err != nil {
@@ -144,6 +146,21 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 
 	logger.Debugf("apply completed\n")
 	return nil
+}
+
+// The hint is printed to be pasted, so it carries every flag the connection needs rather
+// than only the ones that identify the run.
+func localJournalCommand(c cli.Command) string {
+	parts := []string{
+		"hardline rollback", c.Profile,
+		"--host", c.Host,
+		"--user", c.User,
+		"--keypath", c.KeyPath,
+	}
+	if c.Port > 0 && c.Port != defaultSSHPort {
+		parts = append(parts, "--port", strconv.Itoa(c.Port))
+	}
+	return strings.Join(append(parts, "--local-journal"), " ")
 }
 
 func applyProfile(ctx context.Context, client *remote.Client, p *profile.Profile, journal *rollback.Journal) error {

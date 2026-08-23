@@ -68,6 +68,28 @@ func TestUsageFor_Subcommands(t *testing.T) {
 	}
 }
 
+func TestUsageFor_RollbackOverlapNoteFollowsForceRollback(t *testing.T) {
+	restore := stubCLIHooks()
+	defer restore()
+
+	var out strings.Builder
+	infof = func(format string, args ...any) {
+		_, _ = fmt.Fprintf(&out, format, args...)
+	}
+
+	UsageFor("rollback")
+	got := out.String()
+	force := strings.Index(got, "--force-rollback ")
+	note := strings.Index(got, "(use when another profile")
+	local := strings.Index(got, "--local-journal ")
+	if force < 0 || note < 0 || local < 0 {
+		t.Fatalf("expected both rollback flags and the overlap note, got %q", got)
+	}
+	if force > note || note > local {
+		t.Fatalf("expected the overlap note to sit under --force-rollback, got %q", got)
+	}
+}
+
 func TestParse_ExitPaths(t *testing.T) {
 	t.Run("missing profile", func(t *testing.T) {
 		restore := stubCLIHooks()
@@ -158,6 +180,29 @@ func TestParse_ExitPaths(t *testing.T) {
 		}
 		if got := out.String(); !strings.Contains(got, "hardline verify-profile <profile>") || strings.Contains(got, "hardline plan <profile>") {
 			t.Fatalf("expected verify-specific usage text on help path, got %q", got)
+		}
+	})
+
+	t.Run("surplus positional argument", func(t *testing.T) {
+		restore := stubCLIHooks()
+		defer restore()
+
+		var errOut strings.Builder
+		errorf = func(format string, args ...any) {
+			_, _ = fmt.Fprintf(&errOut, format, args...)
+		}
+		exitCode := 0
+		exitFunc = func(code int) { exitCode = code }
+
+		got := Parse("apply", []string{"profile", "surplus", "--keep-local-rollback"})
+		if exitCode != 2 {
+			t.Fatalf("expected exit code 2, got %d", exitCode)
+		}
+		if !reflect.DeepEqual(got, Command{}) {
+			t.Fatalf("expected zero command on surplus argument, got %+v", got)
+		}
+		if !strings.Contains(errOut.String(), `unexpected argument "surplus"`) {
+			t.Fatalf("expected the surplus argument to be named, got %q", errOut.String())
 		}
 	})
 

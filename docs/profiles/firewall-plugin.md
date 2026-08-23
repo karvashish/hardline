@@ -29,7 +29,7 @@ Example:
 }
 ```
 
-Config fields, all required:
+Config fields. `backend`, `main_config` and `managed_dest` are required by the schema at `verify-profile`; `family`, `table` and `policies` are required by the plugin when the step runs; `rules` is optional:
 
 - `backend`: must be `nftables`. No other backend is accepted
 - `main_config`: the file this host's nftables service loads. `/etc/nftables.conf` on Debian-family hosts, `/etc/sysconfig/nftables.conf` on RHEL-family hosts. Those two are the whole accepted set; anything else is rejected at verify
@@ -37,14 +37,14 @@ Config fields, all required:
 - `table`: nftables table name
 - `managed_dest`: path for the rendered include file. Subject to the same managed-destination rules as the [template plugin](template-plugin.md) — under `/etc/`, normalized, a `99-hardline*` or `00-hardline*` basename, `.conf`/`.nft`/`.rules` extension
 - `policies`: at least one chain policy. An empty list is rejected
-- `rules`: declarative rule entries
+- `rules`: declarative rule entries. Optional; a step that declares none renders the chain policies alone
 
 ## Policy Fields
 
 | Field | Values |
 | --- | --- |
 | `chain` | `input`, `output`, `forward` |
-| `policy` | `accept`, `drop`, `reject` |
+| `policy` | `accept`, `drop` |
 
 Every chain referenced by a rule must have a matching policy entry, or normalization fails with `missing policy for chain`.
 

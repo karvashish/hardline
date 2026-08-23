@@ -31,9 +31,8 @@ The process also installs a signal handler. The first `SIGINT` or `SIGTERM` canc
 5. resolves runtime overrides and rejects keys not in `allowed_overrides`
 6. ensures each referenced plugin exists in the registry
 7. asserts every path in `actions` and `templates` is covered by the signed manifest
-8. stats each declared template to confirm it exists on disk
 
-Step 7 runs before step 8 on purpose: coverage rejects any reference pointing outside the signed tree, so the stat never touches a path the signature did not cover.
+Nothing walks the profile directory a second time. Step 2 already read and hashed every regular file in the tree, so a declared template missing from disk fails there, and step 7 catches a declared path the manifest never covered. Both checks read the verified byte map rather than the filesystem.
 
 `Verify` returns a `VerifiedBundle` holding the loaded `*profile.Profile` and the resolved override snapshot. The profile is built from the verified bytes themselves, not re-read from disk, and `plan`, `apply`, and `rollback` take that bundle rather than a directory path, so they operate on the profile whose signature was checked instead of a directory that may have changed since.
 

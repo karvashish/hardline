@@ -144,7 +144,7 @@ hardline rollback starter-secure-ubuntu-24.04-lts \
 
 Aliases: `verify`, `vp`.
 
-Runs the full local verification pipeline: manifest hashes, signature, profile and action schemas, declared templates on disk, plugin availability, and override keys. Does not touch the remote host.
+Runs the full local verification pipeline: manifest hashes, signature, profile and action schemas, manifest coverage of every declared action and template, plugin availability, and override keys. Does not touch the remote host.
 
 ```text
 hardline verify-profile <profile> [--overrides-file PATH] [--allow-local-key]

@@ -48,7 +48,7 @@ This checks:
 
 - `manifest.json` and `manifest.sig`
 - the profile and action file schemas
-- required templates on disk
+- manifest coverage of every declared action file and template
 - plugin availability
 - runtime override keys when overrides are provided
 

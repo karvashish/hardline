@@ -82,7 +82,8 @@ Rules:
 - the same package cannot appear in both `install` and `purge`
 - `purge_also_removes` entries must be unique and cannot also appear in
   `install` or `purge`; they acknowledge collateral rather than request a second
-  operation, and they have no effect without `purge`
+  operation. They bound the purge and the autoremove, so a step that declares
+  them with neither a `purge` nor an `autoremove` that runs is rejected
 - package operations are guarded by a lock check for that package manager (dpkg locks for apt, the rpm and dnf metadata locks otherwise), which fails fast rather than waiting
 - every package command runs under a 30-minute per-command `timeout` on the target
 

@@ -33,8 +33,9 @@ A signed profile is trusted input, but its values still reach a root shell, so e
 | Managed destination (`template`, `firewall`, `audit`, `ssh`) | `[A-Za-z0-9._/-]`, under `/etc/`, normalized, `99-hardline*` or `00-hardline*` basename, `.conf`/`.nft`/`.rules` |
 | `file_meta` path | `[A-Za-z0-9._/@-]`, absolute, normalized, not `/` |
 | `file_meta` owner and group | `^[A-Za-z0-9._][A-Za-z0-9._-]{0,31}$` |
-| Package name | `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$` |
-| Package version read back from `dpkg-query` | `^[A-Za-z0-9.+:~-]{1,128}$` |
+| Package name (`packages_apt`) | `^[a-z0-9][a-z0-9+.-]{0,127}$` |
+| Package name (`packages_dnf4`, `packages_dnf5`) | `^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$` |
+| Package reinstall pin read back from the host | `name=version` for apt, a full NEVRA for rpm, each against its own bounded pattern |
 | systemd unit name | `^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$` |
 | `ssh` service unit | `ssh` or `sshd`, in the profile and again when read back from the journal |
 | `ssh` keyword and value | a closed keyword whitelist, each with its own enum or numeric range |

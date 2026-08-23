@@ -97,7 +97,7 @@ If the path is a symlink, replace it with the key file itself.
 
 ### `OS family mismatch` or `OS version mismatch`
 
-The target host does not match the `os` block declared in `profile.json`. Either connect to a host that matches, or use a profile whose `os` block matches your target. The included base profile targets `ubuntu/24.04/lts`.
+The target host does not match the `os` block declared in `profile.json`. Either connect to a host that matches, or use a profile whose `os` block matches your target. The shipped starters target `ubuntu/24.04/lts` and `rocky/9`.
 
 ## Overrides
 
@@ -130,7 +130,7 @@ If `unattended-upgrades` runs frequently on your target, consider scheduling Har
 
 ### `invalid package name "..."`
 
-The packages plugin validates every name against `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`. Underscores, slashes, backslashes, spaces, and shell metacharacters are all rejected, and a name may not start with `.`, `+`, or `-`. If you need a package manager feature the built-in plugin won't express, write an external plugin.
+Each packages plugin validates names against its own package manager's rule: `packages_apt` takes Debian policy names (`^[a-z0-9][a-z0-9+.-]{0,127}$`, lowercase, no underscore), while `packages_dnf4` and `packages_dnf5` take rpm names (`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`, case-sensitive, underscores and an arch qualifier such as `glibc.i686` allowed). Slashes, backslashes, spaces, and shell metacharacters are rejected by both, and a name may not start with `.`, `+`, or `-`. If you need a package manager feature the built-in plugin won't express, write an external plugin.
 
 ## Firewall Plugin
 
@@ -138,9 +138,9 @@ The packages plugin validates every name against `^[a-zA-Z0-9][a-zA-Z0-9.+-]*$`.
 
 The firewall plugin shells out to `nft` on the target and has no separate presence check, so a missing `nftables` package surfaces as the underlying command failing — most visibly from `nft -c -f /etc/nftables.conf` during validation. Install the userspace tools in an earlier step via the package plugin for the target, or choose a profile that doesn't use the firewall plugin.
 
-### `nftables.conf missing include for the managed file`
+### `<main_config> include "<managed_dest>" is missing (validate would fail)`
 
-The plugin requires the main config to contain `include "<managed_dest>"` — the exact file the step manages — and appends the line when it is absent. This error means the check ran against a target where the append had not happened yet or was reverted.
+The plugin requires the main config to contain `include "<managed_dest>"` — the exact file the step manages — and appends the line when it is absent. Plan reports this highlight against a target where the append has not happened yet or was reverted, so on a first run it previews work apply will do rather than a failure.
 
 ### `still contains the directory-wide include written by an older hardline`
 
@@ -182,7 +182,7 @@ No successful apply has been recorded for this profile on this host — `/var/li
 
 ### `last run is not marked successful (status="failed")`
 
-A journal exists but records a failed or interrupted apply. `rollback` only replays journals with `status: success`; a failed apply already attempted its own automatic rollback. See [Failure And Recovery](failure-and-recovery.md).
+A journal exists but records a failed or interrupted apply. `rollback` replays only journals marked `success`, plus `rolling_back` when it is resuming a rollback that did not finish; a failed apply already attempted its own automatic rollback. See [Failure And Recovery](failure-and-recovery.md).
 
 ## Version And Install
 

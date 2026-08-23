@@ -116,7 +116,7 @@ Pushing the tag is the only trigger. [`release.yml`](https://github.com/karvashi
 
 `release.yml` also keeps a `workflow_dispatch` entry taking a tag as input. That is a manual escape hatch for re-running a build against an existing tag; it is not part of the automatic path. An earlier version of `tag-release.yml` invoked it on every release, which produced two concurrent builds racing to publish the same GitHub Release (seen on `v0.2.0-rc1`).
 
-`release.yml` then runs unit tests, builds Linux (amd64/arm64), macOS (amd64/arm64), and Windows (amd64/arm64) binaries, packages the starter profile, and publishes a GitHub Release with all the artifacts attached and auto-generated release notes. Seven archives in total, each with a companion `.sha256`.
+`release.yml` then runs unit tests, builds Linux (amd64/arm64), macOS (amd64/arm64), and Windows (amd64/arm64) binaries, packages both starter profiles, and publishes a GitHub Release with all the artifacts attached and auto-generated release notes. Eight archives in total, each with a companion `.sha256`.
 
 macOS `amd64` has no Intel runner, so it is built on Apple Silicon under Rosetta with an x86_64 Go toolchain — a native-amd64 environment rather than a cross build, so the cgo plugin links cleanly. Each Unix archive is checked with `file` against an expected architecture token before it is staged, so a silently mis-targeted build fails the job.
 

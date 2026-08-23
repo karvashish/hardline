@@ -10,7 +10,7 @@ Releases live at:
 https://github.com/karvashish/hardline/releases
 ```
 
-Each tag publishes seven archives. Pick the one that matches your machine:
+Each tag publishes eight archives: six binary builds and one tarball per starter profile. Pick the one that matches your machine:
 
 | Archive | For |
 | --- | --- |

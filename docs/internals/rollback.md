@@ -171,11 +171,11 @@ In practice:
 - sshd rollback restores the drop-in, parses the result with `sshd -t`, and reloads the journalled unit in one step, so the daemon is never left running a policy the rollback has already removed from disk
 - package rollback removes packages that this run installed when they were absent before, reinstalls packages that this run purged when they were present before, prefers the recorded pre-apply version when available, and skips no-op runs whose before/after package state is identical
 
-The package plugin also records notes when rollback is inherently lossy, such as:
+The `packages_*` plugins also record notes when rollback is inherently lossy:
 
-- `apt update is not directly reversible`
-- `apt upgrade rollback is best-effort`
-- `apt autoremove rollback is best-effort`
+- `package index update is not directly reversible`
+- `package upgrade rollback is best-effort`
+- `autoremove rollback is best-effort`
 
 ## What A Step Snapshot Actually Contains
 

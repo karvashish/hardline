@@ -29,7 +29,7 @@ Example:
 }
 ```
 
-Config fields. `backend`, `main_config` and `managed_dest` are required by the schema at `verify-profile`; `family`, `table` and `policies` are required by the plugin when the step runs; `rules` is optional:
+Config fields. `backend`, `main_config` and `managed_dest` are required by the schema at `verify-profile`; `family`, `table` and `policies` are required by the plugin's own `Validate`, which also runs at `verify-profile`; `rules` is optional:
 
 - `backend`: must be `nftables`. No other backend is accepted
 - `main_config`: the file this host's nftables service loads. `/etc/nftables.conf` on Debian-family hosts, `/etc/sysconfig/nftables.conf` on RHEL-family hosts. Those two are the whole accepted set; anything else is rejected at verify

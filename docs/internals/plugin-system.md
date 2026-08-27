@@ -108,7 +108,7 @@ That loader:
 
 1. finds the directory adjacent to the `hardline` binary
 2. requires the directory to be a real directory, not a symlink, not writable by group or others, and owned by root or by the user running hardline
-3. walks the directory's parent chain and applies the ownership and writability checks there too, both to the literal path and to what it resolves to after symlinks. A plugins directory can pass every check of its own and still hang under a parent someone else can rename. Sticky group- or world-writable parents are allowed, because `/var` is one on macOS
+3. walks the directory's parent chain and applies the ownership and writability checks there too, both to the literal path and to what it resolves to after symlinks. A plugins directory can pass every check of its own and still hang under a parent someone else can rename. Symlinked parents are not refused outright, because `/var` is one on macOS; a group- or world-writable parent is refused unless it carries the sticky bit, which stops anyone but the owner from renaming what is inside
 4. scans for `.so` files
 5. applies the same artifact checks to each `.so` before opening it, so a file planted before the directory was tightened is refused rather than loaded
 6. opens each plugin with Go's `plugin` package

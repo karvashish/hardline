@@ -29,7 +29,7 @@ The process also installs a signal handler. The first `SIGINT` or `SIGTERM` canc
 3. loads `profile.json`
 4. `Affirm` validates `profile.json` and every action file against the embedded schemas, and validates the `allowed_overrides` list itself
 5. resolves runtime overrides and rejects keys not in `allowed_overrides`
-6. ensures each referenced plugin exists in the registry
+6. `ValidateProfileSteps` resolves each referenced plugin in the registry and runs its `Validate` over the step, with a copy of the resolved overrides
 7. asserts every path in `actions` and `templates` is covered by the signed manifest
 
 Nothing walks the profile directory a second time. Step 2 already read and hashed every regular file in the tree, so a declared template missing from disk fails there, and step 7 catches a declared path the manifest never covered. Both checks read the verified byte map rather than the filesystem.

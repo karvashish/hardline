@@ -46,7 +46,7 @@ If the SSH connection to the target dies mid-apply, the step that was running re
 **If the connection comes back:**
 
 - Run `hardline rollback <profile> --host ...` manually to attempt the rollback with the remote-persisted journal. This only works if a *previous* apply had succeeded and persisted a remote journal — a failed apply never writes one. If no remote journal exists, rollback has nothing to walk on that path.
-- The runner-side journal at `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json` is still on disk, carrying status `failed` or `interrupted`. **`--local-journal` will not replay it** - rollback runs only journals marked `success` (see [Partial Apply Left No Remote Journal](#partial-apply-left-no-remote-journal)). Read it directly instead, to understand what was captured, what was changed, and what needs manual cleanup.
+- The runner-side journal at `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json` is still on disk, carrying status `failed` or `interrupted`. **`--local-journal` will not replay it** - rollback runs only journals marked `success` or `rolling_back` (see [Partial Apply Left No Remote Journal](#partial-apply-left-no-remote-journal)). Read it directly instead, to understand what was captured, what was changed, and what needs manual cleanup.
 
 **If the connection does not come back:** the target is in an intermediate state. The apply did not complete, there is no remote success journal, and the local journal is the only record of what was touched. Recovery is manual — typically via console access to the target — using the local journal as a map of affected objects.
 
@@ -151,7 +151,7 @@ hardline rollback <profile> -H example.com -u deploy -k ~/.ssh/id_ed25519 --loca
 
 That reads `${HARDLINE_STATE_DIR:-/tmp/hardline/runs}/<host>/<profileID>.json`, refuses it if it was written for a different host than the one you passed, and otherwise runs the same conflict preflight, reverse walk, and per-plugin restore as a target-journal rollback. On success it deletes the runner-side journal instead of a remote one.
 
-**It only accepts a journal whose status is `success`.** Rollback runs `success` and `rolling_back` journals and refuses anything else with `last run is not marked successful (status=...)`. The status a local journal carries depends on how the run ended:
+**It only accepts a journal whose status is `success` or `rolling_back`.** Anything else is refused with `last run is not marked successful (status=...)`. The status a local journal carries depends on how the run ended:
 
 | How the run ended | Local journal status | `--local-journal` |
 | --- | --- | --- |

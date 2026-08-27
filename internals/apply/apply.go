@@ -152,13 +152,16 @@ func Apply(ctx context.Context, c cli.Command, b *verify.VerifiedBundle) error {
 // than only the ones that identify the run.
 func localJournalCommand(c cli.Command) string {
 	parts := []string{
-		"hardline rollback", c.Profile,
-		"--host", c.Host,
-		"--user", c.User,
-		"--keypath", c.KeyPath,
+		"hardline rollback", cli.ShellArg(c.Profile),
+		"--host", cli.ShellArg(c.Host),
+		"--user", cli.ShellArg(c.User),
+		"--keypath", cli.ShellArg(c.KeyPath),
 	}
 	if c.Port > 0 && c.Port != defaultSSHPort {
 		parts = append(parts, "--port", strconv.Itoa(c.Port))
+	}
+	if c.AllowLocalKey {
+		parts = append(parts, "--allow-local-key")
 	}
 	return strings.Join(append(parts, "--local-journal"), " ")
 }

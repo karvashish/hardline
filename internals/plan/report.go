@@ -319,41 +319,22 @@ func displayTargetHost(host string) string {
 }
 
 func applyCommand(profileID string, host string, overridesFile string) string {
-	cmd := "hardline apply " + shellArg(profileID)
+	cmd := "hardline apply " + cli.ShellArg(profileID)
 	if host = strings.TrimSpace(host); host != "" {
-		cmd += " --host " + shellArg(host)
+		cmd += " --host " + cli.ShellArg(host)
 	}
 	if overridesFile = strings.TrimSpace(overridesFile); overridesFile != "" {
-		cmd += " --overrides-file " + shellArg(overridesFile)
+		cmd += " --overrides-file " + cli.ShellArg(overridesFile)
 	}
 	return cmd
 }
 
 func rollbackCommand(profileID string, host string) string {
-	cmd := "hardline rollback " + shellArg(profileID)
+	cmd := "hardline rollback " + cli.ShellArg(profileID)
 	if host = strings.TrimSpace(host); host != "" {
-		cmd += " --host " + shellArg(host)
+		cmd += " --host " + cli.ShellArg(host)
 	}
 	return cmd
-}
-
-func shellArg(s string) string {
-	if s != "" && isShellSafe(s) {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
-}
-
-func isShellSafe(s string) bool {
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case strings.ContainsRune("-_./:=@%+,", r):
-		default:
-			return false
-		}
-	}
-	return true
 }
 
 func markdownValue(text string) string {

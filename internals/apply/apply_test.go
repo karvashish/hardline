@@ -384,6 +384,19 @@ func TestLocalJournalCommand_CarriesConnectionFlags(t *testing.T) {
 	if got := localJournalCommand(custom); got != want {
 		t.Fatalf("custom port: got %q, want %q", got, want)
 	}
+
+	localKey := base
+	localKey.AllowLocalKey = true
+	want = "hardline rollback profile --host host --user user --keypath /tmp/key --allow-local-key --local-journal"
+	if got := localJournalCommand(localKey); got != want {
+		t.Fatalf("local signing key: got %q, want %q", got, want)
+	}
+
+	unsafe := cli.Command{Profile: "./my profiles/base.json", Host: "host", User: "ci user", KeyPath: "/home/ci/my keys/id_rsa"}
+	want = `hardline rollback './my profiles/base.json' --host host --user 'ci user' --keypath '/home/ci/my keys/id_rsa' --local-journal`
+	if got := localJournalCommand(unsafe); got != want {
+		t.Fatalf("values needing quotes: got %q, want %q", got, want)
+	}
 }
 
 func TestApplyCommand_ApplyFailureAndLocalJournalSaveFailure(t *testing.T) {

@@ -444,3 +444,19 @@ func stubCLIHooks() func() {
 		exitFunc = prevExit
 	}
 }
+
+func TestShellArg_QuotesOnlyWhatTheShellWouldReparse(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"profile-1", "profile-1"},
+		{"/tmp/dev-overrides.json", "/tmp/dev-overrides.json"},
+		{"user@host:22", "user@host:22"},
+		{"", "''"},
+		{"user@host name", "'user@host name'"},
+		{"/tmp/o'verrides.json", `'/tmp/o'"'"'verrides.json'`},
+		{"a;rm -rf /", "'a;rm -rf /'"},
+	} {
+		if got := ShellArg(tc.in); got != tc.want {
+			t.Fatalf("ShellArg(%q): got %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

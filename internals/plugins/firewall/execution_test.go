@@ -1118,7 +1118,7 @@ func (s firewallRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 	}
 	if strings.Contains(cmd, "%F|") {
 		if s.statInfo == nil {
-			return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
+			return probeENOENT(cmd), nil
 		}
 		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
 	}
@@ -1172,7 +1172,7 @@ func (s firewallHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error)
 	if strings.Contains(cmd, "%F|") {
 		fields := strings.Fields(s.runRootWithOutput)
 		if len(fields) != 2 {
-			return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
+			return probeENOENT(cmd), nil
 		}
 		return "HL-STAT:regular file|" + fields[0] + "|root|root|" + fields[1] + "\nHL-RC:0\n", nil
 	}
@@ -1874,4 +1874,10 @@ func TestDecodeNftValuesReadsACIDRPrefix(t *testing.T) {
 	if len(vals) != 2 || vals[0] != "10.0.0.1" || vals[1] != "192.168.0.0/16" {
 		t.Fatalf("set of addresses read back as %#v", vals)
 	}
+}
+
+func probeENOENT(cmd string) string {
+	_, rest, _ := strings.Cut(cmd, "-- '")
+	path, _, _ := strings.Cut(rest, "'")
+	return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n"
 }

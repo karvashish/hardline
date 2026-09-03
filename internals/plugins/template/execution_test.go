@@ -442,7 +442,7 @@ func (s templateRuntimeHelperStub) RunRoot(string) error { return s.runRootErr }
 
 func (s templateRuntimeHelperStub) RunRootWithOutput(cmd string) (string, error) {
 	if strings.Contains(cmd, "%F|") && s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
-		return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
+		return probeENOENT(cmd), nil
 	}
 	return s.runRootWithOutput, s.runRootWithOutputErr
 }
@@ -496,4 +496,10 @@ func (s templateExecHostStub) WriteRootFile(path string, data []byte, mode os.Fi
 
 func (s templateExecHostStub) RunRootWithTimeout(cmd string, _ time.Duration) (string, error) {
 	return s.RunRootWithOutput(cmd)
+}
+
+func probeENOENT(cmd string) string {
+	_, rest, _ := strings.Cut(cmd, "-- '")
+	path, _, _ := strings.Cut(rest, "'")
+	return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n"
 }

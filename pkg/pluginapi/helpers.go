@@ -218,16 +218,17 @@ func FirstLines(out string, n int) string {
 }
 
 const (
-	statProbePrefix    = "HL-STAT:"
-	statProbeRCPrefix  = "HL-RC:"
-	statErrorPrefix    = "stat: "
-	statNotFoundSuffix = "No such file or directory"
+	statProbePrefix     = "HL-STAT:"
+	statProbeRCPrefix   = "HL-RC:"
+	statErrorPrefix     = "stat: "
+	statNotFoundSuffix  = "No such file or directory"
+	maxProbeDetailBytes = 512
 )
 
 // complete is false when the probe reported no exit status, which is not the same as a stat that failed.
-// notFound is stat's own ENOENT line and nothing else: a login shell that echoes the same wording stays
+// notFound is stat's own ENOENT line for this exact path: a login shell that echoes the same wording stays
 // in noise, so it cannot pass for a missing file and have rollback delete the file it is describing.
-func parseStatProbe(out string) (statLine string, rc int, notFound bool, noise []string, complete bool) {
+func parseStatProbe(out, remotePath string) (statLine string, rc int, notFound bool, noise []string, complete bool) {
 	rc = -1
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
@@ -240,7 +241,8 @@ func parseStatProbe(out string) (statLine string, rc int, notFound bool, noise [
 				return "", -1, false, nil, false
 			}
 			rc = code
-		case strings.HasPrefix(line, statErrorPrefix) && strings.HasSuffix(line, statNotFoundSuffix):
+		case strings.HasPrefix(line, statErrorPrefix) && strings.HasSuffix(line, statNotFoundSuffix) &&
+			strings.Contains(line, "'"+remotePath+"'"):
 			notFound = true
 		case line == "":
 		default:
@@ -260,29 +262,29 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	probe := "LC_ALL=C stat -L -c " + ShellArg(statProbePrefix+"%F|%a|%U|%G|%s") + " " +
+	probe := "LC_ALL=C stat -c " + ShellArg(statProbePrefix+"%F|%a|%U|%G|%s") + " -- " +
 		ShellArg(remotePath) + ` 2>&1; echo "` + statProbeRCPrefix + `$?"`
 	probeOut, err := host.RunRootWithOutput(probe)
 	if err != nil {
 		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
 	}
-	statLine, rc, notFound, noise, complete := parseStatProbe(probeOut)
+	statLine, rc, notFound, noise, complete := parseStatProbe(probeOut, remotePath)
 	if !complete {
 		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
 	}
 	if rc != 0 {
-		detail := FirstLines(strings.Join(noise, "\n"), 3)
-		switch {
-		case notFound && len(noise) == 0:
+		if notFound {
 			snap.Existed = false
 			return snap, nil
-		case notFound:
-			return snap, fmt.Errorf("stat %q: reported the file missing alongside unexpected output: %s", remotePath, detail)
-		case detail == "":
-			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, rc)
-		default:
-			return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, rc, detail)
 		}
+		detail := FirstLines(strings.Join(noise, "\n"), 3)
+		if len(detail) > maxProbeDetailBytes {
+			detail = strings.ToValidUTF8(detail[:maxProbeDetailBytes], "") + "..."
+		}
+		if detail == "" {
+			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, rc)
+		}
+		return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, rc, detail)
 	}
 	if statLine == "" {
 		return snap, fmt.Errorf("stat %q: the probe succeeded but reported no file", remotePath)
@@ -291,6 +293,9 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	fields := strings.Split(statLine, "|")
 	if len(fields) != 5 {
 		return snap, fmt.Errorf("parse stat output for %q: unexpected format %q", remotePath, statLine)
+	}
+	if fields[0] == "symbolic link" {
+		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)
 	}
 	if fields[0] != "regular file" && fields[0] != "regular empty file" {
 		return snap, fmt.Errorf("refusing to snapshot %q: it is a %s, not a regular file", remotePath, fields[0])
@@ -301,10 +306,6 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	}
 	if size > MaxSnapshotBytes {
 		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, size, MaxSnapshotBytes)
-	}
-
-	if err := host.RunRoot("test ! -L " + ShellArg(remotePath)); err != nil {
-		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)
 	}
 
 	snap.Existed = true

@@ -87,12 +87,34 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
-	t.Run("a missing file reported alongside shell noise is an error", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(probeStub(
+	t.Run("a missing file reported alongside shell noise is still absence", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
 			"welcome to the host\nstat: cannot stat '"+managedTestPath+"': No such file or directory\nHL-RC:1\n",
 			nil, nil), managedTestPath)
-		if err == nil || !strings.Contains(err.Error(), "unexpected output") {
-			t.Fatalf("expected an unexpected-output error, got %v", err)
+		if err != nil {
+			t.Fatalf("SnapshotRemoteFile failed: %v", err)
+		}
+		if snap.Existed {
+			t.Fatalf("expected Existed=false, got %+v", snap)
+		}
+	})
+
+	t.Run("an ENOENT for a different path is not absence", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"stat: cannot stat '/etc/motd.d/banner': No such file or directory\nHL-RC:1\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "/etc/motd.d/banner") {
+			t.Fatalf("expected the foreign ENOENT to surface as an error, got %v (%+v)", err, snap)
+		}
+		if snap.Existed {
+			t.Fatalf("expected no snapshot, got %+v", snap)
+		}
+	})
+
+	t.Run("a single long noise line is capped by bytes", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub(
+			strings.Repeat("A", 5000)+"\nHL-RC:1\n", nil, nil), managedTestPath)
+		if err == nil || len(err.Error()) > maxProbeDetailBytes+len(managedTestPath)+64 {
+			t.Fatalf("expected the noise to be capped by bytes, got %d bytes", len(err.Error()))
 		}
 	})
 
@@ -194,15 +216,31 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("refuses symlinks", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|root|3\nHL-RC:0\n", nil,
-			func(cmd string) error {
-				if strings.Contains(cmd, "test ! -L") {
-					return errors.New("is a symlink")
-				}
-				return nil
-			}), managedTestPath)
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:symbolic link|777|root|root|9\nHL-RC:0\n", nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "symlink") {
 			t.Fatalf("expected symlink refusal, got %v", err)
+		}
+	})
+
+	t.Run("refuses a symlink larger than the limit as a symlink", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub(
+			fmt.Sprintf("HL-STAT:symbolic link|777|root|root|%d\nHL-RC:0\n", MaxSnapshotBytes+1), nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("expected symlink refusal ahead of the size limit, got %v", err)
+		}
+	})
+
+	t.Run("the probe ends its options before the path", func(t *testing.T) {
+		var seen string
+		host := pluginAPIHostStub{runRootWithOutput: func(cmd string) (string, error) {
+			seen = cmd
+			return "HL-RC:1\nstat: cannot stat '" + managedTestPath + "': No such file or directory\n", nil
+		}}
+		if _, err := SnapshotRemoteFile(host, managedTestPath); err != nil {
+			t.Fatalf("SnapshotRemoteFile failed: %v", err)
+		}
+		if !strings.Contains(seen, " -- "+ShellArg(managedTestPath)) {
+			t.Fatalf("expected the probe to end options before the path, got %q", seen)
 		}
 	})
 

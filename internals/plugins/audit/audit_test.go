@@ -75,11 +75,11 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 	if strings.Contains(cmd, listCmd) {
 		return s.loaded, nil
 	}
-	if strings.Contains(cmd, "stat -L -c ") {
+	if strings.Contains(cmd, "stat -c ") {
 		path := statPathFromCmd(cmd)
 		content, ok := s.files[path]
 		if !ok {
-			return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
+			return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n", nil
 		}
 		mode := s.mode
 		if mode == "" {

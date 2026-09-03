@@ -99,6 +99,44 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
+	t.Run("a stat failure behind a multi-line banner still reaches the error", func(t *testing.T) {
+		var probe strings.Builder
+		for i := range 8 {
+			fmt.Fprintf(&probe, "banner line %d\n", i)
+		}
+		fmt.Fprintf(&probe, "stat: cannot stat '%s': Permission denied\nHL-RC:1\n", managedTestPath)
+		_, err := SnapshotRemoteFile(probeStub(probe.String(), nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+			t.Fatalf("expected the stat failure to survive the banner, got %v", err)
+		}
+	})
+
+	t.Run("an ENOENT alongside another stat failure for the same path is not absence", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"stat: cannot stat '"+managedTestPath+"': No such file or directory\n"+
+				"stat: cannot stat '"+managedTestPath+"': Permission denied\nHL-RC:1\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+			t.Fatalf("expected the unexplained stat failure to block absence, got %v (%+v)", err, snap)
+		}
+		if snap.Existed {
+			t.Fatalf("expected no snapshot, got %+v", snap)
+		}
+	})
+
+	t.Run("the probe disarms errexit before running stat", func(t *testing.T) {
+		var got string
+		host := pluginAPIHostStub{runRootWithOutput: func(cmd string) (string, error) {
+			got = cmd
+			return "HL-STAT:regular file|644|root|root|0\nHL-RC:0\n", nil
+		}, readRootFile: func(string) (string, error) { return "", nil }}
+		if _, err := SnapshotRemoteFile(host, managedTestPath); err != nil {
+			t.Fatalf("SnapshotRemoteFile failed: %v", err)
+		}
+		if !strings.HasPrefix(got, "set +e; ") {
+			t.Fatalf("expected the probe to disarm errexit, got %q", got)
+		}
+	})
+
 	t.Run("an ENOENT for a different path is not absence", func(t *testing.T) {
 		snap, err := SnapshotRemoteFile(probeStub(
 			"stat: cannot stat '/etc/motd.d/banner': No such file or directory\nHL-RC:1\n", nil, nil), managedTestPath)
@@ -125,8 +163,11 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 		probe.WriteString("HL-RC:1\n")
 		_, err := SnapshotRemoteFile(probeStub(probe.String(), nil, nil), managedTestPath)
-		if err == nil || strings.Contains(err.Error(), "banner line 3") {
+		if err == nil || strings.Contains(err.Error(), "banner line 16") {
 			t.Fatalf("expected the noise to be capped, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "banner line 19") {
+			t.Fatalf("expected the last lines to be kept, got %v", err)
 		}
 	})
 

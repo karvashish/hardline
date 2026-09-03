@@ -222,37 +222,53 @@ const (
 	statProbeRCPrefix   = "HL-RC:"
 	statErrorPrefix     = "stat: "
 	statNotFoundSuffix  = "No such file or directory"
+	maxProbeDetailLines = 3
 	maxProbeDetailBytes = 512
 )
 
+type statProbe struct {
+	statLine string
+	rc       int
+	notFound bool
+	failed   bool
+	noise    []string
+	complete bool
+}
+
 // complete is false when the probe reported no exit status, which is not the same as a stat that failed.
-// notFound is stat's own ENOENT line for this exact path: a login shell that echoes the same wording stays
-// in noise, so it cannot pass for a missing file and have rollback delete the file it is describing.
-func parseStatProbe(out, remotePath string) (statLine string, rc int, notFound bool, noise []string, complete bool) {
-	rc = -1
+// notFound is stat's own ENOENT line for this exact path; failed is any other stat error for it. Absence is
+// only recorded when stat reported ENOENT and nothing else it said about the path is unaccounted for, so a
+// stat that failed for another reason cannot pass for a missing file and have rollback delete a live file.
+func parseStatProbe(out, remotePath string) statProbe {
+	probe := statProbe{rc: -1}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
 		switch {
 		case strings.HasPrefix(line, statProbePrefix):
-			statLine = strings.TrimPrefix(line, statProbePrefix)
+			probe.statLine = strings.TrimPrefix(line, statProbePrefix)
 		case strings.HasPrefix(line, statProbeRCPrefix):
 			code, err := strconv.Atoi(strings.TrimPrefix(line, statProbeRCPrefix))
 			if err != nil {
-				return "", -1, false, nil, false
+				return statProbe{rc: -1}
 			}
-			rc = code
-		case strings.HasPrefix(line, statErrorPrefix) && strings.HasSuffix(line, statNotFoundSuffix) &&
-			strings.Contains(line, "'"+remotePath+"'"):
-			notFound = true
+			probe.rc = code
+		case strings.HasPrefix(line, statErrorPrefix) && strings.Contains(line, "'"+remotePath+"'"):
+			if strings.HasSuffix(line, statNotFoundSuffix) {
+				probe.notFound = true
+			} else {
+				probe.failed = true
+				probe.noise = append(probe.noise, line)
+			}
 		case line == "":
 		default:
-			noise = append(noise, line)
+			probe.noise = append(probe.noise, line)
 		}
 	}
-	if rc < 0 {
-		return "", -1, false, nil, false
+	if probe.rc < 0 {
+		return statProbe{rc: -1}
 	}
-	return statLine, rc, notFound, noise, true
+	probe.complete = true
+	return probe
 }
 
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
@@ -262,37 +278,43 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	probe := "LC_ALL=C stat -c " + ShellArg(statProbePrefix+"%F|%a|%U|%G|%s") + " -- " +
+	// set +e keeps a login shell that turned errexit on from exiting before the probe reports its status.
+	cmd := "set +e; LC_ALL=C stat -c " + ShellArg(statProbePrefix+"%F|%a|%U|%G|%s") + " -- " +
 		ShellArg(remotePath) + ` 2>&1; echo "` + statProbeRCPrefix + `$?"`
-	probeOut, err := host.RunRootWithOutput(probe)
+	probeOut, err := host.RunRootWithOutput(cmd)
 	if err != nil {
 		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
 	}
-	statLine, rc, notFound, noise, complete := parseStatProbe(probeOut, remotePath)
-	if !complete {
+	probe := parseStatProbe(probeOut, remotePath)
+	if !probe.complete {
 		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
 	}
-	if rc != 0 {
-		if notFound {
+	if probe.rc != 0 {
+		if probe.notFound && !probe.failed {
 			snap.Existed = false
 			return snap, nil
 		}
-		detail := FirstLines(strings.Join(noise, "\n"), 3)
+		// stat writes after the login shell, so the tail of the output is the part that explains the failure.
+		noise := probe.noise
+		if len(noise) > maxProbeDetailLines {
+			noise = noise[len(noise)-maxProbeDetailLines:]
+		}
+		detail := strings.Join(noise, "; ")
 		if len(detail) > maxProbeDetailBytes {
-			detail = strings.ToValidUTF8(detail[:maxProbeDetailBytes], "") + "..."
+			detail = "..." + strings.ToValidUTF8(detail[len(detail)-maxProbeDetailBytes:], "")
 		}
 		if detail == "" {
-			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, rc)
+			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, probe.rc)
 		}
-		return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, rc, detail)
+		return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, probe.rc, detail)
 	}
-	if statLine == "" {
+	if probe.statLine == "" {
 		return snap, fmt.Errorf("stat %q: the probe succeeded but reported no file", remotePath)
 	}
 
-	fields := strings.Split(statLine, "|")
+	fields := strings.Split(probe.statLine, "|")
 	if len(fields) != 5 {
-		return snap, fmt.Errorf("parse stat output for %q: unexpected format %q", remotePath, statLine)
+		return snap, fmt.Errorf("parse stat output for %q: unexpected format %q", remotePath, probe.statLine)
 	}
 	if fields[0] == "symbolic link" {
 		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)

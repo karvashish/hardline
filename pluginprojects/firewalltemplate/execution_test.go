@@ -204,7 +204,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 
 	host := fwTemplateExecHostStub{
 		runRoot:           func(string) error { return nil },
-		runRootWithOutput: func(string) (string, error) { return "regular file|644|root|root|5", nil },
+		runRootWithOutput: func(string) (string, error) { return "HL-STAT:regular file|644|root|root|5\nHL-RC:0\n", nil },
 		readRootFile:      func(string) (string, error) { return "abc", nil },
 	}
 
@@ -437,7 +437,15 @@ type fwTemplateRuntimeStub struct {
 
 func (fwTemplateRuntimeStub) RunRoot(string) error { return nil }
 
-func (fwTemplateRuntimeStub) RunRootWithOutput(string) (string, error) { return "", nil }
+func (s fwTemplateRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if strings.Contains(cmd, "%F|") {
+		if s.statInfo == nil {
+			return probeENOENT(cmd), nil
+		}
+		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+	}
+	return "", nil
+}
 
 func (fwTemplateRuntimeStub) RunRootWithTimeout(string, time.Duration) (string, error) {
 	return "", nil
@@ -463,7 +471,10 @@ type fwTemplateHelperRuntimeStub struct {
 
 func (s fwTemplateHelperRuntimeStub) RunRoot(string) error { return s.runRootErr }
 
-func (s fwTemplateHelperRuntimeStub) RunRootWithOutput(string) (string, error) {
+func (s fwTemplateHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if strings.Contains(cmd, "%F|") && s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
+		return probeENOENT(cmd), nil
+	}
 	return s.runRootWithOutput, s.runRootWithOutputErr
 }
 
@@ -519,4 +530,10 @@ func (s fwTemplateExecHostStub) WriteRootFile(path string, data []byte, mode os.
 		return nil
 	}
 	return s.writeRootFile(path, data, mode)
+}
+
+func probeENOENT(cmd string) string {
+	_, rest, _ := strings.Cut(cmd, "-- '")
+	path, _, _ := strings.Cut(rest, "'")
+	return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n"
 }

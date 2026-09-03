@@ -754,7 +754,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				if strings.Contains(cmd, "nft -j list ruleset") {
 					return "", nil
 				}
-				return "regular file|644|root|root|5", nil
+				return "HL-STAT:regular file|644|root|root|5\nHL-RC:0\n", nil
 			},
 			readRootFile: func(string) (string, error) { return "abc", nil },
 		}}, "f", validDeterministicFirewallSpec())
@@ -788,7 +788,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 					if strings.Contains(cmd, "nft -j list ruleset") {
 						return ruleset, nil
 					}
-					return "regular file|644|root|root|5", nil
+					return "HL-STAT:regular file|644|root|root|5\nHL-RC:0\n", nil
 				},
 				readRootFile: func(string) (string, error) { return "abc", nil },
 			}
@@ -1116,6 +1116,12 @@ func (s firewallRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 	if strings.Contains(cmd, "nft -j list ruleset") {
 		return s.rulesetJSON, s.rulesetErr
 	}
+	if strings.Contains(cmd, "%F|") {
+		if s.statInfo == nil {
+			return probeENOENT(cmd), nil
+		}
+		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+	}
 	return "", nil
 }
 
@@ -1166,9 +1172,9 @@ func (s firewallHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error)
 	if strings.Contains(cmd, "%F|") {
 		fields := strings.Fields(s.runRootWithOutput)
 		if len(fields) != 2 {
-			return s.runRootWithOutput, nil
+			return probeENOENT(cmd), nil
 		}
-		return "regular file|" + fields[0] + "|root|root|" + fields[1], nil
+		return "HL-STAT:regular file|" + fields[0] + "|root|root|" + fields[1] + "\nHL-RC:0\n", nil
 	}
 	return s.runRootWithOutput, s.runRootWithOutputErr
 }
@@ -1546,7 +1552,7 @@ func TestEnsureNftablesFlushPutsTheHeaderFirst(t *testing.T) {
 			return nil
 		},
 		runRootWithOutput: func(string) (string, error) {
-			return fmt.Sprintf("regular file|600|root|root|%d", len(existing)), nil
+			return fmt.Sprintf("HL-STAT:regular file|600|root|root|%d\nHL-RC:0\n", len(existing)), nil
 		},
 		readRootFile: func(string) (string, error) { return existing, nil },
 		writeRootFile: func(_ string, data []byte, mode os.FileMode) error {
@@ -1747,7 +1753,7 @@ func TestRollbackReportsAFailedReload(t *testing.T) {
 func TestRollbackStopsWhenTheFileCannotBeRestored(t *testing.T) {
 	host := firewallExecHostStub{
 		runRootWithOutput: func(string) (string, error) {
-			return "regular file|644|root|root|4", nil
+			return "HL-STAT:regular file|644|root|root|4\nHL-RC:0\n", nil
 		},
 		writeRootFile: func(string, []byte, os.FileMode) error {
 			return errors.New("read-only filesystem")
@@ -1868,4 +1874,10 @@ func TestDecodeNftValuesReadsACIDRPrefix(t *testing.T) {
 	if len(vals) != 2 || vals[0] != "10.0.0.1" || vals[1] != "192.168.0.0/16" {
 		t.Fatalf("set of addresses read back as %#v", vals)
 	}
+}
+
+func probeENOENT(cmd string) string {
+	_, rest, _ := strings.Cut(cmd, "-- '")
+	path, _, _ := strings.Cut(rest, "'")
+	return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n"
 }

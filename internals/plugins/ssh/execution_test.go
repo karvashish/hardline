@@ -94,11 +94,11 @@ func (s *sshHostStub) RunRootWithOutput(cmd string) (string, error) {
 		}
 		return s.effective, nil
 
-	case strings.HasPrefix(cmd, "stat -L -c "):
+	case strings.Contains(cmd, "stat -c "):
 		if !s.fileExists {
-			return "", nil
+			return probeENOENT(cmd), nil
 		}
-		return fmt.Sprintf("regular file|%s|root|root|%d", s.fileMode, len(s.fileContent)), nil
+		return fmt.Sprintf("HL-STAT:regular file|%s|root|root|%d\nHL-RC:0\n", s.fileMode, len(s.fileContent)), nil
 
 	default:
 		return "", nil
@@ -604,4 +604,10 @@ func (s *multiPathStub) RunRootWithOutput(cmd string) (string, error) {
 		return "/usr/sbin/sshd\n/usr/local/sbin/sshd\n", nil
 	}
 	return s.sshHostStub.RunRootWithOutput(cmd)
+}
+
+func probeENOENT(cmd string) string {
+	_, rest, _ := strings.Cut(cmd, "-- '")
+	path, _, _ := strings.Cut(rest, "'")
+	return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n"
 }

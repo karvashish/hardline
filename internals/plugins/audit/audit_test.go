@@ -75,17 +75,17 @@ func (s hostStub) RunRootWithOutput(cmd string) (string, error) {
 	if strings.Contains(cmd, listCmd) {
 		return s.loaded, nil
 	}
-	if strings.HasPrefix(cmd, "stat ") {
+	if strings.Contains(cmd, "stat -c ") {
 		path := statPathFromCmd(cmd)
 		content, ok := s.files[path]
 		if !ok {
-			return "", nil
+			return "stat: cannot stat '" + path + "': No such file or directory\nHL-RC:1\n", nil
 		}
 		mode := s.mode
 		if mode == "" {
 			mode = "640"
 		}
-		return fmt.Sprintf("regular file|%s|root|root|%d", mode, len(content)), nil
+		return fmt.Sprintf("HL-STAT:regular file|%s|root|root|%d\nHL-RC:0\n", mode, len(content)), nil
 	}
 	return "", nil
 }

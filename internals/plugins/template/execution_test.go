@@ -440,8 +440,8 @@ type templateRuntimeHelperStub struct {
 
 func (s templateRuntimeHelperStub) RunRoot(string) error { return s.runRootErr }
 
-func (s templateRuntimeHelperStub) RunRootWithOutput(string) (string, error) {
-	if s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
+func (s templateRuntimeHelperStub) RunRootWithOutput(cmd string) (string, error) {
+	if strings.Contains(cmd, "%F|") && s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
 		return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
 	}
 	return s.runRootWithOutput, s.runRootWithOutputErr

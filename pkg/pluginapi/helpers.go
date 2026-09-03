@@ -218,14 +218,16 @@ func FirstLines(out string, n int) string {
 }
 
 const (
-	statProbePrefix   = "HL-STAT:"
-	statProbeRCPrefix = "HL-RC:"
-	statNotFound      = "No such file or directory"
+	statProbePrefix    = "HL-STAT:"
+	statProbeRCPrefix  = "HL-RC:"
+	statErrorPrefix    = "stat: "
+	statNotFoundSuffix = "No such file or directory"
 )
 
 // complete is false when the probe reported no exit status, which is not the same as a stat that failed.
-func parseStatProbe(out string) (statLine string, rc int, noise string, complete bool) {
-	var extra []string
+// notFound is stat's own ENOENT line and nothing else: a login shell that echoes the same wording stays
+// in noise, so it cannot pass for a missing file and have rollback delete the file it is describing.
+func parseStatProbe(out string) (statLine string, rc int, notFound bool, noise []string, complete bool) {
 	rc = -1
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
@@ -235,18 +237,20 @@ func parseStatProbe(out string) (statLine string, rc int, noise string, complete
 		case strings.HasPrefix(line, statProbeRCPrefix):
 			code, err := strconv.Atoi(strings.TrimPrefix(line, statProbeRCPrefix))
 			if err != nil {
-				return "", -1, "", false
+				return "", -1, false, nil, false
 			}
 			rc = code
+		case strings.HasPrefix(line, statErrorPrefix) && strings.HasSuffix(line, statNotFoundSuffix):
+			notFound = true
 		case line == "":
 		default:
-			extra = append(extra, line)
+			noise = append(noise, line)
 		}
 	}
 	if rc < 0 {
-		return "", -1, "", false
+		return "", -1, false, nil, false
 	}
-	return statLine, rc, strings.Join(extra, "; "), true
+	return statLine, rc, notFound, noise, true
 }
 
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
@@ -262,16 +266,23 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if err != nil {
 		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
 	}
-	statLine, rc, noise, complete := parseStatProbe(probeOut)
+	statLine, rc, notFound, noise, complete := parseStatProbe(probeOut)
 	if !complete {
 		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
 	}
 	if rc != 0 {
-		if strings.Contains(noise, statNotFound) {
+		detail := FirstLines(strings.Join(noise, "\n"), 3)
+		switch {
+		case notFound && len(noise) == 0:
 			snap.Existed = false
 			return snap, nil
+		case notFound:
+			return snap, fmt.Errorf("stat %q: reported the file missing alongside unexpected output: %s", remotePath, detail)
+		case detail == "":
+			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, rc)
+		default:
+			return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, rc, detail)
 		}
-		return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, rc, noise)
 	}
 	if statLine == "" {
 		return snap, fmt.Errorf("stat %q: the probe succeeded but reported no file", remotePath)

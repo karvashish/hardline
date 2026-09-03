@@ -471,8 +471,8 @@ type fwTemplateHelperRuntimeStub struct {
 
 func (s fwTemplateHelperRuntimeStub) RunRoot(string) error { return s.runRootErr }
 
-func (s fwTemplateHelperRuntimeStub) RunRootWithOutput(string) (string, error) {
-	if s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
+func (s fwTemplateHelperRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
+	if strings.Contains(cmd, "%F|") && s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
 		return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
 	}
 	return s.runRootWithOutput, s.runRootWithOutputErr

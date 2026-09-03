@@ -75,6 +75,46 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
+	t.Run("an ENOENT lookalike from the login shell is not absence", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"motd: No such file or directory\nstat: cannot stat '"+managedTestPath+"': Permission denied\nHL-RC:1\n",
+			nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+			t.Fatalf("expected the stat failure to surface, got %v (%+v)", err, snap)
+		}
+		if snap.Existed {
+			t.Fatalf("expected no snapshot for a failed stat, got %+v", snap)
+		}
+	})
+
+	t.Run("a missing file reported alongside shell noise is an error", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub(
+			"welcome to the host\nstat: cannot stat '"+managedTestPath+"': No such file or directory\nHL-RC:1\n",
+			nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "unexpected output") {
+			t.Fatalf("expected an unexpected-output error, got %v", err)
+		}
+	})
+
+	t.Run("probe noise in the error is capped", func(t *testing.T) {
+		var probe strings.Builder
+		for i := range 20 {
+			fmt.Fprintf(&probe, "banner line %d\n", i)
+		}
+		probe.WriteString("HL-RC:1\n")
+		_, err := SnapshotRemoteFile(probeStub(probe.String(), nil, nil), managedTestPath)
+		if err == nil || strings.Contains(err.Error(), "banner line 3") {
+			t.Fatalf("expected the noise to be capped, got %v", err)
+		}
+	})
+
+	t.Run("a failed stat with no output is an error", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("HL-RC:1\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "no output") {
+			t.Fatalf("expected a no-output error, got %v", err)
+		}
+	})
+
 	t.Run("a probe with no exit status is an error", func(t *testing.T) {
 		_, err := SnapshotRemoteFile(probeStub("", nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "did not report an exit status") {

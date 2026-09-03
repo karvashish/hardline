@@ -217,6 +217,38 @@ func FirstLines(out string, n int) string {
 	return strings.Join(lines, "; ")
 }
 
+const (
+	statProbePrefix   = "HL-STAT:"
+	statProbeRCPrefix = "HL-RC:"
+	statNotFound      = "No such file or directory"
+)
+
+// complete is false when the probe reported no exit status, which is not the same as a stat that failed.
+func parseStatProbe(out string) (statLine string, rc int, noise string, complete bool) {
+	var extra []string
+	rc = -1
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
+		switch {
+		case strings.HasPrefix(line, statProbePrefix):
+			statLine = strings.TrimPrefix(line, statProbePrefix)
+		case strings.HasPrefix(line, statProbeRCPrefix):
+			code, err := strconv.Atoi(strings.TrimPrefix(line, statProbeRCPrefix))
+			if err != nil {
+				return "", -1, "", false
+			}
+			rc = code
+		case line == "":
+		default:
+			extra = append(extra, line)
+		}
+	}
+	if rc < 0 {
+		return "", -1, "", false
+	}
+	return statLine, rc, strings.Join(extra, "; "), true
+}
+
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if host == nil {
 		return FileSnapshot{}, fmt.Errorf("host is required")
@@ -224,14 +256,25 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	statOut, err := host.RunRootWithOutput("stat -L -c '%F|%a|%U|%G|%s' " + ShellArg(remotePath) + " 2>/dev/null || true")
+	probe := "LC_ALL=C stat -L -c " + ShellArg(statProbePrefix+"%F|%a|%U|%G|%s") + " " +
+		ShellArg(remotePath) + ` 2>&1; echo "` + statProbeRCPrefix + `$?"`
+	probeOut, err := host.RunRootWithOutput(probe)
 	if err != nil {
 		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
 	}
-	statLine := strings.TrimSpace(statOut)
+	statLine, rc, noise, complete := parseStatProbe(probeOut)
+	if !complete {
+		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
+	}
+	if rc != 0 {
+		if strings.Contains(noise, statNotFound) {
+			snap.Existed = false
+			return snap, nil
+		}
+		return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, rc, noise)
+	}
 	if statLine == "" {
-		snap.Existed = false
-		return snap, nil
+		return snap, fmt.Errorf("stat %q: the probe succeeded but reported no file", remotePath)
 	}
 
 	fields := strings.Split(statLine, "|")

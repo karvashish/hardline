@@ -326,7 +326,7 @@ func TestCapture(t *testing.T) {
 
 		rec, err := Capture(pluginapi.Context{Host: templateExecHostStub{
 			runRoot:           func(string) error { return nil },
-			runRootWithOutput: func(string) (string, error) { return "regular file|644|root|root|7", nil },
+			runRootWithOutput: func(string) (string, error) { return "HL-STAT:regular file|644|root|root|7\nHL-RC:0\n", nil },
 			readRootFile:      func(string) (string, error) { return "content", nil },
 		}}, "t", &Spec{Dest: "/etc/ssh/sshd_config.d/99-hardline-ssh.conf"})
 		if err != nil {
@@ -405,7 +405,7 @@ func (s templateRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 		return "", errors.New("missing")
 	}
 	if strings.Contains(cmd, "%F|") {
-		return fmt.Sprintf("regular file|%o|root|root|%d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
 	}
 	return fmt.Sprintf("%o %d", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
 }
@@ -441,6 +441,9 @@ type templateRuntimeHelperStub struct {
 func (s templateRuntimeHelperStub) RunRoot(string) error { return s.runRootErr }
 
 func (s templateRuntimeHelperStub) RunRootWithOutput(string) (string, error) {
+	if s.runRootWithOutput == "" && s.runRootWithOutputErr == nil {
+		return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
+	}
 	return s.runRootWithOutput, s.runRootWithOutputErr
 }
 

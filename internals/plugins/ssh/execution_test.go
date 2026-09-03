@@ -94,11 +94,11 @@ func (s *sshHostStub) RunRootWithOutput(cmd string) (string, error) {
 		}
 		return s.effective, nil
 
-	case strings.HasPrefix(cmd, "stat -L -c "):
+	case strings.Contains(cmd, "stat -L -c "):
 		if !s.fileExists {
-			return "", nil
+			return "stat: cannot stat: No such file or directory\nHL-RC:1\n", nil
 		}
-		return fmt.Sprintf("regular file|%s|root|root|%d", s.fileMode, len(s.fileContent)), nil
+		return fmt.Sprintf("HL-STAT:regular file|%s|root|root|%d\nHL-RC:0\n", s.fileMode, len(s.fileContent)), nil
 
 	default:
 		return "", nil

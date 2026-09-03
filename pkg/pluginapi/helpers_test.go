@@ -54,7 +54,8 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("missing file", func(t *testing.T) {
-		snap, err := SnapshotRemoteFile(statStub("", nil, nil), managedTestPath)
+		snap, err := SnapshotRemoteFile(probeStub(
+			"stat: cannot stat '"+managedTestPath+"': No such file or directory\nHL-RC:1\n", nil, nil), managedTestPath)
 		if err != nil {
 			t.Fatalf("SnapshotRemoteFile failed: %v", err)
 		}
@@ -63,8 +64,52 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
+	t.Run("a stat failure that is not absence is an error", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"stat: cannot stat '"+managedTestPath+"': Permission denied\nHL-RC:1\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+			t.Fatalf("expected the stat failure to surface, got %v (%+v)", err, snap)
+		}
+		if snap.Existed {
+			t.Fatalf("expected no snapshot for a failed stat, got %+v", snap)
+		}
+	})
+
+	t.Run("a probe with no exit status is an error", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "did not report an exit status") {
+			t.Fatalf("expected an incomplete-probe error, got %v", err)
+		}
+	})
+
+	t.Run("an unreadable exit status is an error", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("HL-RC:x\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "did not report an exit status") {
+			t.Fatalf("expected an incomplete-probe error, got %v", err)
+		}
+	})
+
+	t.Run("a successful probe with no stat line is an error", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("HL-RC:0\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "reported no file") {
+			t.Fatalf("expected a missing stat line error, got %v", err)
+		}
+	})
+
+	t.Run("shell noise around the stat line is tolerated", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"welcome to the host\nHL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
+			func(string) (string, error) { return "abc", nil }, nil), managedTestPath)
+		if err != nil {
+			t.Fatalf("SnapshotRemoteFile failed: %v", err)
+		}
+		if !snap.Existed || snap.Mode != "644" {
+			t.Fatalf("unexpected snapshot: %+v", snap)
+		}
+	})
+
 	t.Run("existing file", func(t *testing.T) {
-		snap, err := SnapshotRemoteFile(statStub("regular file|644|root|shadow|3\n",
+		snap, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|shadow|3\nHL-RC:0\n",
 			func(string) (string, error) { return "abc", nil }, nil), managedTestPath)
 		if err != nil {
 			t.Fatalf("SnapshotRemoteFile failed: %v", err)
@@ -87,14 +132,14 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("unparseable stat output", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(statStub("644", nil, nil), managedTestPath)
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:644\nHL-RC:0\n", nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "unexpected format") {
 			t.Fatalf("expected stat parse error, got %v", err)
 		}
 	})
 
 	t.Run("read error", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(statStub("regular file|644|root|root|3",
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
 			func(string) (string, error) { return "", errors.New("read boom") }, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "read boom") {
 			t.Fatalf("expected read error, got %v", err)
@@ -102,14 +147,14 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("refuses non-regular files", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(statStub("character special file|666|root|root|0", nil, nil), managedTestPath)
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:character special file|666|root|root|0\nHL-RC:0\n", nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
 			t.Fatalf("expected non-regular file refusal, got %v", err)
 		}
 	})
 
 	t.Run("refuses symlinks", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(statStub("regular file|644|root|root|3", nil,
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|root|3\nHL-RC:0\n", nil,
 			func(cmd string) error {
 				if strings.Contains(cmd, "test ! -L") {
 					return errors.New("is a symlink")
@@ -122,15 +167,15 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 
 	t.Run("refuses oversized files", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(statStub(
-			fmt.Sprintf("regular file|644|root|root|%d", MaxSnapshotBytes+1), nil, nil), managedTestPath)
+		_, err := SnapshotRemoteFile(probeStub(
+			fmt.Sprintf("HL-STAT:regular file|644|root|root|%d\nHL-RC:0\n", MaxSnapshotBytes+1), nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "exceeds the") {
 			t.Fatalf("expected size refusal, got %v", err)
 		}
 	})
 
 	t.Run("refuses a file that grows between stat and read", func(t *testing.T) {
-		_, err := SnapshotRemoteFile(statStub("regular file|644|root|root|3",
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
 			func(string) (string, error) { return strings.Repeat("x", MaxSnapshotBytes+1), nil }, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "exceeds the") {
 			t.Fatalf("expected size refusal on read, got %v", err)
@@ -138,10 +183,10 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	})
 }
 
-func statStub(statLine string, read func(string) (string, error), run func(string) error) pluginAPIHostStub {
+func probeStub(probeOut string, read func(string) (string, error), run func(string) error) pluginAPIHostStub {
 	return pluginAPIHostStub{
 		runRoot:           run,
-		runRootWithOutput: func(string) (string, error) { return statLine, nil },
+		runRootWithOutput: func(string) (string, error) { return probeOut, nil },
 		readRootFile:      read,
 	}
 }
@@ -305,7 +350,7 @@ func TestFileSnapshotConflict(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte("expected"))
 	recorded := FileSnapshot{Path: managedTestPath, Existed: true, Mode: "600", Owner: "root", Group: "root", ContentB64: encoded}
 	live := func(mode, owner, group, content string) pluginAPIHostStub {
-		return statStub(fmt.Sprintf("regular file|%s|%s|%s|%d", mode, owner, group, len(content)),
+		return probeStub(fmt.Sprintf("HL-STAT:regular file|%s|%s|%s|%d\nHL-RC:0\n", mode, owner, group, len(content)),
 			func(string) (string, error) { return content, nil }, nil)
 	}
 
@@ -318,11 +363,11 @@ func TestFileSnapshotConflict(t *testing.T) {
 		t.Fatalf("expected an appeared-file conflict, got %v", appeared)
 	}
 
-	if c := FileSnapshotConflict(statStub("", nil, nil), FileSnapshot{Path: managedTestPath, Existed: false}); c != nil {
+	if c := FileSnapshotConflict(probeStub("stat: cannot stat '"+managedTestPath+"': No such file or directory\nHL-RC:1\n", nil, nil), FileSnapshot{Path: managedTestPath, Existed: false}); c != nil {
 		t.Fatalf("still-absent file should report no conflict, got %v", c)
 	}
 
-	removed := FileSnapshotConflict(statStub("", nil, nil), recorded)
+	removed := FileSnapshotConflict(probeStub("stat: cannot stat '"+managedTestPath+"': No such file or directory\nHL-RC:1\n", nil, nil), recorded)
 	if len(removed) != 1 || !strings.Contains(removed[0], "now absent") {
 		t.Fatalf("expected a removed-file conflict, got %v", removed)
 	}

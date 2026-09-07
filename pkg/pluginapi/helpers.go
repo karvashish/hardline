@@ -257,7 +257,10 @@ func parseStatProbe(out, remotePath string) statProbe {
 			before, after, _ := strings.Cut(line, statProbeRCPrefix)
 			code, err := strconv.Atoi(strings.TrimSpace(after))
 			if err != nil {
-				return statProbe{rc: -1}
+				// The host printed the marker itself, so the line is kept as noise and the scan goes on to
+				// the status the probe actually echoed rather than abandoning the output already collected.
+				probe.noise = append(probe.noise, line)
+				continue
 			}
 			if before = strings.TrimSpace(before); before != "" {
 				probe.noise = append(probe.noise, before)
@@ -280,10 +283,23 @@ func parseStatProbe(out, remotePath string) statProbe {
 		}
 	}
 	if probe.rc < 0 {
-		return statProbe{rc: -1}
+		return statProbe{rc: -1, noise: probe.noise}
 	}
 	probe.complete = true
 	return probe
+}
+
+// stat writes after the login shell, so the tail of the output is the part that explains the failure.
+func (p statProbe) detail() string {
+	noise := p.noise
+	if len(noise) > maxProbeDetailLines {
+		noise = noise[len(noise)-maxProbeDetailLines:]
+	}
+	detail := strings.Join(noise, "; ")
+	if len(detail) > maxProbeDetailBytes {
+		detail = "..." + strings.ToValidUTF8(detail[len(detail)-maxProbeDetailBytes:], "")
+	}
+	return detail
 }
 
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
@@ -302,6 +318,9 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	}
 	probe := parseStatProbe(probeOut, remotePath)
 	if !probe.complete {
+		if detail := probe.detail(); detail != "" {
+			return snap, fmt.Errorf("stat %q: the probe did not report an exit status: %s", remotePath, detail)
+		}
 		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
 	}
 	if probe.rc != 0 {
@@ -311,15 +330,7 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 			snap.Existed = false
 			return snap, nil
 		}
-		// stat writes after the login shell, so the tail of the output is the part that explains the failure.
-		noise := probe.noise
-		if len(noise) > maxProbeDetailLines {
-			noise = noise[len(noise)-maxProbeDetailLines:]
-		}
-		detail := strings.Join(noise, "; ")
-		if len(detail) > maxProbeDetailBytes {
-			detail = "..." + strings.ToValidUTF8(detail[len(detail)-maxProbeDetailBytes:], "")
-		}
+		detail := probe.detail()
 		if detail == "" {
 			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, probe.rc)
 		}

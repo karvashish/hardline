@@ -223,6 +223,25 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
+	t.Run("an unreadable exit status does not discard the real one", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"HL-RC:banner\nHL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
+			func(string) (string, error) { return "abc", nil }, nil), managedTestPath)
+		if err != nil {
+			t.Fatalf("expected the probe to use the status it echoed: %v", err)
+		}
+		if !snap.Existed || snap.Mode != "644" {
+			t.Fatalf("unexpected snapshot %+v", snap)
+		}
+	})
+
+	t.Run("an incomplete probe reports what the host printed", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("sudo: a password is required\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "a password is required") {
+			t.Fatalf("expected the probe output in the error, got %v", err)
+		}
+	})
+
 	t.Run("a successful probe with no stat line is an error", func(t *testing.T) {
 		_, err := SnapshotRemoteFile(probeStub("HL-RC:0\n", nil, nil), managedTestPath)
 		if err == nil || !strings.Contains(err.Error(), "reported no file") {

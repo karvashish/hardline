@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/karvashish/hardline/pkg/logger"
 	"github.com/karvashish/hardline/pkg/pluginapi"
@@ -57,9 +58,21 @@ func writeFileWithOpener(
 	return f.Chmod(mode)
 }
 
+// A login shell prints its profile output onto the front of the read, so the file is framed by a marker and
+// everything ahead of it belongs to the shell rather than to the file.
+const readStartMarker = "HL-CAT:"
+
 func (c *Client) ReadRootFile(path string) (string, error) {
 	logger.Debugf("readRootFile: path=%q\n", path)
-	return c.RunRootWithOutput("cat " + shellQuote(path))
+	out, err := c.RunRootWithOutput("printf %s " + shellQuote(readStartMarker) + "; cat -- " + shellQuote(path))
+	if err != nil {
+		return "", err
+	}
+	start := strings.Index(out, readStartMarker)
+	if start < 0 {
+		return "", fmt.Errorf("read %q: the read did not report where the file starts", path)
+	}
+	return out[start+len(readStartMarker):], nil
 }
 
 func (c *Client) WriteRootFile(remotePath string, data []byte, mode os.FileMode) error {

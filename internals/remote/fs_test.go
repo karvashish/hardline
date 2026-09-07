@@ -124,14 +124,27 @@ func TestReadRootFile(t *testing.T) {
 	prevNewSession := newSession
 	defer func() { newSession = prevNewSession }()
 
-	sess := &fakeSession{stdoutText: "content"}
+	sess := &fakeSession{stdoutText: "HL-CAT:content"}
 	newSession = func(*ssh.Client) (session, error) { return sess, nil }
 	out, err := New(nil).ReadRootFile("/etc/example")
 	if err != nil || out != "content" {
 		t.Fatalf("unexpected ReadRootFile result out=%q err=%v", out, err)
 	}
-	if !strings.Contains(sess.cmd, "sudo -n sh -lc") || !strings.Contains(sess.cmd, "cat") || !strings.Contains(sess.cmd, "/etc/example") {
+	if !strings.Contains(sess.cmd, "sudo -n sh -lc") || !strings.Contains(sess.cmd, "cat -- ") || !strings.Contains(sess.cmd, "/etc/example") {
 		t.Fatalf("unexpected read cmd %q", sess.cmd)
+	}
+
+	sess = &fakeSession{stdoutText: "welcome to the host\nHL-CAT:content\nmore"}
+	newSession = func(*ssh.Client) (session, error) { return sess, nil }
+	out, err = New(nil).ReadRootFile("/etc/example")
+	if err != nil || out != "content\nmore" {
+		t.Fatalf("expected the login shell banner to be stripped, got out=%q err=%v", out, err)
+	}
+
+	sess = &fakeSession{stdoutText: "content"}
+	newSession = func(*ssh.Client) (session, error) { return sess, nil }
+	if _, err := New(nil).ReadRootFile("/etc/example"); err == nil {
+		t.Fatal("expected an error when the read reports no start marker")
 	}
 
 	sess = &fakeSession{runErr: errors.New("boom"), stderrText: "bad"}
@@ -220,7 +233,7 @@ func TestReadRootFileQuotesPath(t *testing.T) {
 	prevNewSession := newSession
 	defer func() { newSession = prevNewSession }()
 
-	sess := &fakeSession{stdoutText: "ok"}
+	sess := &fakeSession{stdoutText: "HL-CAT:ok"}
 	newSession = func(*ssh.Client) (session, error) { return sess, nil }
 	_, err := New(nil).ReadRootFile("/etc/my file.conf")
 	if err != nil {

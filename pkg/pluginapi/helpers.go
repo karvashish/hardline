@@ -217,6 +217,91 @@ func FirstLines(out string, n int) string {
 	return strings.Join(lines, "; ")
 }
 
+const (
+	statProbePrefix     = "HL-STAT:"
+	statProbeRCPrefix   = "HL-RC:"
+	statErrorPrefix     = "stat: "
+	statNotFoundSuffix  = "No such file or directory"
+	statFailureRC       = 1
+	maxProbeDetailLines = 3
+	maxProbeDetailBytes = 512
+)
+
+type statProbe struct {
+	statLine string
+	rc       int
+	notFound bool
+	failed   bool
+	noise    []string
+	complete bool
+}
+
+// complete is false when the probe reported no exit status, which is not the same as a stat that failed.
+// notFound is stat's own ENOENT line for this exact path; failed is any other stat error for it. Absence is
+// only recorded when stat reported ENOENT and nothing else it said about the path is unaccounted for, so a
+// stat that failed for another reason cannot pass for a missing file and have rollback delete a live file.
+func parseStatProbe(out, remotePath string) statProbe {
+	probe := statProbe{rc: -1}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
+		// A login shell that prints without a trailing newline glues its output onto the front of the first
+		// probe line, so every marker is located anywhere in the line rather than only at its start.
+		switch {
+		case strings.Contains(line, statProbePrefix):
+			before, after, _ := strings.Cut(line, statProbePrefix)
+			if before = strings.TrimSpace(before); before != "" {
+				probe.noise = append(probe.noise, before)
+			}
+			probe.statLine = after
+		case strings.Contains(line, statProbeRCPrefix):
+			before, after, _ := strings.Cut(line, statProbeRCPrefix)
+			code, err := strconv.Atoi(strings.TrimSpace(after))
+			if err != nil {
+				// The host printed the marker itself, so the line is kept as noise and the scan goes on to
+				// the status the probe actually echoed rather than abandoning the output already collected.
+				probe.noise = append(probe.noise, line)
+				continue
+			}
+			if before = strings.TrimSpace(before); before != "" {
+				probe.noise = append(probe.noise, before)
+			}
+			probe.rc = code
+		case strings.Contains(line, statErrorPrefix) && strings.Contains(line, "'"+remotePath+"'"):
+			before, after, _ := strings.Cut(line, statErrorPrefix)
+			if before = strings.TrimSpace(before); before != "" {
+				probe.noise = append(probe.noise, before)
+			}
+			if strings.HasSuffix(after, statNotFoundSuffix) {
+				probe.notFound = true
+			} else {
+				probe.failed = true
+			}
+			probe.noise = append(probe.noise, statErrorPrefix+after)
+		case line == "":
+		default:
+			probe.noise = append(probe.noise, line)
+		}
+	}
+	if probe.rc < 0 {
+		return statProbe{rc: -1, noise: probe.noise}
+	}
+	probe.complete = true
+	return probe
+}
+
+// stat writes after the login shell, so the tail of the output is the part that explains the failure.
+func (p statProbe) detail() string {
+	noise := p.noise
+	if len(noise) > maxProbeDetailLines {
+		noise = noise[len(noise)-maxProbeDetailLines:]
+	}
+	detail := strings.Join(noise, "; ")
+	if len(detail) > maxProbeDetailBytes {
+		detail = "..." + strings.ToValidUTF8(detail[len(detail)-maxProbeDetailBytes:], "")
+	}
+	return detail
+}
+
 func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if host == nil {
 		return FileSnapshot{}, fmt.Errorf("host is required")
@@ -224,19 +309,43 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 
 	snap := FileSnapshot{Path: remotePath}
 
-	statOut, err := host.RunRootWithOutput("stat -L -c '%F|%a|%U|%G|%s' " + ShellArg(remotePath) + " 2>/dev/null || true")
+	// set +e keeps a login shell that turned errexit on from exiting before the probe reports its status.
+	cmd := "set +e; LC_ALL=C stat -c " + ShellArg(statProbePrefix+"%F|%a|%U|%G|%s") + " -- " +
+		ShellArg(remotePath) + ` 2>&1; echo "` + statProbeRCPrefix + `$?"`
+	probeOut, err := host.RunRootWithOutput(cmd)
 	if err != nil {
 		return snap, fmt.Errorf("stat %q: %w", remotePath, err)
 	}
-	statLine := strings.TrimSpace(statOut)
-	if statLine == "" {
-		snap.Existed = false
-		return snap, nil
+	probe := parseStatProbe(probeOut, remotePath)
+	if !probe.complete {
+		if detail := probe.detail(); detail != "" {
+			return snap, fmt.Errorf("stat %q: the probe did not report an exit status: %s", remotePath, detail)
+		}
+		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
+	}
+	if probe.rc != 0 {
+		// stat exits 1 when it cannot stat the path, so any other status came from something that is not
+		// stat reporting on this file and absence stays unrecorded rather than letting rollback delete it.
+		if probe.notFound && !probe.failed && probe.rc == statFailureRC {
+			snap.Existed = false
+			return snap, nil
+		}
+		detail := probe.detail()
+		if detail == "" {
+			return snap, fmt.Errorf("stat %q: exit status %d with no output", remotePath, probe.rc)
+		}
+		return snap, fmt.Errorf("stat %q: exit status %d: %s", remotePath, probe.rc, detail)
+	}
+	if probe.statLine == "" {
+		return snap, fmt.Errorf("stat %q: the probe succeeded but reported no file", remotePath)
 	}
 
-	fields := strings.Split(statLine, "|")
+	fields := strings.Split(probe.statLine, "|")
 	if len(fields) != 5 {
-		return snap, fmt.Errorf("parse stat output for %q: unexpected format %q", remotePath, statLine)
+		return snap, fmt.Errorf("parse stat output for %q: unexpected format %q", remotePath, probe.statLine)
+	}
+	if fields[0] == "symbolic link" {
+		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)
 	}
 	if fields[0] != "regular file" && fields[0] != "regular empty file" {
 		return snap, fmt.Errorf("refusing to snapshot %q: it is a %s, not a regular file", remotePath, fields[0])
@@ -249,10 +358,6 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, size, MaxSnapshotBytes)
 	}
 
-	if err := host.RunRoot("test ! -L " + ShellArg(remotePath)); err != nil {
-		return snap, fmt.Errorf("refusing to snapshot %q: it is a symlink", remotePath)
-	}
-
 	snap.Existed = true
 	snap.Mode = fields[1]
 	snap.Owner = fields[2]
@@ -262,8 +367,10 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	if len(content) > MaxSnapshotBytes {
-		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, len(content), MaxSnapshotBytes)
+	// The read runs through the same login shell as the probe, so anything that shell prints is glued onto
+	// the file. stat's size is the only witness of how much of the read is the file itself.
+	if int64(len(content)) != size {
+		return snap, fmt.Errorf("read %q: got %d bytes where stat reported %d", remotePath, len(content), size)
 	}
 	snap.ContentB64 = base64.StdEncoding.EncodeToString([]byte(content))
 	return snap, nil

@@ -99,6 +99,37 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
+	t.Run("a banner with no trailing newline does not hide a missing file", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"Welcomestat: cannot statx '"+managedTestPath+"': No such file or directory\nHL-RC:1\n",
+			nil, nil), managedTestPath)
+		if err != nil {
+			t.Fatalf("SnapshotRemoteFile failed: %v", err)
+		}
+		if snap.Existed {
+			t.Fatalf("expected Existed=false, got %+v", snap)
+		}
+	})
+
+	t.Run("a banner with no trailing newline does not hide the stat line", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"WelcomeHL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
+			func(string) (string, error) { return "abc", nil }, nil), managedTestPath)
+		if err != nil {
+			t.Fatalf("SnapshotRemoteFile failed: %v", err)
+		}
+		if !snap.Existed || snap.Mode != "644" {
+			t.Fatalf("unexpected snapshot: %+v", snap)
+		}
+	})
+
+	t.Run("a banner with no trailing newline does not hide the exit status", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("WelcomeHL-RC:1\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "exit status 1: Welcome") {
+			t.Fatalf("expected the exit status and the banner to surface, got %v", err)
+		}
+	})
+
 	t.Run("a stat failure behind a multi-line banner still reaches the error", func(t *testing.T) {
 		var probe strings.Builder
 		for i := range 8 {

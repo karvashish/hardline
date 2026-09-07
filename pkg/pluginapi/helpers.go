@@ -243,21 +243,35 @@ func parseStatProbe(out, remotePath string) statProbe {
 	probe := statProbe{rc: -1}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(strings.TrimRight(line, "\r"))
+		// A login shell that prints without a trailing newline glues its output onto the front of the first
+		// probe line, so every marker is located anywhere in the line rather than only at its start.
 		switch {
-		case strings.HasPrefix(line, statProbePrefix):
-			probe.statLine = strings.TrimPrefix(line, statProbePrefix)
-		case strings.HasPrefix(line, statProbeRCPrefix):
-			code, err := strconv.Atoi(strings.TrimPrefix(line, statProbeRCPrefix))
+		case strings.Contains(line, statProbePrefix):
+			before, after, _ := strings.Cut(line, statProbePrefix)
+			if before = strings.TrimSpace(before); before != "" {
+				probe.noise = append(probe.noise, before)
+			}
+			probe.statLine = after
+		case strings.Contains(line, statProbeRCPrefix):
+			before, after, _ := strings.Cut(line, statProbeRCPrefix)
+			code, err := strconv.Atoi(strings.TrimSpace(after))
 			if err != nil {
 				return statProbe{rc: -1}
 			}
+			if before = strings.TrimSpace(before); before != "" {
+				probe.noise = append(probe.noise, before)
+			}
 			probe.rc = code
-		case strings.HasPrefix(line, statErrorPrefix) && strings.Contains(line, "'"+remotePath+"'"):
-			if strings.HasSuffix(line, statNotFoundSuffix) {
+		case strings.Contains(line, statErrorPrefix) && strings.Contains(line, "'"+remotePath+"'"):
+			before, after, _ := strings.Cut(line, statErrorPrefix)
+			if before = strings.TrimSpace(before); before != "" {
+				probe.noise = append(probe.noise, before)
+			}
+			if strings.HasSuffix(after, statNotFoundSuffix) {
 				probe.notFound = true
 			} else {
 				probe.failed = true
-				probe.noise = append(probe.noise, line)
+				probe.noise = append(probe.noise, statErrorPrefix+after)
 			}
 		case line == "":
 		default:

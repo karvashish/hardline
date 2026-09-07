@@ -754,7 +754,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 				if strings.Contains(cmd, "nft -j list ruleset") {
 					return "", nil
 				}
-				return "HL-STAT:regular file|644|root|root|5\nHL-RC:0\n", nil
+				return "HL-STAT:regular file|644|root|root|3\nHL-RC:0\n", nil
 			},
 			readRootFile: func(string) (string, error) { return "abc", nil },
 		}}, "f", validDeterministicFirewallSpec())
@@ -788,7 +788,7 @@ func TestApplyPlanValidateCaptureAndDestination(t *testing.T) {
 					if strings.Contains(cmd, "nft -j list ruleset") {
 						return ruleset, nil
 					}
-					return "HL-STAT:regular file|644|root|root|5\nHL-RC:0\n", nil
+					return "HL-STAT:regular file|644|root|root|3\nHL-RC:0\n", nil
 				},
 				readRootFile: func(string) (string, error) { return "abc", nil },
 			}
@@ -1120,7 +1120,7 @@ func (s firewallRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 		if s.statInfo == nil {
 			return probeENOENT(cmd), nil
 		}
-		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), len(s.readContent)), nil
 	}
 	return "", nil
 }

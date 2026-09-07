@@ -222,6 +222,7 @@ const (
 	statProbeRCPrefix   = "HL-RC:"
 	statErrorPrefix     = "stat: "
 	statNotFoundSuffix  = "No such file or directory"
+	statFailureRC       = 1
 	maxProbeDetailLines = 3
 	maxProbeDetailBytes = 512
 )
@@ -271,8 +272,8 @@ func parseStatProbe(out, remotePath string) statProbe {
 				probe.notFound = true
 			} else {
 				probe.failed = true
-				probe.noise = append(probe.noise, statErrorPrefix+after)
 			}
+			probe.noise = append(probe.noise, statErrorPrefix+after)
 		case line == "":
 		default:
 			probe.noise = append(probe.noise, line)
@@ -304,7 +305,9 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 		return snap, fmt.Errorf("stat %q: the probe did not report an exit status", remotePath)
 	}
 	if probe.rc != 0 {
-		if probe.notFound && !probe.failed {
+		// stat exits 1 when it cannot stat the path, so any other status came from something that is not
+		// stat reporting on this file and absence stays unrecorded rather than letting rollback delete it.
+		if probe.notFound && !probe.failed && probe.rc == statFailureRC {
 			snap.Existed = false
 			return snap, nil
 		}
@@ -353,8 +356,10 @@ func SnapshotRemoteFile(host Host, remotePath string) (FileSnapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	if len(content) > MaxSnapshotBytes {
-		return snap, fmt.Errorf("refusing to snapshot %q: %d bytes exceeds the %d byte limit", remotePath, len(content), MaxSnapshotBytes)
+	// The read runs through the same login shell as the probe, so anything that shell prints is glued onto
+	// the file. stat's size is the only witness of how much of the read is the file itself.
+	if int64(len(content)) != size {
+		return snap, fmt.Errorf("read %q: got %d bytes where stat reported %d", remotePath, len(content), size)
 	}
 	snap.ContentB64 = base64.StdEncoding.EncodeToString([]byte(content))
 	return snap, nil

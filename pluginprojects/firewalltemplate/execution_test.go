@@ -204,7 +204,7 @@ func TestPlanManagedDestinationAndCapture(t *testing.T) {
 
 	host := fwTemplateExecHostStub{
 		runRoot:           func(string) error { return nil },
-		runRootWithOutput: func(string) (string, error) { return "HL-STAT:regular file|644|root|root|5\nHL-RC:0\n", nil },
+		runRootWithOutput: func(string) (string, error) { return "HL-STAT:regular file|644|root|root|3\nHL-RC:0\n", nil },
 		readRootFile:      func(string) (string, error) { return "abc", nil },
 	}
 
@@ -432,7 +432,8 @@ func (f fakeFileInfo) IsDir() bool        { return false }
 func (f fakeFileInfo) Sys() any           { return nil }
 
 type fwTemplateRuntimeStub struct {
-	statInfo os.FileInfo
+	statInfo    os.FileInfo
+	readContent string
 }
 
 func (fwTemplateRuntimeStub) RunRoot(string) error { return nil }
@@ -442,7 +443,7 @@ func (s fwTemplateRuntimeStub) RunRootWithOutput(cmd string) (string, error) {
 		if s.statInfo == nil {
 			return probeENOENT(cmd), nil
 		}
-		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), s.statInfo.Size()), nil
+		return fmt.Sprintf("HL-STAT:regular file|%o|root|root|%d\nHL-RC:0\n", s.statInfo.Mode().Perm(), len(s.readContent)), nil
 	}
 	return "", nil
 }
@@ -457,7 +458,7 @@ func (s fwTemplateRuntimeStub) Stat(string) (os.FileInfo, error) {
 	}
 	return s.statInfo, nil
 }
-func (fwTemplateRuntimeStub) ReadRootFile(string) (string, error) { return "", nil }
+func (s fwTemplateRuntimeStub) ReadRootFile(string) (string, error) { return s.readContent, nil }
 
 func (fwTemplateRuntimeStub) WriteRootFile(string, []byte, os.FileMode) error { return nil }
 

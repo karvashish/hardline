@@ -327,8 +327,27 @@ func TestSnapshotRemoteFile(t *testing.T) {
 	t.Run("refuses a file that grows between stat and read", func(t *testing.T) {
 		_, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
 			func(string) (string, error) { return strings.Repeat("x", MaxSnapshotBytes+1), nil }, nil), managedTestPath)
-		if err == nil || !strings.Contains(err.Error(), "exceeds the") {
+		if err == nil || !strings.Contains(err.Error(), "where stat reported 3") {
 			t.Fatalf("expected size refusal on read, got %v", err)
+		}
+	})
+
+	t.Run("refuses a read that carries login shell noise", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub("HL-STAT:regular file|644|root|root|3\nHL-RC:0\n",
+			func(string) (string, error) { return "welcome to the host\nabc", nil }, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "got 23 bytes where stat reported 3") {
+			t.Fatalf("expected the banner to be refused, got %v", err)
+		}
+	})
+
+	t.Run("an ENOENT under an exit status stat never returns is not absence", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			"stat: cannot stat '"+managedTestPath+"': No such file or directory\nHL-RC:127\n", nil, nil), managedTestPath)
+		if err == nil || !strings.Contains(err.Error(), "exit status 127") {
+			t.Fatalf("expected the foreign exit status to block absence, got %v (%+v)", err, snap)
+		}
+		if snap.Existed {
+			t.Fatalf("expected no snapshot, got %+v", snap)
 		}
 	})
 }

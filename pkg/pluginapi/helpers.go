@@ -266,7 +266,7 @@ func parseStatProbe(out, remotePath string) statProbe {
 				probe.noise = append(probe.noise, before)
 			}
 			probe.rc = code
-		case strings.Contains(line, statErrorPrefix) && strings.Contains(line, "'"+remotePath+"'"):
+		case statErrorNamesPath(line, remotePath):
 			before, after, _ := strings.Cut(line, statErrorPrefix)
 			if before = strings.TrimSpace(before); before != "" {
 				probe.noise = append(probe.noise, before)
@@ -287,6 +287,139 @@ func parseStatProbe(out, remotePath string) statProbe {
 	}
 	probe.complete = true
 	return probe
+}
+
+// busybox wraps the raw path in single quotes, but GNU quotes it the way a shell would: a path holding a single
+// quote goes in double quotes or gets \' pieces, and control and non-ASCII bytes are spelled as $'\ooo' pieces.
+// The quoted word is decoded and compared, so a path that needs more than plain single quotes still reads as this
+// path rather than as a stat failure for some other one.
+func statErrorNamesPath(line, remotePath string) bool {
+	_, after, ok := strings.Cut(line, statErrorPrefix)
+	if !ok {
+		return false
+	}
+	if strings.Contains(after, "'"+remotePath+"'") {
+		return true
+	}
+	colon := strings.LastIndex(after, ": ")
+	if colon < 0 {
+		return false
+	}
+	head := after[:colon]
+	for i := 0; i < len(head); i++ {
+		if head[i] != ' ' {
+			continue
+		}
+		if word, ok := unquoteShellWord(head[i+1:]); ok && word == remotePath {
+			return true
+		}
+	}
+	return false
+}
+
+// unquoteShellWord decodes a word built only from quoted pieces: '...', "...", $'...' and backslash escapes. Any
+// unquoted character fails the decode, which keeps the words ahead of the path ("cannot stat") from matching.
+func unquoteShellWord(s string) (string, bool) {
+	if s == "" {
+		return "", false
+	}
+	var b strings.Builder
+	for len(s) > 0 {
+		switch {
+		case s[0] == '\'':
+			end := strings.IndexByte(s[1:], '\'')
+			if end < 0 {
+				return "", false
+			}
+			b.WriteString(s[1 : 1+end])
+			s = s[end+2:]
+		case s[0] == '"':
+			i := 1
+			for ; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && strings.IndexByte("$`\"\\", s[i+1]) >= 0 {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+			if i == len(s) {
+				return "", false
+			}
+			s = s[i+1:]
+		case strings.HasPrefix(s, "$'"):
+			rest, ok := decodeANSIC(&b, s[2:])
+			if !ok {
+				return "", false
+			}
+			s = rest
+		case s[0] == '\\' && len(s) > 1:
+			b.WriteByte(s[1])
+			s = s[2:]
+		default:
+			return "", false
+		}
+	}
+	return b.String(), true
+}
+
+// decodeANSIC decodes the body of a $'...' piece up to its closing quote and returns what follows it.
+func decodeANSIC(b *strings.Builder, s string) (string, bool) {
+	simple := map[byte]byte{'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', 'e': 0x1b,
+		'\\': '\\', '\'': '\'', '"': '"', '?': '?'}
+	for i := 0; i < len(s); {
+		switch c := s[i]; {
+		case c == '\'':
+			return s[i+1:], true
+		case c != '\\':
+			b.WriteByte(c)
+			i++
+		case i+1 == len(s):
+			return "", false
+		case s[i+1] >= '0' && s[i+1] <= '7':
+			j, v := i+1, 0
+			for ; j < len(s) && j < i+4 && s[j] >= '0' && s[j] <= '7'; j++ {
+				v = v*8 + int(s[j]-'0')
+			}
+			if v > 0xff {
+				return "", false
+			}
+			b.WriteByte(byte(v))
+			i = j
+		case s[i+1] == 'x':
+			j, v := i+2, 0
+			for ; j < len(s) && j < i+4; j++ {
+				d, ok := hexValue(s[j])
+				if !ok {
+					break
+				}
+				v = v*16 + d
+			}
+			if j == i+2 {
+				return "", false
+			}
+			b.WriteByte(byte(v))
+			i = j
+		default:
+			r, ok := simple[s[i+1]]
+			if !ok {
+				return "", false
+			}
+			b.WriteByte(r)
+			i += 2
+		}
+	}
+	return "", false
+}
+
+func hexValue(c byte) (int, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0'), true
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10, true
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10, true
+	}
+	return 0, false
 }
 
 // stat writes after the login shell, so the tail of the output is the part that explains the failure.

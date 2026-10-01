@@ -179,6 +179,45 @@ func TestSnapshotRemoteFile(t *testing.T) {
 		}
 	})
 
+	// Quoting as GNU coreutils 9.7 prints it under LC_ALL=C.
+	for _, tc := range []struct{ path, quoted string }{
+		{"/etc/hl/it's", `"/etc/hl/it's"`},
+		{"/etc/hl/it's$x", `'/etc/hl/it'\''s$x'`},
+		{"/etc/hl/café", `'/etc/hl/caf'$'\303\251'`},
+		{"/etc/hl/é'x", `'/etc/hl/'$'\303\251'\''x'`},
+		{"/etc/hl/t\tab", `'/etc/hl/t'$'\t''ab'`},
+		{"/etc/hl/x\ny", `'/etc/hl/x'$'\n''y'`},
+		{"/etc/hl/b\\c", `'/etc/hl/b\c'`},
+	} {
+		t.Run("a missing file at a GNU-quoted path is absence: "+tc.quoted, func(t *testing.T) {
+			snap, err := SnapshotRemoteFile(probeStub(
+				"stat: cannot statx "+tc.quoted+": No such file or directory\nHL-RC:1\n", nil, nil), tc.path)
+			if err != nil {
+				t.Fatalf("SnapshotRemoteFile failed: %v", err)
+			}
+			if snap.Existed {
+				t.Fatalf("expected Existed=false, got %+v", snap)
+			}
+		})
+	}
+
+	t.Run("a GNU-quoted ENOENT for a different path is not absence", func(t *testing.T) {
+		snap, err := SnapshotRemoteFile(probeStub(
+			`stat: cannot statx "/etc/hl/it's": No such file or directory`+"\nHL-RC:1\n", nil, nil), "/etc/hl/its")
+		if err == nil {
+			t.Fatalf("expected the foreign ENOENT to surface as an error, got %+v", snap)
+		}
+	})
+
+	t.Run("a GNU-quoted stat failure is not absence", func(t *testing.T) {
+		_, err := SnapshotRemoteFile(probeStub(
+			"stat: cannot statx \"/etc/hl/it's\": No such file or directory\n"+
+				"stat: cannot statx \"/etc/hl/it's\": Permission denied\nHL-RC:1\n", nil, nil), "/etc/hl/it's")
+		if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+			t.Fatalf("expected the unexplained stat failure to block absence, got %v", err)
+		}
+	})
+
 	t.Run("a single long noise line is capped by bytes", func(t *testing.T) {
 		_, err := SnapshotRemoteFile(probeStub(
 			strings.Repeat("A", 5000)+"\nHL-RC:1\n", nil, nil), managedTestPath)
@@ -883,5 +922,33 @@ func TestRestoreFileSnapshot_RejectsUnrecordedMode(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "no file mode recorded") {
 		t.Fatalf("expected a mode-free snapshot to be refused, got %v", err)
+	}
+}
+
+func TestUnquoteShellWord(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{`'/a b'`, "/a b", true},
+		{`"/it's"`, "/it's", true},
+		{`"a\"b\$c"`, `a"b$c`, true},
+		{`'it'\''s'`, "it's", true},
+		{`$'\303\251'`, "é", true},
+		{`$'\x41\t'`, "A\t", true},
+		{`'a'$'\n''b'`, "a\nb", true},
+		{``, "", false},
+		{`statx '/a'`, "", false},
+		{`'/a`, "", false},
+		{`"/a`, "", false},
+		{`$'/a`, "", false},
+		{`$'\q'`, "", false},
+		{`$'\777'`, "", false},
+	} {
+		got, ok := unquoteShellWord(tc.in)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("unquoteShellWord(%q) = %q, %v; want %q, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
 	}
 }
